@@ -4,8 +4,13 @@ use crate::ddlog_lang::{
     RelationSemantics, Rule as DdlogRule, RuleLHS, RuleRHS,
 };
 use crate::error::{BlisprResult, Error};
-use crate::parser::{lval_read, Grammar, Rule}; // Ensure Rule is imported
-use pest::Parser; // Ensure Lval is imported
+use crate::parser::{lval_read, Grammar, Rule};
+use pest::Parser;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static RULE_COUNTER: AtomicUsize = AtomicUsize::new(1);
+static RELATION_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
 fn to_ast(input: &str) -> BlisprResult {
     let pairs = Grammar::parse(Rule::program, input)
@@ -14,791 +19,385 @@ fn to_ast(input: &str) -> BlisprResult {
         .into_iter()
         .next()
         .ok_or_else(|| Error::Parse("No content found in the DSL program.".to_string()))?;
-    lval_read(program_pair) // Use the existing lval_read function
+    lval_read(program_pair)
 }
 
-pub fn compile_dsl_to_ddlog(dsl_ast: &Lval) -> Result<DatalogProgram, Error> {
+pub fn transform_ast_to_ddlog(ast: &Lval) -> DatalogProgram {
     let mut program = DatalogProgram::new();
-    traverse_dsl_ast(dsl_ast, &mut program)?;
-    Ok(program)
+    traverse_lval(ast, &mut program, None);
+    program
 }
 
-fn traverse_dsl_ast(node: &Lval, program: &mut DatalogProgram) -> Result<(), Error> {
+fn traverse_lval(node: &Lval, program: &mut DatalogProgram, parent_rel: Option<String>) {
     match node {
-        Lval::Sexpr(children) | Lval::Qexpr(children) => {
-            if children.is_empty() {
-                return Ok(());
-            }
-            if let Lval::Sym(ref keyword) = *children[0] {
-                if keyword == "emit" {
-                    handle_emit_expression(&children[1..], program)?;
-                }
-            }
+        Lval::Query(children) => {
             for child in children {
-                traverse_dsl_ast(child, program)?;
+                traverse_lval(child, program, parent_rel.clone());
             }
         }
-        _ => {}
+        Lval::CaptureForm(node_type, attributes, nested_opt, _) => {
+            handle_capture_form(node_type, attributes, nested_opt.as_deref(), program, parent_rel);
+        }
+        Lval::Emit(node_type, attrs) => {
+            handle_emit_form(node_type, attrs, program, parent_rel);
+        }
+        Lval::WhenForm(cond, emits) => {
+            traverse_lval(cond, program, parent_rel.clone());
+            for em in emits {
+                traverse_lval(em, program, parent_rel.clone());
+            }
+        }
+        Lval::Sexpr(children)
+        | Lval::Qexpr(children)
+        | Lval::DoForm(children)
+        | Lval::Logical(_, children)
+        | Lval::KeyVal(children) => {
+            for child in children {
+                traverse_lval(child, program, parent_rel.clone());
+            }
+        }
+        Lval::Capture(_) | Lval::Num(_) | Lval::Sym(_) | Lval::Fun(_) => {}
     }
-    Ok(())
 }
 
-fn handle_emit_expression(args: &[Box<Lval>], program: &mut DatalogProgram) -> Result<(), Error> {
-    if args.is_empty() {
-        return Ok(());
+fn handle_capture_form(
+    node_type: &str,
+    attributes: &HashMap<String, Box<Lval>>,
+    nested: Option<&Lval>,
+    program: &mut DatalogProgram,
+    parent_rel: Option<String>,
+) {
+    let input_rel_name = create_input_relation_for_capture(node_type, program, parent_rel);
+
+    for (attr_name, val) in attributes {
+        let rid = RULE_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let output_rel_name = format!("Captured_{}_{}_{}", node_type, attr_name, rid);
+        let output_relation = Relation {
+            pos: Pos::nopos(),
+            role: RelationRole::RelOutput,
+            semantics: RelationSemantics::RelSet,
+            name: output_rel_name.clone(),
+            rtype: DType::TString { pos: Pos::nopos() },
+            primary_key: None,
+        };
+        program.add_relation(output_relation);
+
+        let captured_expr = match **val {
+            Lval::Capture(ref cap_name) => Expr::new(ExprNode::EInterpolated {
+                pos: Pos::nopos(),
+                value: format!("Captured Value from {}", cap_name),
+            }),
+            _ => Expr::new(ExprNode::EString {
+                pos: Pos::nopos(),
+                value: format!("Non-capture data for attribute {}", attr_name),
+            }),
+        };
+
+        let lhs_atom = Atom {
+            pos: Pos::nopos(),
+            relation: output_rel_name,
+            delay: Delay::zero(),
+            diff: false,
+            value: captured_expr,
+        };
+        let lhs = RuleLHS {
+            pos: Pos::nopos(),
+            atom: lhs_atom,
+            location: None,
+        };
+
+        let cond_expr = Expr::new(ExprNode::EInterpolated {
+            pos: Pos::nopos(),
+            value: format!("FromRelation {}", input_rel_name),
+        });
+        let rhs_condition = RuleRHS::RHSCondition {
+            pos: Pos::nopos(),
+            expr: cond_expr,
+        };
+
+        let ddlog_rule = DdlogRule {
+            pos: Pos::nopos(),
+            module: ModuleName { path: vec![] },
+            lhs: vec![lhs],
+            rhs: vec![rhs_condition],
+        };
+        program.add_rule(ddlog_rule);
     }
-    let node_type = match &*args[0] {
-        Lval::Sym(s) => s.clone(),
-        _ => return Ok(()),
+    if let Some(n) = nested {
+        traverse_lval(n, program, Some(input_rel_name));
+    }
+}
+
+fn create_input_relation_for_capture(
+    node_type: &str,
+    program: &mut DatalogProgram,
+    parent_rel: Option<String>,
+) -> String {
+    let index = RELATION_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let input_rel_name = format!("InCapture_{}_{}", node_type, index);
+
+    let relation = Relation {
+        pos: Pos::nopos(),
+        role: RelationRole::RelInput,
+        semantics: RelationSemantics::RelSet,
+        name: input_rel_name.clone(),
+        rtype: DType::TStruct {
+            pos: Pos::nopos(),
+            name: format!("{}_Struct", node_type),
+            fields: vec![],
+        },
+        primary_key: None,
     };
-    let mut captures = Vec::new();
-    let mut parent: Option<String> = None;
-    for arg in &args[1..] {
-        match &**arg {
-            Lval::Sexpr(sub_children) | Lval::Qexpr(sub_children) => {
-                if sub_children.is_empty() {
-                    continue;
-                }
-                if let Lval::Sym(ref sub_keyword) = *sub_children[0] {
-                    if sub_keyword == "parent" && sub_children.len() > 1 {
-                        if let Lval::Sym(ref parent_node) = *sub_children[1] {
-                            parent = Some(parent_node.clone());
-                        }
-                    } else if sub_children.len() == 2 {
-                        if let Lval::Sym(ref relation) = *sub_children[0] {
-                            if let Lval::Capture(ref cap_name) = *sub_children[1] {
-                                captures.push((relation.clone(), cap_name.clone()));
-                            }
-                        }
-                    }
-                }
+    program.add_relation(relation);
+
+    if let Some(parent_name) = parent_rel {
+        // Create a rule linking parent_name to child input_rel_name
+        let lhs_atom = Atom {
+            pos: Pos::nopos(),
+            relation: input_rel_name.clone(),
+            delay: Delay::zero(),
+            diff: false,
+            value: Expr::string_lit("Child of parent capture"),
+        };
+        let lhs = RuleLHS {
+            pos: Pos::nopos(),
+            atom: lhs_atom,
+            location: None,
+        };
+        let rhs_condition = RuleRHS::RHSCondition {
+            pos: Pos::nopos(),
+            expr: Expr::new(ExprNode::EInterpolated {
+                pos: Pos::nopos(),
+                value: format!("ParentRelation {}", parent_name),
+            }),
+        };
+        let link_rule = DdlogRule {
+            pos: Pos::nopos(),
+            module: ModuleName { path: vec![] },
+            lhs: vec![lhs],
+            rhs: vec![rhs_condition],
+        };
+        program.add_rule(link_rule);
+    }
+
+    input_rel_name
+}
+
+fn handle_emit_form(
+    node_type: &str,
+    attrs: &HashMap<String, Box<Lval>>,
+    program: &mut DatalogProgram,
+    parent_rel: Option<String>,
+) {
+    let out_rel_name = create_output_relation_for_emit(node_type, program);
+
+    let rule_id = RULE_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let mut fields_vec = Vec::new();
+    for (k, v) in attrs {
+        match **v {
+            Lval::Capture(ref cap_name) => {
+                // Suppose we rely on a "Captured_*" relation to map the capture
+                let input_relation = guess_relation_for_capture(cap_name);
+                let field_expr = Expr::new(ExprNode::EInterpolated {
+                    pos: Pos::nopos(),
+                    value: format!("Emitting from {}", cap_name),
+                });
+                fields_vec.push((k.clone(), field_expr, input_relation));
             }
-            Lval::Capture(cap_name) => {
-                captures.push(("Capture".to_string(), cap_name.clone()));
+            _ => {
+                let field_expr = Expr::new(ExprNode::EString {
+                    pos: Pos::nopos(),
+                    value: format!("Literal value for {}", k),
+                });
+                fields_vec.push((k.clone(), field_expr, String::new()));
             }
-            _ => {}
         }
     }
-    for (relation, cap) in captures {
-        let insert_expr = Expr::new(ExprNode::EInterpolated {
-            pos: Pos::nopos(),
-            value: format!("{}: {}", node_type, cap),
-        });
-        let atom = Atom {
-            pos: Pos::nopos(),
-            relation: relation.clone(),
-            delay: Delay::zero(),
-            diff: false,
-            value: insert_expr,
-        };
-        let lhs = RuleLHS {
-            pos: Pos::nopos(),
-            atom,
-            location: None,
-        };
-        let condition_expr = Expr::new(ExprNode::EInterpolated {
-            pos: Pos::nopos(),
-            value: format!("Condition for {}", cap),
-        });
-        let rhs = RuleRHS::RHSCondition {
-            pos: Pos::nopos(),
-            expr: condition_expr,
-        };
-        let rule = DdlogRule {
-            pos: Pos::nopos(),
-            module: ModuleName { path: vec![] },
-            lhs: vec![lhs],
-            rhs: vec![rhs],
-        };
-        program.add_rule(rule);
+
+    let fields_interpolated = Expr::new(ExprNode::EInterpolated {
+        pos: Pos::nopos(),
+        value: format!("Emit node {}", node_type),
+    });
+
+    let lhs_atom = Atom {
+        pos: Pos::nopos(),
+        relation: out_rel_name.clone(),
+        delay: Delay::zero(),
+        diff: false,
+        value: fields_interpolated,
+    };
+    let lhs = RuleLHS {
+        pos: Pos::nopos(),
+        atom: lhs_atom,
+        location: None,
+    };
+
+    let mut rhses = Vec::new();
+    for (_, _expr, input_rel) in fields_vec {
+        if !input_rel.is_empty() {
+            rhses.push(RuleRHS::RHSCondition {
+                pos: Pos::nopos(),
+                expr: Expr::new(ExprNode::EInterpolated {
+                    pos: Pos::nopos(),
+                    value: format!("CapturedRelation {}", input_rel),
+                }),
+            });
+        }
     }
-    if let Some(parent_node) = parent {
-        let relation_name = format!("{}_children", parent_node);
-        let insert_expr = Expr::new(ExprNode::ETuple {
+    if let Some(ref parent_name) = parent_rel {
+        rhses.push(RuleRHS::RHSCondition {
             pos: Pos::nopos(),
-            items: vec![Expr::int(1), Expr::int(2)],
+            expr: Expr::new(ExprNode::EInterpolated {
+                pos: Pos::nopos(),
+                value: format!("ParentRelation {}", parent_name),
+            }),
         });
-        let atom = Atom {
-            pos: Pos::nopos(),
-            relation: relation_name.clone(),
-            delay: Delay::zero(),
-            diff: false,
-            value: insert_expr,
-        };
-        let lhs = RuleLHS {
-            pos: Pos::nopos(),
-            atom,
-            location: None,
-        };
-        let condition_expr = Expr::new(ExprNode::EInterpolated {
-            pos: Pos::nopos(),
-            value: format!("Parent condition for {}", parent_node),
-        });
-        let rhs = RuleRHS::RHSCondition {
-            pos: Pos::nopos(),
-            expr: condition_expr,
-        };
-        let rule = DdlogRule {
-            pos: Pos::nopos(),
-            module: ModuleName { path: vec![] },
-            lhs: vec![lhs],
-            rhs: vec![rhs],
-        };
-        program.add_rule(rule);
     }
-    Ok(())
+    let ddlog_rule = DdlogRule {
+        pos: Pos::nopos(),
+        module: ModuleName { path: vec![] },
+        lhs: vec![lhs],
+        rhs: rhses,
+    };
+    program.add_rule(ddlog_rule);
+
+    // If there are nested Lval inside the attributes, we traverse them
+    for v in attrs.values() {
+        traverse_lval(v, program, Some(out_rel_name.clone()));
+    }
+}
+
+fn create_output_relation_for_emit(node_type: &str, program: &mut DatalogProgram) -> String {
+    let rid = RELATION_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let out_rel_name = format!("EmitOut_{}_{}", node_type, rid);
+    let out_relation = Relation {
+        pos: Pos::nopos(),
+        role: RelationRole::RelOutput,
+        semantics: RelationSemantics::RelSet,
+        name: out_rel_name.clone(),
+        rtype: DType::TStruct {
+            pos: Pos::nopos(),
+            name: format!("{}_Struct", node_type),
+            fields: vec![],
+        },
+        primary_key: None,
+    };
+    program.add_relation(out_relation);
+    out_rel_name
+}
+
+fn guess_relation_for_capture(_cap_name: &str) -> String {
+    // For now just dummy out something
+    "CapturedRelation_Inferred".to_string()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
-    use crate::ddlog_lang::Field;
+    use crate::ast::Lval;
 
-    fn define_solidity_relations(program: &mut DatalogProgram) {
-        let solidity_relations = vec![
-            (
-                "SolidityNode",
-                DType::TStruct {
-                    pos: Pos::nopos(),
-                    name: "SolidityNode".to_string(),
-                    fields: vec![
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "node_id".to_string(),
-                            ftype: DType::TInt { pos: Pos::nopos() },
-                        },
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "attributes".to_string(),
-                            ftype: DType::TString { pos: Pos::nopos() },
-                        },
-                    ],
-                },
-                RelationRole::RelInput,
-            ),
-            (
-                "Capture",
-                DType::TStruct {
-                    pos: Pos::nopos(),
-                    name: "Capture".to_string(),
-                    fields: vec![
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "node_id".to_string(),
-                            ftype: DType::TInt { pos: Pos::nopos() },
-                        },
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "value".to_string(),
-                            ftype: DType::TString { pos: Pos::nopos() },
-                        },
-                    ],
-                },
-                RelationRole::RelInput,
-            ),
-            (
-                "Contract",
-                DType::TStruct {
-                    pos: Pos::nopos(),
-                    name: "Contract".to_string(),
-                    fields: vec![Field {
-                        pos: Pos::nopos(),
-                        name: "node_id".to_string(),
-                        ftype: DType::TInt { pos: Pos::nopos() },
-                    }],
-                },
-                RelationRole::RelInput,
-            ),
-            (
-                "Contract_children",
-                DType::TStruct {
-                    pos: Pos::nopos(),
-                    name: "Contract_children".to_string(),
-                    fields: vec![Field {
-                        pos: Pos::nopos(),
-                        name: "parent_id".to_string(),
-                        ftype: DType::TInt { pos: Pos::nopos() },
-                    }],
-                },
-                RelationRole::RelInput,
-            ),
-            (
-                "Constructor",
-                DType::TStruct {
-                    pos: Pos::nopos(),
-                    name: "Constructor".to_string(),
-                    fields: vec![
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "node_id".to_string(),
-                            ftype: DType::TInt { pos: Pos::nopos() },
-                        },
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "attributes".to_string(),
-                            ftype: DType::TString { pos: Pos::nopos() },
-                        },
-                    ],
-                },
-                RelationRole::RelInput,
-            ),
-            (
-                "Constructor_children",
-                DType::TStruct {
-                    pos: Pos::nopos(),
-                    name: "Constructor_children".to_string(),
-                    fields: vec![
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "parent_id".to_string(),
-                            ftype: DType::TInt { pos: Pos::nopos() },
-                        },
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "child_id".to_string(),
-                            ftype: DType::TInt { pos: Pos::nopos() },
-                        },
-                    ],
-                },
-                RelationRole::RelInput,
-            ),
-            (
-                "FunctionDefinition",
-                DType::TStruct {
-                    pos: Pos::nopos(),
-                    name: "FunctionDefinition".to_string(),
-                    fields: vec![
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "node_id".to_string(),
-                            ftype: DType::TInt { pos: Pos::nopos() },
-                        },
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "attributes".to_string(),
-                            ftype: DType::TString { pos: Pos::nopos() },
-                        },
-                    ],
-                },
-                RelationRole::RelInput,
-            ),
-            (
-                "FunctionDefinition_children",
-                DType::TStruct {
-                    pos: Pos::nopos(),
-                    name: "FunctionDefinition_children".to_string(),
-                    fields: vec![
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "parent_id".to_string(),
-                            ftype: DType::TInt { pos: Pos::nopos() },
-                        },
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "child_id".to_string(),
-                            ftype: DType::TInt { pos: Pos::nopos() },
-                        },
-                    ],
-                },
-                RelationRole::RelInput,
-            ),
-            (
-                "Modifier",
-                DType::TStruct {
-                    pos: Pos::nopos(),
-                    name: "Modifier".to_string(),
-                    fields: vec![
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "node_id".to_string(),
-                            ftype: DType::TInt { pos: Pos::nopos() },
-                        },
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "attributes".to_string(),
-                            ftype: DType::TString { pos: Pos::nopos() },
-                        },
-                    ],
-                },
-                RelationRole::RelInput,
-            ),
-            (
-                "Modifier_children",
-                DType::TStruct {
-                    pos: Pos::nopos(),
-                    name: "Modifier_children".to_string(),
-                    fields: vec![
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "parent_id".to_string(),
-                            ftype: DType::TInt { pos: Pos::nopos() },
-                        },
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "child_id".to_string(),
-                            ftype: DType::TInt { pos: Pos::nopos() },
-                        },
-                    ],
-                },
-                RelationRole::RelInput,
-            ),
-        ];
-
-        for (name, dtype, role) in solidity_relations {
-            let rel = Relation {
-                pos: Pos::nopos(),
-                role,
-                semantics: RelationSemantics::RelSet,
-                name: name.to_string(),
-                rtype: dtype,
-                primary_key: None,
-            };
-            program.add_relation(rel);
-        }
-    }
-
-    fn define_mermaid_relations(program: &mut DatalogProgram) {
-        let mermaid_relations = vec![
-            (
-                "SequenceStmt",
-                DType::TStruct {
-                    pos: Pos::nopos(),
-                    name: "SequenceStmt".to_string(),
-                    fields: vec![
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "node_id".to_string(),
-                            ftype: DType::TInt { pos: Pos::nopos() },
-                        },
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "description".to_string(),
-                            ftype: DType::TString { pos: Pos::nopos() },
-                        },
-                    ],
-                },
-                RelationRole::RelInput,
-            ),
-            (
-                "DiagramSequence_children",
-                DType::TStruct {
-                    pos: Pos::nopos(),
-                    name: "DiagramSequence_children".to_string(),
-                    fields: vec![
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "parent_id".to_string(),
-                            ftype: DType::TInt { pos: Pos::nopos() },
-                        },
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "child_id".to_string(),
-                            ftype: DType::TInt { pos: Pos::nopos() },
-                        },
-                    ],
-                },
-                RelationRole::RelInput,
-            ),
-        ];
-
-        for (name, dtype, role) in mermaid_relations {
-            let rel = Relation {
-                pos: Pos::nopos(),
-                role,
-                semantics: RelationSemantics::RelSet,
-                name: name.to_string(),
-                rtype: dtype,
-                primary_key: None,
-            };
-            program.add_relation(rel);
-        }
-    }
-    // Helper function to create a Position without specific line and column
-    fn nopos() -> Pos {
-        Pos { line: 0, column: 0 }
-    }
-
-    // Additional Tests Based on `ddlog_lang` Changes
-
-    // Test: Basic Expressions and Display
     #[test]
-    fn test_basic_exprs_eq_and_display() {
-        let e1 = Expr::var("x");
-        let e2 = Expr::int(42);
-        let e3 = Expr::string_lit("abc");
-        let e4 = Expr::interpolated("Hello ${world}");
-        assert_eq!(format!("{}", e1), "x");
-        assert_eq!(format!("{}", e2), "42");
-        assert_eq!(format!("{}", e3), "\"abc\"");
-        assert_eq!(format!("{}", e4), "[|Hello ${world}|]");
-    }
-
-    // Test: Interpolation in Rules
-    #[test]
-    fn test_interpolation_in_rule() {
-        let rule = DdlogRule {
-            pos: nopos(),
-            module: ModuleName { path: vec![] },
-            lhs: vec![RuleLHS {
-                pos: nopos(),
-                atom: Atom {
-                    pos: nopos(),
-                    relation: "Foo".to_string(),
-                    delay: Delay::zero(),
-                    diff: false,
-                    value: Expr::interpolated("Hello ${world}"),
-                },
-                location: None,
-            }],
-            rhs: vec![RuleRHS::RHSCondition {
-                pos: nopos(),
-                expr: Expr::interpolated("Check ${stuff}"),
-            }],
-        };
-        assert_eq!(
-            format!("{}", rule),
-            "Foo([|Hello ${world}|]) :- [|Check ${stuff}|]."
+    fn test_single_capture() {
+        let mut attrs = HashMap::new();
+        attrs.insert(
+            "k".to_string(),
+            Box::new(Lval::Capture("@x".to_string())),
         );
-    }
-
-    // Test: Multiple Interpolations in Rules
-    #[test]
-    fn test_multiple_interpolations() {
-        let rule = DdlogRule {
-            pos: nopos(),
-            module: ModuleName { path: vec![] },
-            lhs: vec![RuleLHS {
-                pos: nopos(),
-                atom: Atom {
-                    pos: nopos(),
-                    relation: "Bar".to_string(),
-                    delay: Delay::zero(),
-                    diff: false,
-                    value: Expr::interpolated("Greeting ${name}"),
-                },
-                location: None,
-            }],
-            rhs: vec![
-                RuleRHS::RHSCondition {
-                    pos: nopos(),
-                    expr: Expr::interpolated("First ${this}"),
-                },
-                RuleRHS::RHSCondition {
-                    pos: nopos(),
-                    expr: Expr::interpolated("Then ${that}"),
-                },
-            ],
-        };
-        let rule_str = format!("{}", rule);
-        assert_eq!(
-            rule_str,
-            "Bar([|Greeting ${name}|]) :- [|First ${this}|], [|Then ${that}|]."
-        );
-    }
-
-    // Test: Program with Interpolations
-    #[test]
-    fn test_program_with_interpolations() {
-        let rel = Relation {
-            pos: nopos(),
-            role: RelationRole::RelInput,
-            semantics: RelationSemantics::RelSet,
-            name: "TestRel".to_string(),
-            rtype: DType::TInt { pos: nopos() },
-            primary_key: None,
-        };
-        let rule = DdlogRule {
-            pos: nopos(),
-            module: ModuleName { path: vec![] },
-            lhs: vec![RuleLHS {
-                pos: nopos(),
-                atom: Atom {
-                    pos: nopos(),
-                    relation: "TestRel".to_string(),
-                    delay: Delay::zero(),
-                    diff: false,
-                    value: Expr::int(1),
-                },
-                location: None,
-            }],
-            rhs: vec![RuleRHS::RHSCondition {
-                pos: nopos(),
-                expr: Expr::interpolated("Check ${val}"),
-            }],
-        };
-        let mut prog = DatalogProgram::new();
-        prog.add_relation(rel).add_rule(rule);
+        let capture_node = Lval::CaptureForm("MyNode".to_string(), attrs, None, None);
+        let ast = Lval::Query(vec![Box::new(capture_node)]);
+        let prog = transform_ast_to_ddlog(&ast);
         let out = format!("{}", prog);
-        let expected_ddlog = r#"input relation TestRel(bigint);
-TestRel(1) :- [|Check ${val}|].
-"#;
-        assert_eq!(
-            out, expected_ddlog,
-            "The emitted DDlog program does not match the expected output."
-        );
+        assert!(out.contains("output relation Captured_MyNode_k_"));
+        assert!(out.contains("Captured Value from @x"));
+        assert!(out.contains("FromRelation InCapture_MyNode_"));
     }
 
-    // Test: Output Relation with Interpolation
     #[test]
-    fn test_output_relation_with_interpolation() {
-        let output_relation = Relation {
-            pos: nopos(),
-            role: RelationRole::RelOutput,
-            semantics: RelationSemantics::RelSet,
-            name: "OutputRel".to_string(),
-            rtype: DType::TString { pos: nopos() },
-            primary_key: None,
-        };
-        let rule = DdlogRule {
-            pos: nopos(),
-            module: ModuleName { path: vec![] },
-            lhs: vec![RuleLHS {
-                pos: nopos(),
-                atom: Atom {
-                    pos: nopos(),
-                    relation: "OutputRel".to_string(),
-                    delay: Delay::zero(),
-                    diff: false,
-                    value: Expr::interpolated("Result ${x}"),
-                },
-                location: None,
-            }],
-            rhs: vec![RuleRHS::RHSCondition {
-                pos: nopos(),
-                expr: Expr::interpolated("Compute ${x} from something"),
-            }],
-        };
-        let mut program = DatalogProgram::new();
-        program.add_relation(output_relation).add_rule(rule);
-        let out = format!("{}", program);
-        let expected_ddlog = r#"output relation OutputRel(string);
-OutputRel([|Result ${x}|]) :- [|Compute ${x} from something|].
-"#;
-        assert_eq!(
-            out, expected_ddlog,
-            "The emitted DDlog program does not match the expected output."
+    fn test_nested_capture() {
+        let mut bottom_attrs = HashMap::new();
+        bottom_attrs.insert(
+            "bk".to_string(),
+            Box::new(Lval::Capture("@bot".to_string())),
         );
+        let bottom_cf = Lval::CaptureForm("Bottom".to_string(), bottom_attrs, None, None);
+        let mut top_attrs = HashMap::new();
+        top_attrs.insert(
+            "tk".to_string(),
+            Box::new(Lval::Capture("@top".to_string())),
+        );
+        let top_cf = Lval::CaptureForm("Top".to_string(), top_attrs, Some(Box::new(bottom_cf)), None);
+        let ast = Lval::Query(vec![Box::new(top_cf)]);
+        let prog = transform_ast_to_ddlog(&ast);
+        let out = format!("{}", prog);
+               
+        assert!(out.contains("output relation Captured_Top_tk_"));
+        assert!(out.contains("output relation Captured_Bottom_bk_"));
+        assert!(out.contains("Captured Value from @top"));
+        assert!(out.contains("Captured Value from @bot"));
+        assert!(out.contains("FromRelation InCapture_Bottom_"));
     }
 
-    // Test: Output Relation with Literal and Interpolation
     #[test]
-    fn test_output_relation_with_literal_and_interpolation() {
-        let output_relation = Relation {
-            pos: nopos(),
-            role: RelationRole::RelOutput,
-            semantics: RelationSemantics::RelSet,
-            name: "OutputRel2".to_string(),
-            rtype: DType::TString { pos: nopos() },
-            primary_key: None,
-        };
-        let rule = DdlogRule {
-            pos: nopos(),
-            module: ModuleName { path: vec![] },
-            lhs: vec![RuleLHS {
-                pos: nopos(),
-                atom: Atom {
-                    pos: nopos(),
-                    relation: "OutputRel2".to_string(),
-                    delay: Delay::zero(),
-                    diff: false,
-                    value: Expr::interpolated("String ${some_val}"),
-                },
-                location: None,
-            }],
-            rhs: vec![
-                RuleRHS::RHSLiteral {
-                    pos: nopos(),
-                    polarity: true,
-                    atom: Atom {
-                        pos: nopos(),
-                        relation: "CheckRelation".to_string(),
-                        delay: Delay::zero(),
-                        diff: false,
-                        value: Expr::string_lit("foo"),
-                    },
-                },
-                RuleRHS::RHSCondition {
-                    pos: nopos(),
-                    expr: Expr::interpolated("Also ${other_val} needed"),
-                },
-            ],
-        };
-        let mut program = DatalogProgram::new();
-        program.add_relation(output_relation).add_rule(rule);
-        let out = format!("{}", program);
-        let expected_ddlog = r#"output relation OutputRel2(string);
-OutputRel2([|String ${some_val}|]) :- CheckRelation("foo"), [|Also ${other_val} needed|].
-"#;
-        assert_eq!(
-            out, expected_ddlog,
-            "The emitted DDlog program does not match the expected output."
-        );
+    fn test_capture_and_emit_integration() {
+        let input = r#"
+            (emit OutNode
+                (att1 @capA)
+            )
+            (capture MyNode
+                (k1 @capA)
+            )
+        "#;
+
+        let ast = to_ast(input).expect("Parse error");
+        let ddlog_prog = transform_ast_to_ddlog(&ast);
+
+        // We check that the program has the expected number of relations/rules
+        // 1. Input relation for capture MyNode
+        // 2. Output relation for captured attribute
+        // 3. Rule linking them
+        // 4. Output relation for emit OutNode
+        // 5. Rule linking captured attribute -> emit
+        assert!(!ddlog_prog.relations.is_empty());
+        assert!(!ddlog_prog.rules.is_empty());
+
+        // Example of partial check:
+        // There's a relation named something like "InCapture_MyNode_1" or "Captured_MyNode_k1_"
+        let rel_names: Vec<_> = ddlog_prog.relations.keys().cloned().collect();
+        assert!(rel_names.iter().any(|r| r.contains("InCapture_MyNode")));
+        assert!(rel_names.iter().any(|r| r.contains("Captured_MyNode_k1_")));
+        assert!(rel_names.iter().any(|r| r.contains("EmitOut_OutNode_")));
+
+        let rule_count = ddlog_prog.rules.len();
+        assert!(rule_count >= 2);
     }
 
-    // Test: Standalone Output Relation
     #[test]
-    fn test_output_relation_standalone() {
-        let output_relation = Relation {
-            pos: nopos(),
-            role: RelationRole::RelOutput,
-            semantics: RelationSemantics::RelSet,
-            name: "Alone".to_string(),
-            rtype: DType::TInt { pos: nopos() },
-            primary_key: None,
-        };
-        let mut program = DatalogProgram::new();
-        program.add_relation(output_relation);
-        let out = format!("{}", program);
-        let expected_ddlog = r#"output relation Alone(bigint);
-"#;
-        assert_eq!(
-            out, expected_ddlog,
-            "The emitted DDlog program does not match the expected output."
-        );
-    }
+    fn test_nested_capture_emit() {
+        let input = r#"
+            (emit FinalOutput
+                (fkey @childVal)
+            )
+            (capture TopNode
+                (topKey @topVal)
+                (capture ChildNode
+                    (childKey @childVal)
+                )
+            )
+       "#;
 
-    // Test: Output Relation in Code
-    #[test]
-    fn test_output_relation_in_code() {
-        let mut program = DatalogProgram::new();
-        program
-            .add_relation(Relation {
-                pos: nopos(),
-                role: RelationRole::RelOutput,
-                semantics: RelationSemantics::RelSet,
-                name: "SampleOut".to_string(),
-                rtype: DType::TString { pos: nopos() },
-                primary_key: None,
-            })
-            .add_rule(DdlogRule {
-                pos: nopos(),
-                module: ModuleName { path: vec![] },
-                lhs: vec![RuleLHS {
-                    pos: nopos(),
-                    atom: Atom {
-                        pos: nopos(),
-                        relation: "SampleOut".to_string(),
-                        delay: Delay::zero(),
-                        diff: false,
-                        value: Expr::interpolated("FinalValue ${result}"),
-                    },
-                    location: None,
-                }],
-                rhs: vec![RuleRHS::RHSCondition {
-                    pos: nopos(),
-                    expr: Expr::interpolated("Compute ${result} from data"),
-                }],
-            });
-        let output = format!("{}", program);
-        let expected_ddlog = r#"output relation SampleOut(string);
-SampleOut([|FinalValue ${result}|]) :- [|Compute ${result} from data|].
-"#;
-        assert_eq!(
-            output, expected_ddlog,
-            "The emitted DDlog program does not match the expected output."
-        );
-    }
+        let ast = to_ast(input).expect("Parse error");
+        let ddlog_prog = transform_ast_to_ddlog(&ast);
 
-    // Test: Transformation from LangX AST to DDLog
-    #[test]
-    fn test_langx_transformation() {
-        #[derive(Debug, Clone, PartialEq, Eq)]
-        enum LangXNode {
-            Emit(String),
-        }
-
-        fn transform_langx_to_ddlog(node: &LangXNode) -> DatalogProgram {
-            let mut prog = DatalogProgram::new();
-            match node {
-                LangXNode::Emit(val) => {
-                    let output_rel = Relation {
-                        pos: nopos(),
-                        role: RelationRole::RelOutput,
-                        semantics: RelationSemantics::RelSet,
-                        name: "LangXOut".to_string(),
-                        rtype: DType::TString { pos: nopos() },
-                        primary_key: None,
-                    };
-                    prog.add_relation(output_rel);
-                    let rule = DdlogRule {
-                        pos: nopos(),
-                        module: ModuleName { path: vec![] },
-                        lhs: vec![RuleLHS {
-                            pos: nopos(),
-                            atom: Atom {
-                                pos: nopos(),
-                                relation: "LangXOut".to_string(),
-                                delay: Delay::zero(),
-                                diff: false,
-                                value: Expr::interpolated(&format!("Value from X: {}", val)),
-                            },
-                            location: None,
-                        }],
-                        rhs: vec![RuleRHS::RHSCondition {
-                            pos: nopos(),
-                            expr: Expr::interpolated("Some check from DSL X"),
-                        }],
-                    };
-                    prog.add_rule(rule);
-                }
-            }
-            prog
-        }
-
-        let node = LangXNode::Emit("xyz_value".to_string());
-        let ddlog_prog = transform_langx_to_ddlog(&node);
-        let printed = format!("{}", ddlog_prog);
-        let expected_ddlog = r#"output relation LangXOut(string);
-LangXOut([|Value from X: xyz_value|]) :- [|Some check from DSL X|].
-"#;
-        assert_eq!(
-            printed, expected_ddlog,
-            "The emitted DDlog program does not match the expected output."
-        );
-    }
-
-    // Test: Mutable API Usage
-    #[test]
-    fn test_mut_api_usage() {
-        let mut prog = DatalogProgram::new();
-        prog.add_relation(Relation {
-            pos: nopos(),
-            role: RelationRole::RelOutput,
-            semantics: RelationSemantics::RelSet,
-            name: "TestRel".to_string(),
-            rtype: DType::TInt { pos: nopos() },
-            primary_key: None,
-        })
-        .add_rule(DdlogRule {
-            pos: nopos(),
-            module: ModuleName { path: vec![] },
-            lhs: vec![RuleLHS {
-                pos: nopos(),
-                atom: Atom {
-                    pos: nopos(),
-                    relation: "TestRel".to_string(),
-                    delay: Delay::zero(),
-                    diff: false,
-                    value: Expr::int(42),
-                },
-                location: None,
-            }],
-            rhs: vec![],
-        });
-        let output = format!("{}", prog);
-        let expected_ddlog = r#"output relation TestRel(bigint);
-TestRel(42) :- .
-"#;
-        assert_eq!(
-            output, expected_ddlog,
-            "The emitted DDlog program does not match the expected output."
-        );
+        // We expect input relations for the top node and child node,
+        // output relations for the captured attributes,
+        // plus the final emit relation and rules connecting them.
+        let rel_names: Vec<_> = ddlog_prog.relations.keys().cloned().collect();
+        assert!(rel_names.iter().any(|r| r.contains("InCapture_TopNode")));
+        assert!(rel_names.iter().any(|r| r.contains("InCapture_ChildNode")));
+        assert!(rel_names.iter().any(|r| r.contains("Captured_TopNode_topKey_")));
+        assert!(rel_names.iter().any(|r| r.contains("Captured_ChildNode_childKey_")));
+        assert!(rel_names.iter().any(|r| r.contains("EmitOut_FinalOutput_")));
+        let rule_count = ddlog_prog.rules.len();
+        assert!(rule_count >= 3);
     }
 }
-
-
-
-
-
-
