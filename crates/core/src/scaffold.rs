@@ -47,6 +47,13 @@ name = "{project_name}"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "{project_name}"
+
+[[bin]]
+name = "{project_name}"
+path = "src/main.rs"
+
 [dependencies]
 differential-datalog = "0.50"
 "#,
@@ -54,8 +61,7 @@ differential-datalog = "0.50"
     );
 
     let cargo_toml_path = base_dir.join("Cargo.toml");
-    let mut cargo_toml_file =
-        File::create(&cargo_toml_path).expect("Failed to create Cargo.toml");
+    let mut cargo_toml_file = File::create(&cargo_toml_path).expect("Failed to create Cargo.toml");
     cargo_toml_file
         .write_all(cargo_toml_content.as_bytes())
         .expect("Failed to write Cargo.toml");
@@ -79,6 +85,19 @@ differential-datalog = "0.50"
         .write_all(lib_code.as_bytes())
         .expect("Failed to write lib.rs");
 
+    let main_file_path = src_dir.join("main.rs");
+    let main_code = format!(
+        r#"fn main() {{
+    {crate_name}::hello();
+}}
+"#,
+        crate_name = project_name
+    );
+    let mut main_file = File::create(&main_file_path).expect("Failed to create main.rs");
+    main_file
+        .write_all(main_code.as_bytes())
+        .expect("Failed to write main.rs");
+
     write_toolchain_toml(base_dir).expect("Failed to write rust-toolchain.toml");
 }
 
@@ -96,6 +115,7 @@ pub fn build_ddlog_crate(base_dir: &Path, project_name: &str) -> Result<(), Stri
     }
 
     let dl_file = format!("{}.dl", project_name);
+
     let ddlog_status = Command::new("ddlog")
         .args(["-i", &dl_file, "-L", "../../lib"])
         .current_dir(base_dir)
@@ -108,9 +128,11 @@ pub fn build_ddlog_crate(base_dir: &Path, project_name: &str) -> Result<(), Stri
         return Err(format!("ddlog command failed on {:?}", dl_file));
     }
 
+    let project_dir = format!("{}/{}_ddlog", base_dir.to_str().unwrap_or_default(), project_name);
+
     let cargo_status = Command::new("cargo")
-        .arg("build")
-        .current_dir(base_dir)
+        .args(["+1.76", "build"])
+        .current_dir(project_dir)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .status()
@@ -121,6 +143,38 @@ pub fn build_ddlog_crate(base_dir: &Path, project_name: &str) -> Result<(), Stri
     }
 
     Ok(())
+}
+
+pub fn run_ddlog_crate(base_dir: &Path, project_name: &str, dat_content: &str) -> Result<String, String> {
+    let project_dir = format!("{}/{}_ddlog", base_dir.to_str().unwrap_or_default(), project_name);
+    let dat_file = format!("{}/input.dat", project_dir);
+    fs::write(&dat_file, dat_content).map_err(|e| format!("Failed to write input.dat: {}", e))?;
+
+    let exec_path = format!("{}/target/debug/{}_cli", project_dir, project_name);
+    let mut cargo_run = Command::new(exec_path)
+        .current_dir(project_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap();
+        //.map_err(|e| format!("Failed to launch cargo run: {}", e))?;
+
+    write!(cargo_run.stdin.as_ref().unwrap(), "{}", dat_content).unwrap();
+
+    if cargo_run.wait().is_ok() {
+        println!("Cargo run succeeded");
+    } else {
+        println!("Cargo run failed");
+    }
+
+    /*
+    if !cargo_run.status.success() {
+        return Err("Cargo run failed.".into());
+    }*/
+
+    //let stdout = String::from_utf8_lossy(&cargo_run.stdout).to_string();
+    Ok("".to_string())
 }
 
 #[cfg(test)]
@@ -161,6 +215,9 @@ mod tests {
         let lib_rs_path = base_dir.join("src/lib.rs");
         assert!(lib_rs_path.exists());
 
+        let main_rs_path = base_dir.join("src/main.rs");
+        assert!(main_rs_path.exists());
+
         let toolchain_path = base_dir.join("rust-toolchain.toml");
         assert!(toolchain_path.exists());
 
@@ -181,11 +238,52 @@ mod tests {
 
         let dir = tempdir().expect("Failed to create temp dir");
         let project_name = "test_build";
-        let dl_content = "input relation Test(x: signed<64>)";
+        let dl_content = r#"
+input relation TestRun(x: signed<64>)
+output relation DoubledRun(x: signed<64>)
+DoubledRun(t) :- TestRun(d),
+	var t = d * 2.
+"#;
+
+        generate_rust_project(dir.path(), project_name, dl_content);
+        let build_result = build_ddlog_crate(dir.path(), project_name);
+        assert!(build_result.is_ok());
+    }
+
+    #[test]
+    fn test_run_ddlog_crate() {
+        if which::which("ddlog").is_err() {
+            eprintln!("Skipping test_run_ddlog_crate because ddlog is not installed");
+            return;
+        }
+
+        let dir = tempdir().expect("Failed to create temp dir");
+        let project_name = "test_run_project";
+        let dl_content = r#"
+input relation TestRun(x: signed<64>)
+output relation DoubledRun(x: signed<64>)
+DoubledRun(t) :- TestRun(d),
+	var t = d * 2.
+"#;
 
         generate_rust_project(dir.path(), project_name, dl_content);
 
         let build_result = build_ddlog_crate(dir.path(), project_name);
         assert!(build_result.is_ok());
+
+        let dat_content = r#"
+        start;
+        insert TestRun(1);
+        commit dump_changes;
+        "#;
+
+        let run_output = run_ddlog_crate(dir.path(), project_name, dat_content)
+            .expect("Failed to run ddlog crate");
+
+        assert!(
+            run_output.contains("DoubleRun(2)"),
+            "Expected message not found in output:\n{}",
+            run_output
+        );
     }
 }
