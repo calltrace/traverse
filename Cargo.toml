@@ -1,0 +1,13 @@
+[workspace]
+members = [
+    "crates/core",
+    "crates/language",
+    "crates/dsl",
+]
+
+# exclude workspae members 
+exclude = [
+    "ri/solidity_ddlog",
+]
+
+

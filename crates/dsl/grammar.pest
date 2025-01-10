@@ -1,0 +1,73 @@
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+
+// Block comment support (optional).
+COMMENT = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+
+num = @{ int }
+    int = { ("+" | "-")? ~ digit+ }
+    digit = { '0'..'9' }
+
+// A generic "symbol" covers node names like `typed_parameter`, `identifier`, etc.
+symbol = @{
+    (ASCII_ALPHANUMERIC | "_" | "+" | "-" | "*" | "/" | "%" | "^" | "=" | "<" | ">" | "!")+
+}
+
+// Tree-sitter captures: `@name`, `@val`, etc.
+capture = @{
+    "@" ~ (ASCII_ALPHANUMERIC | "_")+
+}
+
+// Quantifiers for repetition: `(node)*`, `(node)?`, `(node)+`
+quantifier = @{ "*" | "+" | "?" }
+
+// Key-value pairs: e.g. `type: (type (identifier)@val)`
+key_value = {
+    symbol ~ ":" ~ WHITESPACE* ~ expr
+}
+
+// A standard S-expression, extended with optional capture & quantifier:
+//
+// - `(identifier)` is a normal sub-expression
+// - `(identifier)@capture` merges node + capture
+// - `(identifier)@capture*` merges node + capture + quantifier
+//
+// The rule allows WHITESPACE* between `)` and `@` so `(identifier) @val` 
+// also parses correctly as one expression.
+sexpr = {
+    "("
+    ~ WHITESPACE* 
+    ~ expr*        // Zero or more sub-expressions inside the parentheses
+    ~ WHITESPACE*
+    ~ ")"
+    ~ WHITESPACE*  // Allow a space before capture
+    ~ capture?     // Optional capture token
+    ~ WHITESPACE*
+    ~ quantifier?  // Optional *, +, or ?
+}
+
+// A curly‐brace expression, if you need it for Q-expressions or similar constructs.
+// Not always necessary, but shown here for completeness.
+qexpr = {
+    "{" 
+    ~ WHITESPACE*
+    ~ expr*
+    ~ WHITESPACE*
+    ~ "}"
+}
+
+// The primary expression type: could be
+// - a symbol (like `typed_parameter`, `identifier`)
+// - a key-value pair (`type: (type (identifier)@val)`)
+// - an S-expression (`(identifier)@name`)
+// - a curly‐brace expression (optional, depending on your usage).
+expr = {
+    sexpr
+  | qexpr
+  | key_value
+  | num
+  | symbol
+}
+
+// The top-level rule: parse exactly one expression (or more if desired).
+program = { SOI ~ (expr | COMMENT | WHITESPACE)* ~ EOI }
+

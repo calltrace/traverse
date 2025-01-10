@@ -1,0 +1,41 @@
+[package]
+name = "differential_datalog"
+version = "0.1.0"
+edition = "2018"
+
+[features]
+default = []
+flatbuf = []
+# Use 32-bit instead of 16-bit nested timestamps.
+nested_ts_32 = []
+c_api = []
+# panic on weight overflow
+checked_weights = []
+
+[dependencies]
+#differential-dataflow = "0.11.0"
+differential-dataflow = { git = "https://github.com/ddlog-dev/differential-dataflow", branch = "ddlog-4" }
+dogsdogsdogs = { git = "https://github.com/ddlog-dev/differential-dataflow", branch = "ddlog-4" }
+#timely = "0.11"
+timely = { git = "https://github.com/ddlog-dev/timely-dataflow", branch = "ddlog-4", default-features = false }
+ddshow-sink =  { git = "https://github.com/ddlog-dev/ddshow", branch = "ddlog-4" }
+abomonation = "0.7"
+abomonation_derive = "0.5.0"
+ordered-float = { version = "2.0.0", features = ["serde"] }
+fnv = "1.0.2"
+libc = "0.2"
+num = { version = "0.3", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.64"
+erased-serde = "0.3"
+crossbeam-channel = "0.5.0"
+triomphe = "0.1.3"
+dyn-clone = "1.0.4"
+once_cell = "1.8.0"
+ddlog_profiler = { path = "../ddlog_profiler" }
+
+[dev-dependencies]
+byteorder = "1.4.2"
+getopts = "0.2.21"
+itertools = "0.10.0"
+serde_derive = "1.0.119"

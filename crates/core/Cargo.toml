@@ -1,0 +1,22 @@
+[package]
+name = "core"
+version = "0.1.0"
+edition = "2021"
+resolver = "2"
+
+[[bin]]
+name = "ts-to-ddlog"
+path = "src/bin/ts-to-ddlog.rs"
+
+[dependencies]
+language = { path = "../language" }
+proc-macro2 = "1.0.92"
+quote = "1.0.37"
+syn = { version = "2.0.90", features = ["full"] }
+tree-sitter = "0.24.0"
+clap = { version = "4.5.23", features = ["derive"] }
+tempfile = "3.14.0"
+
+[build-dependencies]
+cc = "1.0"
+

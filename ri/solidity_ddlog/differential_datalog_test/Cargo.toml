@@ -1,0 +1,23 @@
+[package]
+name = "differential_datalog_test"
+version = "0.1.0"
+edition = "2018"
+
+[lib]
+name = "differential_datalog_test"
+path = "lib.rs"
+
+[dependencies]
+fnv = "1.0.7"
+abomonation = "0.7.3"
+serde_json = "1.0.60"
+erased-serde = "0.3.13"
+abomonation_derive = "0.5.0"
+datalog_example = { path = "../", default-features = false }
+ddlog_derive = { path = "../ddlog_derive" }
+num = { version = "0.3" }
+serde = { version = "1.0.125", features = ["derive"] }
+differential_datalog = { path = "../differential_datalog" }
+ddlog_profiler = { path = "../ddlog_profiler" }
+timely = { git = "https://github.com/ddlog-dev/timely-dataflow", branch = "ddlog-4", default-features = false }
+differential-dataflow = { git = "https://github.com/ddlog-dev/differential-dataflow", branch = "ddlog-4", default-features = false }

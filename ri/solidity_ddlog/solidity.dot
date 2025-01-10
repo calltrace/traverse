@@ -1,0 +1,20 @@
+digraph {
+    0 [label=BinaryExpressionNode];
+    1 [label=ChildEdge];
+    2 [label=DumpTree];
+    3 [label=ExpressionEdge];
+    4 [label=FunctionDefinitionNode];
+    5 [label=IdentifierNode];
+    6 [label=OperandEdge];
+    7 [label=ParameterNode];
+    8 [label=ReturnStatementNode];
+    9 [label="ddlog_std::Singleton"];
+    0 -> 2;
+    1 -> 2;
+    3 -> 2;
+    4 -> 2;
+    5 -> 2;
+    6 -> 2;
+    7 -> 2;
+    8 -> 2;
+}
