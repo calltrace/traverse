@@ -199,6 +199,7 @@ name = "dsl"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "clap",
  "from-pest",
  "indexmap",
  "lazy_static",

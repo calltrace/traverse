@@ -19,7 +19,7 @@ pub struct NodeName {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub(crate) struct ContextFreeNodeType {
+pub struct ContextFreeNodeType {
     #[serde(flatten)]
     pub name: NodeName,
     #[serde(flatten)]
