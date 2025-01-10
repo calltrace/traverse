@@ -20,10 +20,40 @@ capture = @{
 // Quantifiers for repetition: `(node)*`, `(node)?`, `(node)+`
 quantifier = @{ "*" | "+" | "?" }
 
-// Key-value pairs: e.g. `type: (type (identifier)@val)`
+// Key-value pairs: e.g. `(key value)`
 key_value = {
-    symbol ~ ":" ~ WHITESPACE* ~ expr
+    "(" ~ symbol ~ WHITESPACE* ~ (capture | symbol) ~ WHITESPACE* ~ ")"
 }
+
+// Special form: `(emit ...)`
+emit = {
+    "(" ~ WHITESPACE* ~ "emit" ~ WHITESPACE*
+    ~ symbol                    // Output node type
+    ~ WHITESPACE*
+    ~ expr*                     // Emit arguments (key-value pairs, sub-expressions, etc.)
+    ~ WHITESPACE*
+    ~ ")"
+}
+
+// Special form: `(capture ...)`
+capture_form = {
+    "(" ~ WHITESPACE* ~ "capture" ~ WHITESPACE*
+    ~ expr*                      // Capture content (sub-expression or special form)
+    ~ WHITESPACE*
+    ~ ")"
+}
+
+// Logical forms like `(and ...)`, `(or ...)`, `(not ...)`
+logical = {
+    "(" ~ WHITESPACE*
+    ~ logical_operator          // e.g., "and", "or", "not"
+    ~ WHITESPACE+
+    ~ expr+                     // Sub-expressions (operands)
+    ~ WHITESPACE*
+    ~ ")"
+}
+
+logical_operator = { "and" | "or" | "not" }
 
 // A standard S-expression, extended with optional capture & quantifier:
 //
@@ -57,17 +87,22 @@ qexpr = {
 
 // The primary expression type: could be
 // - a symbol (like `typed_parameter`, `identifier`)
-// - a key-value pair (`type: (type (identifier)@val)`)
+// - a key-value pair (`key value`)
 // - an S-expression (`(identifier)@name`)
 // - a curly‐brace expression (optional, depending on your usage).
+// - special forms like `emit` and `capture`
+// - logical forms like `(and ...)`, `(or ...)`, `(not ...)`
 expr = {
-    sexpr
-  | qexpr
+    emit
+  | capture_form
   | key_value
+  | logical
+  | sexpr
+  | qexpr
   | num
+  | capture          // Add capture explicitly
   | symbol
 }
 
 // The top-level rule: parse exactly one expression (or more if desired).
 program = { SOI ~ (expr | COMMENT | WHITESPACE)* ~ EOI }
-

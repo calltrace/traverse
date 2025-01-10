@@ -1,4 +1,4 @@
-// Heavily inspired by https://github.com/deciduously/blispr/blob/master/src/lval.rs 
+// Heavily inspired by https://github.com/deciduously/blispr/blob/master/src/lval.rs
 use crate::error::{BlisprResult, Error, Result};
 use std::{collections::HashMap, fmt};
 
@@ -7,7 +7,7 @@ pub type LBuiltin = fn(&mut Lval) -> BlisprResult;
 
 #[derive(Clone)]
 pub enum Func {
-    Builtin(String, LBuiltin), 
+    Builtin(String, LBuiltin),
     Lambda(HashMap<String, Box<Lval>>, Box<Lval>, Box<Lval>), // (environment(?), formals, body), both should be Qexpr // TODO these should both be Rc<T>
 }
 
@@ -19,6 +19,8 @@ pub enum Lval {
     Sym(String),
     Sexpr(LvalChildren),
     Qexpr(LvalChildren),
+    Logical(String, LvalChildren),
+    Emit(String, HashMap<String, Box<Lval>>),
     Capture(String),
     KeyVal(LvalChildren),
 }
@@ -59,6 +61,10 @@ impl Lval {
         Box::new(Lval::Sym(s.into()))
     }
 
+    pub fn logical(op: &str, operands: Vec<Box<Lval>>) -> Box<Lval> {
+        Box::new(Lval::Logical(op.into(), operands))
+    }
+
     pub fn capture(s: &str) -> Box<Lval> {
         Box::new(Lval::Capture(s.into()))
     }
@@ -71,6 +77,15 @@ impl Lval {
         Box::new(Lval::Qexpr(Vec::new()))
     }
 
+    pub fn emit(node_type: &str, attributes: HashMap<String, Box<Lval>>) -> Box<Lval> {
+        Box::new(Lval::Emit(node_type.to_string(), attributes))
+    }
+
+    pub fn add_to_emit(emit: &mut Lval, key: &str, value: Box<Lval>) {
+        if let Lval::Emit(_, ref mut attributes) = emit {
+            attributes.insert(key.to_string(), value);
+        }
+    }
     pub fn keyvalue() -> Box<Lval> {
         Box::new(Lval::KeyVal(Vec::new()))
     }
@@ -168,10 +183,31 @@ impl fmt::Display for Lval {
             },
             Lval::Num(n) => write!(f, "{n}"),
             Lval::Sym(s) => write!(f, "{s}"),
-            Lval::Capture(c) => write!(f, "{c}"),
+            Lval::Logical(operator, operands) => {
+                write!(f, "({} {})", operator, format_children(operands))
+            }
+            Lval::Emit(node_type, attributes) => {
+                let formatted_attrs = attributes
+                    .iter()
+                    .map(|(key, value)| format!("({} {})", key, value))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                write!(f, "(emit {} {})", node_type, formatted_attrs)
+            }
+            Lval::Capture(capture) => {
+                write!(f, "@{}", capture)
+            }
             Lval::Sexpr(cell) => write!(f, "({})", Lval::lval_expr_print(cell)),
             Lval::Qexpr(cell) => write!(f, "{{{}}}", Lval::lval_expr_print(cell)),
             Lval::KeyVal(cell) => write!(f, "({})", Lval::lval_expr_print(cell)),
         }
     }
+}
+
+fn format_children(children: &[Box<Lval>]) -> String {
+    children
+        .iter()
+        .map(|child| child.to_string())
+        .collect::<Vec<_>>()
+        .join(" ")
 }

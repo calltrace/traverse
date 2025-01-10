@@ -285,6 +285,13 @@ pub struct ClosureExprArg {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Field {
+    pub pos: Pos,
+    pub name: String,
+    pub ftype: DType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DType {
     TBool {
         pos: Pos,
@@ -311,7 +318,8 @@ pub enum DType {
     },
     TStruct {
         pos: Pos,
-        constructors: Vec<Constructor>,
+        name: String,
+        fields: Vec<Field>,
     },
     TTuple {
         pos: Pos,
@@ -348,12 +356,15 @@ impl Display for DType {
             DType::TSigned { width, .. } => write!(f, "signed<{}>", width),
             DType::TDouble { .. } => write!(f, "double"),
             DType::TFloat { .. } => write!(f, "float"),
-            DType::TStruct { constructors, .. } => {
-                let mut cstrs = Vec::new();
-                for c in constructors {
-                    cstrs.push(c.to_string());
+            DType::TStruct { name, fields, .. } => {
+                let mut parts = Vec::new();
+                for (i, fld) in fields.iter().enumerate() {
+                    if i > 0 {
+                        parts.push(format!(", {}", fld).to_string());
+                    }
                 }
-                write!(f, "{}", cstrs.join(" | "))
+                let joined = parts.join("");
+                write!(f, "{}{{{}}}", name, joined)
             }
             DType::TTuple { tup_args, .. } => {
                 if tup_args.len() == 1 {
@@ -412,37 +423,9 @@ impl Display for DType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Field {
-    pub pos: Pos,
-    pub name: String,
-    pub ftype: DType,
-}
-
 impl Display for Field {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.name, self.ftype)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Constructor {
-    pub pos: Pos,
-    pub name: String,
-    pub args: Vec<Field>,
-}
-
-impl Display for Constructor {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let mut parts = Vec::new();
-        for (i, fld) in self.args.iter().enumerate() {
-            if i > 0 {
-                parts.push(", ".to_string());
-            }
-            parts.push(format!("{}: {}", fld.name, fld.ftype));
-        }
-        let joined = parts.join("");
-        write!(f, "{}{{{}}}", self.name, joined)
     }
 }
 
@@ -495,7 +478,7 @@ impl Display for Relation {
             RelationSemantics::RelStream => "stream",
             RelationSemantics::RelMultiset => "multiset",
         };
-        write!(f, "{}{} {}[{}]", role_str, sem_str, self.name, self.rtype)?;
+        write!(f, "{}{} {}({})", role_str, sem_str, self.name, self.rtype)?;
         if let Some(pk) = &self.primary_key {
             write!(f, " primary key {};", pk)
         } else {
@@ -658,7 +641,7 @@ impl Display for Rule {
             .collect::<Vec<_>>()
             .join(", ");
         if self.rhs.is_empty() {
-            write!(f, "{}.", lhs_str)
+            write!(f, "{} :- .", lhs_str)
         } else {
             let rhs_str = self
                 .rhs
@@ -1091,8 +1074,8 @@ mod tests {
         let mut ddlog_prog = DatalogProgram::new();
         transform_langx_ast(&ast, &mut ddlog_prog);
         let text = format!("{}", ddlog_prog);
-        assert!(text.contains("LangXCheck[string];"));
-        assert!(text.contains("LangXOut[string];"));
+        assert!(text.contains("LangXCheck(string);"));
+        assert!(text.contains("LangXOut(string);"));
         assert!(text.contains("Check: alpha"));
         assert!(text.contains("Value from X: beta"));
         assert!(text.contains("Check: deep1"));
@@ -1204,7 +1187,7 @@ mod tests {
         let mut prog = DatalogProgram::new();
         prog.add_relation(rel).add_rule(rule);
         let out = format!("{}", prog);
-        assert!(out.contains("relation TestRel[bigint];"));
+        assert!(out.contains("relation TestRel(bigint);"));
         assert!(out.contains("TestRel(1) :- [|Check ${val}|]."));
     }
 
@@ -1240,7 +1223,7 @@ mod tests {
         let mut program = DatalogProgram::new();
         program.add_relation(output_relation).add_rule(rule);
         let out = format!("{}", program);
-        assert!(out.contains("output relation OutputRel[string];"));
+        assert!(out.contains("output relation OutputRel(string);"));
         assert!(out.contains("OutputRel([|Result ${x}|]) :- [|Compute ${x} from something|]."));
     }
 
@@ -1289,7 +1272,7 @@ mod tests {
         let mut program = DatalogProgram::new();
         program.add_relation(output_relation).add_rule(rule);
         let out = format!("{}", program);
-        assert!(out.contains("output relation OutputRel2[string];"));
+        assert!(out.contains("output relation OutputRel2(string);"));
         assert!(out.contains("OutputRel2([|String ${some_val}|]) :- CheckRelation(\"foo\"), [|Also ${other_val} needed|]."));
     }
 
@@ -1306,7 +1289,7 @@ mod tests {
         let mut program = DatalogProgram::new();
         program.add_relation(output_relation);
         let out = format!("{}", program);
-        assert!(out.contains("output relation Alone[bigint];"));
+        assert!(out.contains("output relation Alone(bigint);"));
     }
 
     #[test]
@@ -1341,7 +1324,7 @@ mod tests {
                 }],
             });
         let output = format!("{}", program);
-        assert!(output.contains("output relation SampleOut[string];"));
+        assert!(output.contains("output relation SampleOut(string);"));
         assert!(output
             .contains("SampleOut([|FinalValue ${result}|]) :- [|Compute ${result} from data|]."));
     }
@@ -1394,7 +1377,7 @@ mod tests {
         let node = LangXNode::Emit("xyz_value".to_string());
         let ddlog_prog = transform_langx_to_ddlog(&node);
         let printed = format!("{}", ddlog_prog);
-        assert!(printed.contains("output relation LangXOut[string];"));
+        assert!(printed.contains("output relation LangXOut(string);"));
         assert!(
             printed.contains("LangXOut([|Value from X: xyz_value|]) :- [|Some check from DSL X|].")
         );
@@ -1428,7 +1411,7 @@ mod tests {
             rhs: vec![],
         });
         let output = format!("{}", prog);
-        assert!(output.contains("output relation TestRel[bigint];"));
-        assert!(output.contains("TestRel(42)."));
+        assert!(output.contains("output relation TestRel(bigint);"));
+        assert!(output.contains("TestRel(42) :- ."));
     }
 }
