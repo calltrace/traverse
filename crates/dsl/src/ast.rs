@@ -19,9 +19,12 @@ pub enum Lval {
     Sym(String),
     Sexpr(LvalChildren),
     Qexpr(LvalChildren),
+    DoForm(LvalChildren),
     Logical(String, LvalChildren),
     Emit(String, HashMap<String, Box<Lval>>),
     Capture(String),
+    CaptureForm(String, HashMap<String, Box<Lval>>, Option<Box<Lval>>),
+    WhenForm(Box<Lval>, LvalChildren),
     KeyVal(LvalChildren),
 }
 
@@ -79,6 +82,14 @@ impl Lval {
 
     pub fn emit(node_type: &str, attributes: HashMap<String, Box<Lval>>) -> Box<Lval> {
         Box::new(Lval::Emit(node_type.to_string(), attributes))
+    }
+
+    pub fn capture_form(node_type: &str, attributes: HashMap<String, Box<Lval>>, q_expr: Option<Box<Lval>>) -> Box<Lval> {
+        Box::new(Lval::CaptureForm(node_type.to_string(), attributes, q_expr))
+    }
+
+    pub fn do_form(exprs : LvalChildren ) -> Box<Lval> {
+        Box::new(Lval::DoForm(exprs))
     }
 
     pub fn add_to_emit(emit: &mut Lval, key: &str, value: Box<Lval>) {
@@ -194,9 +205,21 @@ impl fmt::Display for Lval {
                     .join(" ");
                 write!(f, "(emit {} {})", node_type, formatted_attrs)
             }
+            Lval::WhenForm(condition, body) => {
+                write!(f, "(when {} {})", condition, format_children(body))
+            }
+            Lval::CaptureForm(node_type, attributes, do_block) => {
+                let formatted_attrs = attributes
+                    .iter()
+                    .map(|(key, value)| format!("({} {})", key, value))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                write!(f, "(emit {} {} {})", node_type, formatted_attrs, do_block.as_ref().map(|b| b.to_string()).unwrap_or_default())
+            }
             Lval::Capture(capture) => {
                 write!(f, "@{}", capture)
             }
+            Lval::DoForm(cell) => write!(f, "(do {})", Lval::lval_expr_print(cell)),
             Lval::Sexpr(cell) => write!(f, "({})", Lval::lval_expr_print(cell)),
             Lval::Qexpr(cell) => write!(f, "{{{}}}", Lval::lval_expr_print(cell)),
             Lval::KeyVal(cell) => write!(f, "({})", Lval::lval_expr_print(cell)),
