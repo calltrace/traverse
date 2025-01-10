@@ -38,26 +38,11 @@ pub enum UOp {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExprNode {
-    EVar {
-        pos: Pos,
-        name: String,
-    },
-    EInt {
-        pos: Pos,
-        value: i64,
-    },
-    EString {
-        pos: Pos,
-        value: String,
-    },
-    EInterpolated {
-        pos: Pos,
-        value: String,
-    },
-    EBool {
-        pos: Pos,
-        value: bool,
-    },
+    EVar { pos: Pos, name: String },
+    EInt { pos: Pos, value: i64 },
+    EString { pos: Pos, value: String },
+    EInterpolated { pos: Pos, value: String },
+    EBool { pos: Pos, value: bool },
     EApply {
         pos: Pos,
         func: Box<Expr>,
@@ -109,13 +94,8 @@ pub enum ExprNode {
         lhs: Box<Expr>,
         rhs: Box<Expr>,
     },
-    EVarDecl {
-        pos: Pos,
-        name: String,
-    },
-    EPHolder {
-        pos: Pos,
-    },
+    EVarDecl { pos: Pos, name: String },
+    EPHolder { pos: Pos },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -287,51 +267,18 @@ pub struct ClosureExprArg {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DType {
-    TBool {
-        pos: Pos,
-    },
-    TInt {
-        pos: Pos,
-    },
-    TString {
-        pos: Pos,
-    },
-    TBit {
-        pos: Pos,
-        width: u32,
-    },
-    TSigned {
-        pos: Pos,
-        width: u32,
-    },
-    TDouble {
-        pos: Pos,
-    },
-    TFloat {
-        pos: Pos,
-    },
-    TStruct {
-        pos: Pos,
-        constructors: Vec<Constructor>,
-    },
-    TTuple {
-        pos: Pos,
-        tup_args: Vec<DType>,
-    },
-    TUser {
-        pos: Pos,
-        name: String,
-        type_args: Vec<DType>,
-    },
-    TVar {
-        pos: Pos,
-        var_name: String,
-    },
-    TOpaque {
-        pos: Pos,
-        name: String,
-        type_args: Vec<DType>,
-    },
+    TBool { pos: Pos },
+    TInt { pos: Pos },
+    TString { pos: Pos },
+    TBit { pos: Pos, width: u32 },
+    TSigned { pos: Pos, width: u32 },
+    TDouble { pos: Pos },
+    TFloat { pos: Pos },
+    TStruct { pos: Pos, constructors: Vec<Constructor> },
+    TTuple { pos: Pos, tup_args: Vec<DType> },
+    TUser { pos: Pos, name: String, type_args: Vec<DType> },
+    TVar { pos: Pos, var_name: String },
+    TOpaque { pos: Pos, name: String, type_args: Vec<DType> },
     TFunction {
         pos: Pos,
         func_args: Vec<ArgType>,
@@ -368,11 +315,7 @@ impl Display for DType {
                     write!(f, "({})", joined)
                 }
             }
-            DType::TUser {
-                name,
-                type_args,
-                ..
-            } => {
+            DType::TUser { name, type_args, .. } => {
                 if type_args.is_empty() {
                     write!(f, "{}", name)
                 } else {
@@ -385,11 +328,7 @@ impl Display for DType {
                 }
             }
             DType::TVar { var_name, .. } => write!(f, "'{}", var_name),
-            DType::TOpaque {
-                name,
-                type_args,
-                ..
-            } => {
+            DType::TOpaque { name, type_args, .. } => {
                 if type_args.is_empty() {
                     write!(f, "{}", name)
                 } else {
@@ -635,24 +574,6 @@ impl Display for RuleRHS {
     }
 }
 
-impl RuleRHS {
-    pub fn is_literal(&self) -> bool {
-        matches!(self, RuleRHS::RHSLiteral { .. })
-    }
-    pub fn is_positive_literal(&self) -> bool {
-        matches!(self, RuleRHS::RHSLiteral { polarity: true, .. })
-    }
-    pub fn is_negative_literal(&self) -> bool {
-        matches!(self, RuleRHS::RHSLiteral { polarity: false, .. })
-    }
-    pub fn is_group_by(&self) -> bool {
-        matches!(self, RuleRHS::RHSGroupBy { .. })
-    }
-    pub fn is_condition(&self) -> bool {
-        matches!(self, RuleRHS::RHSCondition { .. })
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rule {
     pub pos: Pos,
@@ -700,8 +621,7 @@ impl Display for ModuleName {
         if self.path.is_empty() {
             write!(f, "")
         } else {
-            let joined = self.path.join("::");
-            write!(f, "{}", joined)
+            write!(f, "{}", self.path.join("::"))
         }
     }
 }
@@ -747,7 +667,7 @@ impl Display for HOType {
                     .iter()
                     .map(|a| {
                         let is_mut = if a.arg_type.is_mut { "mut " } else { "" };
-                        format!("{}: {}", is_mut.to_string() + &a.name, a.arg_type.arg_type)
+                        format!("{}: {}", is_mut.to_owned() + &a.name, a.arg_type.arg_type)
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -1025,115 +945,249 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_eq_operators() {
+    fn test_basic_exprs_eq_and_display() {
         let e1 = Expr::var("x");
-        let e2 = Expr::var("x");
-        assert_eq!(e1, e2);
+        let e2 = Expr::int(42);
+        let e3 = Expr::string_lit("abc");
+        let e4 = Expr::interpolated("Hello ${world}");
+        assert_eq!(format!("{}", e1), "x");
+        assert_eq!(format!("{}", e2), "42");
+        assert_eq!(format!("{}", e3), "\"abc\"");
+        assert_eq!(format!("{}", e4), "[|Hello ${world}|]");
     }
 
     #[test]
-    fn test_float_type_eq() {
-        let t1 = DType::TFloat { pos: Pos::nopos() };
-        let t2 = DType::TFloat { pos: Pos::nopos() };
-        assert_eq!(t1, t2);
-    }
-
-    #[test]
-    fn test_struct_display() {
-        let c = Constructor {
-            pos: Pos::nopos(),
-            name: "MyCons".to_string(),
-            args: vec![
-                Field {
-                    pos: Pos::nopos(),
-                    name: "x".to_string(),
-                    ftype: DType::TInt { pos: Pos::nopos() },
-                },
-                Field {
-                    pos: Pos::nopos(),
-                    name: "y".to_string(),
-                    ftype: DType::TString { pos: Pos::nopos() },
-                },
-            ],
-        };
-        let dt = DType::TStruct {
-            pos: Pos::nopos(),
-            constructors: vec![c],
-        };
-        assert!(format!("{}", dt).contains("MyCons{x: bigint, y: string}"));
-    }
-
-    #[test]
-    fn test_rule_eq() {
-        let a1 = Atom {
-            pos: Pos::nopos(),
-            relation: "Foo".to_string(),
-            delay: Delay::zero(),
-            diff: false,
-            value: Expr::int(10),
-        };
-        let a2 = a1.clone();
-        let lhs1 = RuleLHS {
-            pos: Pos::nopos(),
-            atom: a1,
-            location: None,
-        };
-        let lhs2 = RuleLHS {
-            pos: Pos::nopos(),
-            atom: a2,
-            location: None,
-        };
-        let r1 = Rule {
-            pos: Pos::nopos(),
-            module: ModuleName { path: vec![] },
-            lhs: vec![lhs1],
-            rhs: vec![],
-        };
-        let r2 = Rule {
-            pos: Pos::nopos(),
-            module: ModuleName { path: vec![] },
-            lhs: vec![lhs2],
-            rhs: vec![],
-        };
-        assert_eq!(r1, r2);
-    }
-}
-
-fn main() {
-    let prog = DatalogProgram::new()
-        .add_relation(Relation {
-            pos: Pos::nopos(),
-            role: RelationRole::RelInternal,
-            semantics: RelationSemantics::RelSet,
-            name: "Example".to_string(),
-            rtype: DType::TBit { pos: Pos::nopos(), width: 8 },
-            primary_key: None,
-        })
-        .add_rule(Rule {
+    fn test_interpolation_in_rule() {
+        let rule = Rule {
             pos: Pos::nopos(),
             module: ModuleName { path: vec![] },
             lhs: vec![RuleLHS {
                 pos: Pos::nopos(),
                 atom: Atom {
                     pos: Pos::nopos(),
-                    relation: "Example".to_string(),
+                    relation: "Foo".to_string(),
                     delay: Delay::zero(),
                     diff: false,
-                    value: Expr::var("x"),
+                    value: Expr::interpolated("Hello ${world}"),
                 },
                 location: None,
             }],
-            rhs: vec![RuleRHS::RHSLiteral {
+            rhs: vec![RuleRHS::RHSCondition {
                 pos: Pos::nopos(),
-                polarity: true,
+                expr: Expr::interpolated("Check ${stuff}"),
+            }],
+        };
+        assert_eq!(
+            format!("{}", rule),
+            "Foo([|Hello ${world}|]) :- [|Check ${stuff}|]."
+        );
+    }
+
+    #[test]
+    fn test_multiple_interpolations() {
+        let rule = Rule {
+            pos: Pos::nopos(),
+            module: ModuleName { path: vec![] },
+            lhs: vec![RuleLHS {
+                pos: Pos::nopos(),
                 atom: Atom {
                     pos: Pos::nopos(),
-                    relation: "Other".to_string(),
+                    relation: "Bar".to_string(),
                     delay: Delay::zero(),
                     diff: false,
-                    value: Expr::var("x"),
+                    value: Expr::interpolated("Greeting ${name}"),
                 },
+                location: None,
             }],
-        });
-    println!("{}", prog);
+            rhs: vec![
+                RuleRHS::RHSCondition {
+                    pos: Pos::nopos(),
+                    expr: Expr::interpolated("First ${this}"),
+                },
+                RuleRHS::RHSCondition {
+                    pos: Pos::nopos(),
+                    expr: Expr::interpolated("Then ${that}"),
+                },
+            ],
+        };
+        let rule_str = format!("{}", rule);
+        assert_eq!(
+            rule_str,
+            "Bar([|Greeting ${name}|]) :- [|First ${this}|], [|Then ${that}|]."
+        );
+    }
+
+    #[test]
+    fn test_program_with_interpolations() {
+        let rel = Relation {
+            pos: Pos::nopos(),
+            role: RelationRole::RelInternal,
+            semantics: RelationSemantics::RelSet,
+            name: "TestRel".to_string(),
+            rtype: DType::TInt { pos: Pos::nopos() },
+            primary_key: None,
+        };
+        let rule = Rule {
+            pos: Pos::nopos(),
+            module: ModuleName { path: vec![] },
+            lhs: vec![RuleLHS {
+                pos: Pos::nopos(),
+                atom: Atom {
+                    pos: Pos::nopos(),
+                    relation: "TestRel".to_string(),
+                    delay: Delay::zero(),
+                    diff: false,
+                    value: Expr::int(1),
+                },
+                location: None,
+            }],
+            rhs: vec![RuleRHS::RHSCondition {
+                pos: Pos::nopos(),
+                expr: Expr::interpolated("Check ${val}"),
+            }],
+        };
+        let prog = DatalogProgram::new().add_relation(rel).add_rule(rule);
+        let out = format!("{}", prog);
+        assert!(out.contains("relation TestRel[bigint];"));
+        assert!(out.contains("TestRel(1) :- [|Check ${val}|]."));
+    }
+
+    #[test]
+    fn test_output_relation_with_interpolation() {
+        let output_relation = Relation {
+            pos: Pos::nopos(),
+            role: RelationRole::RelOutput,
+            semantics: RelationSemantics::RelSet,
+            name: "OutputRel".to_string(),
+            rtype: DType::TString { pos: Pos::nopos() },
+            primary_key: None,
+        };
+
+        let rule = Rule {
+            pos: Pos::nopos(),
+            module: ModuleName { path: vec![] },
+            lhs: vec![RuleLHS {
+                pos: Pos::nopos(),
+                atom: Atom {
+                    pos: Pos::nopos(),
+                    relation: "OutputRel".to_string(),
+                    delay: Delay::zero(),
+                    diff: false,
+                    value: Expr::interpolated("Result ${x}"),
+                },
+                location: None,
+            }],
+            rhs: vec![RuleRHS::RHSCondition {
+                pos: Pos::nopos(),
+                expr: Expr::interpolated("Compute ${x} from something"),
+            }],
+        };
+
+        let program = DatalogProgram::new().add_relation(output_relation).add_rule(rule);
+        let out = format!("{}", program);
+        assert!(out.contains("output relation OutputRel[string];"));
+        assert!(out.contains("OutputRel([|Result ${x}|]) :- [|Compute ${x} from something|]."));
+    }
+
+    #[test]
+    fn test_output_relation_with_literal_and_interpolation() {
+        let output_relation = Relation {
+            pos: Pos::nopos(),
+            role: RelationRole::RelOutput,
+            semantics: RelationSemantics::RelSet,
+            name: "OutputRel2".to_string(),
+            rtype: DType::TString { pos: Pos::nopos() },
+            primary_key: None,
+        };
+
+        let rule = Rule {
+            pos: Pos::nopos(),
+            module: ModuleName { path: vec![] },
+            lhs: vec![RuleLHS {
+                pos: Pos::nopos(),
+                atom: Atom {
+                    pos: Pos::nopos(),
+                    relation: "OutputRel2".to_string(),
+                    delay: Delay::zero(),
+                    diff: false,
+                    value: Expr::interpolated("String ${some_val}"),
+                },
+                location: None,
+            }],
+            rhs: vec![
+                RuleRHS::RHSLiteral {
+                    pos: Pos::nopos(),
+                    polarity: true,
+                    atom: Atom {
+                        pos: Pos::nopos(),
+                        relation: "CheckRelation".to_string(),
+                        delay: Delay::zero(),
+                        diff: false,
+                        value: Expr::string_lit("foo"),
+                    },
+                },
+                RuleRHS::RHSCondition {
+                    pos: Pos::nopos(),
+                    expr: Expr::interpolated("Also ${other_val} needed"),
+                },
+            ],
+        };
+
+        let program = DatalogProgram::new().add_relation(output_relation).add_rule(rule);
+        let out = format!("{}", program);
+        assert!(out.contains("output relation OutputRel2[string];"));
+        assert!(out.contains("OutputRel2([|String ${some_val}|]) :- CheckRelation(\"foo\"), [|Also ${other_val} needed|]."));
+    }
+
+    #[test]
+    fn test_output_relation_standalone() {
+        let output_relation = Relation {
+            pos: Pos::nopos(),
+            role: RelationRole::RelOutput,
+            semantics: RelationSemantics::RelSet,
+            name: "Alone".to_string(),
+            rtype: DType::TInt { pos: Pos::nopos() },
+            primary_key: None,
+        };
+
+        let program = DatalogProgram::new().add_relation(output_relation);
+        let out = format!("{}", program);
+        assert!(out.contains("output relation Alone[bigint];"));
+    }
+
+    #[test]
+    fn test_output_relation_in_code() {
+        let program = DatalogProgram::new()
+            .add_relation(Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelOutput,
+                semantics: RelationSemantics::RelSet,
+                name: "SampleOut".to_string(),
+                rtype: DType::TString { pos: Pos::nopos() },
+                primary_key: None,
+            })
+            .add_rule(Rule {
+                pos: Pos::nopos(),
+                module: ModuleName { path: vec![] },
+                lhs: vec![RuleLHS {
+                    pos: Pos::nopos(),
+                    atom: Atom {
+                        pos: Pos::nopos(),
+                        relation: "SampleOut".to_string(),
+                        delay: Delay::zero(),
+                        diff: false,
+                        value: Expr::interpolated("FinalValue ${result}"),
+                    },
+                    location: None,
+                }],
+                rhs: vec![RuleRHS::RHSCondition {
+                    pos: Pos::nopos(),
+                    expr: Expr::interpolated("Compute ${result} from data"),
+                }],
+            });
+
+        let output = format!("{}", program);
+        assert!(output.contains("output relation SampleOut[string];"));
+        assert!(output.contains("SampleOut([|FinalValue ${result}|]) :- [|Compute ${result} from data|]."));
+    }
 }
