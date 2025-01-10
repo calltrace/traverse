@@ -23,7 +23,12 @@ pub enum Lval {
     Logical(String, LvalChildren),
     Emit(String, HashMap<String, Box<Lval>>),
     Capture(String),
-    CaptureForm(String, HashMap<String, Box<Lval>>, Option<Box<Lval>>),
+    CaptureForm(
+        String,
+        HashMap<String, Box<Lval>>,
+        Option<Box<Lval>>,
+        Option<Box<Lval>>,
+    ),
     WhenForm(Box<Lval>, LvalChildren),
     KeyVal(LvalChildren),
 }
@@ -84,11 +89,21 @@ impl Lval {
         Box::new(Lval::Emit(node_type.to_string(), attributes))
     }
 
-    pub fn capture_form(node_type: &str, attributes: HashMap<String, Box<Lval>>, q_expr: Option<Box<Lval>>) -> Box<Lval> {
-        Box::new(Lval::CaptureForm(node_type.to_string(), attributes, q_expr))
+    pub fn capture_form(
+        node_type: &str,
+        attributes: HashMap<String, Box<Lval>>,
+        nested_captures: Option<Box<Lval>>,
+        q_expr: Option<Box<Lval>>,
+    ) -> Box<Lval> {
+        Box::new(Lval::CaptureForm(
+            node_type.to_string(),
+            attributes,
+            nested_captures,
+            q_expr,
+        ))
     }
 
-    pub fn do_form(exprs : LvalChildren ) -> Box<Lval> {
+    pub fn do_form(exprs: LvalChildren) -> Box<Lval> {
         Box::new(Lval::DoForm(exprs))
     }
 
@@ -208,13 +223,23 @@ impl fmt::Display for Lval {
             Lval::WhenForm(condition, body) => {
                 write!(f, "(when {} {})", condition, format_children(body))
             }
-            Lval::CaptureForm(node_type, attributes, do_block) => {
+            Lval::CaptureForm(node_type, attributes, nested_captures, do_block) => {
                 let formatted_attrs = attributes
                     .iter()
                     .map(|(key, value)| format!("({} {})", key, value))
                     .collect::<Vec<_>>()
                     .join(" ");
-                write!(f, "(emit {} {} {})", node_type, formatted_attrs, do_block.as_ref().map(|b| b.to_string()).unwrap_or_default())
+                write!(
+                    f,
+                    "(emit {} {} {} {})",
+                    node_type,
+                    formatted_attrs,
+                    nested_captures
+                        .clone()
+                        .map(|n| Lval::lval_expr_print(&[n]))
+                        .unwrap_or_default(),
+                    do_block.as_ref().map(|b| b.to_string()).unwrap_or_default()
+                )
             }
             Lval::Capture(capture) => {
                 write!(f, "@{}", capture)
