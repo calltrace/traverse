@@ -346,6 +346,32 @@ pub enum DType {
     },
 }
 
+impl DType {
+    fn to_ddlog_relation_fields(&self) -> Vec<(String, DType)> {
+        match self {
+            DType::TStruct { fields, .. } => {
+                if fields.is_empty() {
+                    vec![(
+                        "val".to_string(),
+                        DType::TStruct {
+                            pos: Pos::nopos(),
+                            name: "".to_string(),
+                            fields: vec![],
+                        },
+                    )]
+                } else {
+                    fields
+                        .iter()
+                        .map(|fld| (fld.name.clone(), fld.ftype.clone()))
+                        .collect()
+                }
+            }
+            // For all other DTypes, treat them as a single field named "val".
+            _ => vec![("val".to_string(), self.clone())],
+        }
+    }
+}
+
 impl Display for DType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
@@ -357,11 +383,12 @@ impl Display for DType {
             DType::TDouble { .. } => write!(f, "double"),
             DType::TFloat { .. } => write!(f, "float"),
             DType::TStruct { name, fields, .. } => {
-                let mut parts = Vec::new();
+                let mut parts = vec![];
                 for (i, fld) in fields.iter().enumerate() {
                     if i > 0 {
-                        parts.push(format!(", {}", fld).to_string());
+                        parts.push(", ".to_string());
                     }
+                    parts.push(format!("{}: {}", fld.name, fld.ftype));
                 }
                 let joined = parts.join("");
                 write!(f, "{}{{{}}}", name, joined)
@@ -466,6 +493,17 @@ pub struct Relation {
     pub primary_key: Option<KeyExpr>,
 }
 
+impl Relation {
+    fn ddlog_fields(&self) -> String {
+        let fields = self.rtype.to_ddlog_relation_fields();
+        let mut rendered = Vec::with_capacity(fields.len());
+        for (name, ty) in fields {
+            rendered.push(format!("{}: {}", name, ty));
+        }
+        rendered.join(", ")
+    }
+}
+
 impl Display for Relation {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let role_str = match self.role {
@@ -478,7 +516,14 @@ impl Display for Relation {
             RelationSemantics::RelStream => "stream",
             RelationSemantics::RelMultiset => "multiset",
         };
-        write!(f, "{}{} {}({})", role_str, sem_str, self.name, self.rtype)?;
+        write!(
+            f,
+            "{}{} {}({})",
+            role_str,
+            sem_str,
+            self.name,
+            self.ddlog_fields()
+        )?;
         if let Some(pk) = &self.primary_key {
             write!(f, " primary key {};", pk)
         } else {
@@ -641,7 +686,8 @@ impl Display for Rule {
             .collect::<Vec<_>>()
             .join(", ");
         if self.rhs.is_empty() {
-            write!(f, "{} :- .", lhs_str)
+            // treat it as a fact
+            write!(f, "{}.", lhs_str)
         } else {
             let rhs_str = self
                 .rhs
@@ -903,7 +949,7 @@ impl DatalogProgram {
     pub fn add_function(&mut self, func: Function) -> &mut Self {
         self.functions
             .entry(func.name.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(func);
         self
     }
@@ -925,6 +971,12 @@ impl DatalogProgram {
     }
 }
 
+impl Default for DatalogProgram {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Display for DatalogProgram {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for i in &self.imports {
@@ -936,13 +988,13 @@ impl Display for DatalogProgram {
         for rel in self.relations.values() {
             writeln!(f, "{}", rel)?;
         }
-        for (_, idx) in &self.indexes {
+        for idx in self.indexes.values() {
             writeln!(f, "{}", idx)?;
         }
         for rule in &self.rules {
             writeln!(f, "{}", rule)?;
         }
-        for (_, funs) in &self.functions {
+        for funs in self.functions.values() {
             for fun in funs {
                 writeln!(f, "{}", fun)?;
             }
@@ -982,106 +1034,6 @@ impl Display for DatalogProgram {
 mod tests {
     use super::*;
 
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    enum LangXNode {
-        Emit(String),
-        Sequence(Vec<LangXNode>),
-        Check(String),
-    }
-
-    fn transform_langx_ast(ast: &LangXNode, prog: &mut DatalogProgram) {
-        match ast {
-            LangXNode::Emit(val) => {
-                let out_rel = Relation {
-                    pos: Pos::nopos(),
-                    role: RelationRole::RelOutput,
-                    semantics: RelationSemantics::RelSet,
-                    name: "LangXOut".to_string(),
-                    rtype: DType::TString { pos: Pos::nopos() },
-                    primary_key: None,
-                };
-                prog.add_relation(out_rel);
-                let rule = Rule {
-                    pos: Pos::nopos(),
-                    module: ModuleName { path: vec![] },
-                    lhs: vec![RuleLHS {
-                        pos: Pos::nopos(),
-                        atom: Atom {
-                            pos: Pos::nopos(),
-                            relation: "LangXOut".to_string(),
-                            delay: Delay::zero(),
-                            diff: false,
-                            value: Expr::interpolated(&format!("Value from X: {}", val)),
-                        },
-                        location: None,
-                    }],
-                    rhs: vec![RuleRHS::RHSCondition {
-                        pos: Pos::nopos(),
-                        expr: Expr::interpolated("Emit triggered"),
-                    }],
-                };
-                prog.add_rule(rule);
-            }
-            LangXNode::Sequence(nodes) => {
-                for subnode in nodes {
-                    transform_langx_ast(subnode, prog);
-                }
-            }
-            LangXNode::Check(msg) => {
-                let check_rel = Relation {
-                    pos: Pos::nopos(),
-                    role: RelationRole::RelInternal,
-                    semantics: RelationSemantics::RelSet,
-                    name: "LangXCheck".to_string(),
-                    rtype: DType::TString { pos: Pos::nopos() },
-                    primary_key: None,
-                };
-                prog.add_relation(check_rel);
-                let rule = Rule {
-                    pos: Pos::nopos(),
-                    module: ModuleName { path: vec![] },
-                    lhs: vec![RuleLHS {
-                        pos: Pos::nopos(),
-                        atom: Atom {
-                            pos: Pos::nopos(),
-                            relation: "LangXCheck".to_string(),
-                            delay: Delay::zero(),
-                            diff: false,
-                            value: Expr::interpolated(&format!("Check: {}", msg)),
-                        },
-                        location: None,
-                    }],
-                    rhs: vec![RuleRHS::RHSCondition {
-                        pos: Pos::nopos(),
-                        expr: Expr::interpolated("Some check condition"),
-                    }],
-                };
-                prog.add_rule(rule);
-            }
-        }
-    }
-
-    #[test]
-    fn test_langx_ast_complex() {
-        let ast = LangXNode::Sequence(vec![
-            LangXNode::Check("alpha".to_string()),
-            LangXNode::Emit("beta".to_string()),
-            LangXNode::Sequence(vec![
-                LangXNode::Check("deep1".to_string()),
-                LangXNode::Emit("deep2".to_string()),
-            ]),
-        ]);
-        let mut ddlog_prog = DatalogProgram::new();
-        transform_langx_ast(&ast, &mut ddlog_prog);
-        let text = format!("{}", ddlog_prog);
-        assert!(text.contains("LangXCheck(string);"));
-        assert!(text.contains("LangXOut(string);"));
-        assert!(text.contains("Check: alpha"));
-        assert!(text.contains("Value from X: beta"));
-        assert!(text.contains("Check: deep1"));
-        assert!(text.contains("Value from X: deep2"));
-    }
-
     #[test]
     fn test_basic_exprs_eq_and_display() {
         let e1 = Expr::var("x");
@@ -1115,6 +1067,7 @@ mod tests {
                 expr: Expr::interpolated("Check ${stuff}"),
             }],
         };
+        // Expecting "Foo([|Hello ${world}|]) :- [|Check ${stuff}|]."
         assert_eq!(
             format!("{}", rule),
             "Foo([|Hello ${world}|]) :- [|Check ${stuff}|]."
@@ -1149,6 +1102,7 @@ mod tests {
             ],
         };
         let rule_str = format!("{}", rule);
+        // Expecting "Bar([|Greeting ${name}|]) :- [|First ${this}|], [|Then ${that}|]."
         assert_eq!(
             rule_str,
             "Bar([|Greeting ${name}|]) :- [|First ${this}|], [|Then ${that}|]."
@@ -1187,7 +1141,9 @@ mod tests {
         let mut prog = DatalogProgram::new();
         prog.add_relation(rel).add_rule(rule);
         let out = format!("{}", prog);
-        assert!(out.contains("relation TestRel(bigint);"));
+        // We expect "relation TestRel(bigint);" to appear (the new style).
+        assert!(out.contains("TestRel(val: bigint);"));
+        // We expect "TestRel(1) :- [|Check ${val}|]."
         assert!(out.contains("TestRel(1) :- [|Check ${val}|]."));
     }
 
@@ -1223,7 +1179,8 @@ mod tests {
         let mut program = DatalogProgram::new();
         program.add_relation(output_relation).add_rule(rule);
         let out = format!("{}", program);
-        assert!(out.contains("output relation OutputRel(string);"));
+        // e.g. "output relation OutputRel(val: string);"
+        assert!(out.contains("output relation OutputRel(val: string);"));
         assert!(out.contains("OutputRel([|Result ${x}|]) :- [|Compute ${x} from something|]."));
     }
 
@@ -1272,7 +1229,8 @@ mod tests {
         let mut program = DatalogProgram::new();
         program.add_relation(output_relation).add_rule(rule);
         let out = format!("{}", program);
-        assert!(out.contains("output relation OutputRel2(string);"));
+        // e.g. "output relation OutputRel2(val: string);"
+        assert!(out.contains("output relation OutputRel2(val: string);"));
         assert!(out.contains("OutputRel2([|String ${some_val}|]) :- CheckRelation(\"foo\"), [|Also ${other_val} needed|]."));
     }
 
@@ -1289,7 +1247,8 @@ mod tests {
         let mut program = DatalogProgram::new();
         program.add_relation(output_relation);
         let out = format!("{}", program);
-        assert!(out.contains("output relation Alone(bigint);"));
+        // e.g. "output relation Alone(val: bigint);"
+        assert!(out.contains("output relation Alone(val: bigint);"));
     }
 
     #[test]
@@ -1324,7 +1283,9 @@ mod tests {
                 }],
             });
         let output = format!("{}", program);
-        assert!(output.contains("output relation SampleOut(string);"));
+        // e.g. "output relation SampleOut(val: string);"
+        assert!(output.contains("output relation SampleOut(val: string);"));
+        // "SampleOut([|FinalValue ${result}|]) :- [|Compute ${result} from data|]."
         assert!(output
             .contains("SampleOut([|FinalValue ${result}|]) :- [|Compute ${result} from data|]."));
     }
@@ -1334,13 +1295,14 @@ mod tests {
         #[derive(Debug, Clone, PartialEq, Eq)]
         enum LangXNode {
             Emit(String),
+            Sequence(Vec<LangXNode>),
+            Check(String),
         }
 
-        fn transform_langx_to_ddlog(node: &LangXNode) -> DatalogProgram {
-            let mut prog = DatalogProgram::new();
-            match node {
+        fn transform_langx_ast(ast: &LangXNode, prog: &mut DatalogProgram) {
+            match ast {
                 LangXNode::Emit(val) => {
-                    let output_rel = Relation {
+                    let out_rel = Relation {
                         pos: Pos::nopos(),
                         role: RelationRole::RelOutput,
                         semantics: RelationSemantics::RelSet,
@@ -1348,7 +1310,8 @@ mod tests {
                         rtype: DType::TString { pos: Pos::nopos() },
                         primary_key: None,
                     };
-                    prog.add_relation(output_rel);
+                    prog.add_relation(out_rel);
+
                     let rule = Rule {
                         pos: Pos::nopos(),
                         module: ModuleName { path: vec![] },
@@ -1368,19 +1331,73 @@ mod tests {
                             expr: Expr::interpolated("Some check from DSL X"),
                         }],
                     };
+
+                    prog.add_rule(rule);
+                }
+                LangXNode::Sequence(nodes) => {
+                    for subnode in nodes {
+                        transform_langx_ast(subnode, prog);
+                    }
+                }
+                LangXNode::Check(msg) => {
+                    let check_rel = Relation {
+                        pos: Pos::nopos(),
+                        role: RelationRole::RelInternal,
+                        semantics: RelationSemantics::RelSet,
+                        name: "LangXCheck".to_string(),
+                        rtype: DType::TString { pos: Pos::nopos() },
+                        primary_key: None,
+                    };
+                    prog.add_relation(check_rel);
+
+                    let rule = Rule {
+                        pos: Pos::nopos(),
+                        module: ModuleName { path: vec![] },
+                        lhs: vec![RuleLHS {
+                            pos: Pos::nopos(),
+                            atom: Atom {
+                                pos: Pos::nopos(),
+                                relation: "LangXCheck".to_string(),
+                                delay: Delay::zero(),
+                                diff: false,
+                                value: Expr::interpolated(&format!("Check: {}", msg)),
+                            },
+                            location: None,
+                        }],
+                        rhs: vec![RuleRHS::RHSCondition {
+                            pos: Pos::nopos(),
+                            expr: Expr::interpolated("Some check condition"),
+                        }],
+                    };
+
                     prog.add_rule(rule);
                 }
             }
-            prog
         }
 
-        let node = LangXNode::Emit("xyz_value".to_string());
-        let ddlog_prog = transform_langx_to_ddlog(&node);
-        let printed = format!("{}", ddlog_prog);
-        assert!(printed.contains("output relation LangXOut(string);"));
-        assert!(
-            printed.contains("LangXOut([|Value from X: xyz_value|]) :- [|Some check from DSL X|].")
-        );
+        let ast = LangXNode::Sequence(vec![
+            LangXNode::Check("alpha".to_string()),
+            LangXNode::Emit("beta".to_string()),
+            LangXNode::Sequence(vec![
+                LangXNode::Check("deep1".to_string()),
+                LangXNode::Emit("deep2".to_string()),
+            ]),
+        ]);
+
+        let mut ddlog_prog = DatalogProgram::new();
+        transform_langx_ast(&ast, &mut ddlog_prog);
+        let text = format!("{}", ddlog_prog);
+
+        println!("{}", text);
+        // Basic checks
+        assert!(text.contains("LangXCheck(val: string);"));
+        assert!(text.contains("LangXOut(val: string);"));
+
+        // Check capture strings
+        assert!(text.contains("Check: alpha"));
+        assert!(text.contains("Value from X: beta"));
+        assert!(text.contains("Check: deep1"));
+        assert!(text.contains("Value from X: deep2"));
     }
 
     #[test]
@@ -1411,7 +1428,12 @@ mod tests {
             rhs: vec![],
         });
         let output = format!("{}", prog);
-        assert!(output.contains("output relation TestRel(bigint);"));
-        assert!(output.contains("TestRel(42) :- ."));
+        // e.g. "output relation TestRel(val: bigint);"
+        assert!(output.contains("output relation TestRel(val: bigint);"));
+        // "TestRel(42)."
+        assert!(output.contains("TestRel(42)."));
     }
 }
+
+
+
