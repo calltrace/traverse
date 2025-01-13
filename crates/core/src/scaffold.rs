@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File},
-    io::{Result as IoResult, Write},
+    io::{Read, Result as IoResult, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -8,7 +8,10 @@ use std::{
 pub fn read_treesitter_grammars(treesitter_dirs: &[PathBuf]) -> String {
     let mut relations = String::new();
     for dir in treesitter_dirs {
-        relations.push_str(&format!("// Stub: Reading Tree-Sitter folder: {}\n", dir.display()));
+        relations.push_str(&format!(
+            "// Stub: Reading Tree-Sitter folder: {}\n",
+            dir.display()
+        ));
     }
     relations.push_str("// TODO: actual Tree-Sitter -> DDlog generation\n");
     relations
@@ -128,7 +131,11 @@ pub fn build_ddlog_crate(base_dir: &Path, project_name: &str) -> Result<(), Stri
         return Err(format!("ddlog command failed on {:?}", dl_file));
     }
 
-    let project_dir = format!("{}/{}_ddlog", base_dir.to_str().unwrap_or_default(), project_name);
+    let project_dir = format!(
+        "{}/{}_ddlog",
+        base_dir.to_str().unwrap_or_default(),
+        project_name
+    );
 
     let cargo_status = Command::new("cargo")
         .args(["+1.76", "build"])
@@ -145,8 +152,16 @@ pub fn build_ddlog_crate(base_dir: &Path, project_name: &str) -> Result<(), Stri
     Ok(())
 }
 
-pub fn run_ddlog_crate(base_dir: &Path, project_name: &str, dat_content: &str) -> Result<String, String> {
-    let project_dir = format!("{}/{}_ddlog", base_dir.to_str().unwrap_or_default(), project_name);
+pub fn run_ddlog_crate(
+    base_dir: &Path,
+    project_name: &str,
+    dat_content: &str,
+) -> Result<String, String> {
+    let project_dir = format!(
+        "{}/{}_ddlog",
+        base_dir.to_str().unwrap_or_default(),
+        project_name
+    );
     let dat_file = format!("{}/input.dat", project_dir);
     fs::write(&dat_file, dat_content).map_err(|e| format!("Failed to write input.dat: {}", e))?;
 
@@ -154,11 +169,10 @@ pub fn run_ddlog_crate(base_dir: &Path, project_name: &str, dat_content: &str) -
     let mut cargo_run = Command::new(exec_path)
         .current_dir(project_dir)
         .stdin(Stdio::piped())
-        .stdout(Stdio::inherit())
+        .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
-        .unwrap();
-        //.map_err(|e| format!("Failed to launch cargo run: {}", e))?;
+        .map_err(|e| format!("Failed to launch cargo run: {}", e))?;
 
     write!(cargo_run.stdin.as_ref().unwrap(), "{}", dat_content).unwrap();
 
@@ -168,20 +182,36 @@ pub fn run_ddlog_crate(base_dir: &Path, project_name: &str, dat_content: &str) -
         println!("Cargo run failed");
     }
 
-    /*
-    if !cargo_run.status.success() {
-        return Err("Cargo run failed.".into());
-    }*/
+    let mut stdout = cargo_run.stdout.take().ok_or("Failed to get stdout")?;
 
-    //let stdout = String::from_utf8_lossy(&cargo_run.stdout).to_string();
-    Ok("".to_string())
+    let mut buffer = Vec::new();
+    stdout
+        .read_to_end(&mut buffer)
+        .map_err(|e| format!("Failed to read stdout: {}", e))?;
+
+    let bytes = bytes::Bytes::from(buffer);
+
+    let output = String::from_utf8_lossy(&bytes);
+
+    Ok(output.into())
+}
+
+pub fn teardown_ddlog_project(base_dir: &Path, project_name: &str) -> Result<(), String> {
+    let project_descriptor = format!("{}/{}.dl", base_dir.to_str().unwrap_or_default(), project_name);
+    let project_dir = format!(
+        "{}/{}_ddlog",
+        base_dir.to_str().unwrap_or_default(),
+        project_name
+    );
+    fs::remove_file(project_descriptor).map_err(|e| format!("Failed to remove project descriptor: {}", e))?;
+    fs::remove_dir_all(project_dir).map_err(|e| format!("Failed to remove project dir: {}", e))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::{fs, io::Read};
+    use tempfile::tempdir;
 
     #[test]
     fn test_generate_rust_project() {
@@ -281,7 +311,7 @@ DoubledRun(t) :- TestRun(d),
             .expect("Failed to run ddlog crate");
 
         assert!(
-            run_output.contains("DoubleRun(2)"),
+            run_output.contains("DoubledRun{.x = 2}: +1"),
             "Expected message not found in output:\n{}",
             run_output
         );

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+core = { path = "../core" }
 clap = { version = "4.5.23", features = ["derive"] }
 from-pest = "0.3.2"
 indexmap = { version= "2.7.0", features = ["serde"] }
@@ -17,6 +18,9 @@ rustyline = "15.0.0"
 serde = "1.0.216"
 serde_derive = "1.0.216"
 serde_json = "1.0.133"
+
+[dev-dependencies]
+ctor = "0.1.26"
 
 [build-dependencies]
 cc = "1.2.4"

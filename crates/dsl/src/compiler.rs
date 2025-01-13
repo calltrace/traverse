@@ -1,403 +1,312 @@
 use crate::ast::Lval;
-use crate::ddlog_lang::{
-    Atom, DType, DatalogProgram, Delay, Expr, ExprNode, ModuleName, Pos, Relation, RelationRole,
-    RelationSemantics, Rule as DdlogRule, RuleLHS, RuleRHS,
-};
-use crate::error::{BlisprResult, Error};
-use crate::parser::{lval_read, Grammar, Rule};
-use pest::Parser;
-use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::ir::IRGraph;
+use std::collections::{HashMap, HashSet};
 
-static RULE_COUNTER: AtomicUsize = AtomicUsize::new(1);
-static RELATION_COUNTER: AtomicUsize = AtomicUsize::new(1);
-
-fn to_ast(input: &str) -> BlisprResult {
-    let pairs = Grammar::parse(Rule::program, input)
-        .map_err(|e| Error::Parse(format!("Parse error: {}", e)))?;
-    let program_pair = pairs
-        .into_iter()
-        .next()
-        .ok_or_else(|| Error::Parse("No content found in the DSL program.".to_string()))?;
-    lval_read(program_pair)
+pub struct Compiler {
+    pub(crate) ir: IRGraph,
+    env: HashMap<String, u64>,
 }
 
-pub fn transform_ast_to_ddlog(ast: &Lval) -> DatalogProgram {
-    let mut program = DatalogProgram::new();
-    traverse_lval(ast, &mut program, None);
-    program
-}
+impl Compiler {
+    pub fn new() -> Self {
+        Compiler {
+            ir: IRGraph::new(),
+            env: HashMap::new(),
+        }
+    }
 
-fn traverse_lval(node: &Lval, program: &mut DatalogProgram, parent_rel: Option<String>) {
-    match node {
-        Lval::Query(children) => {
-            for child in children {
-                traverse_lval(child, program, parent_rel.clone());
+    pub fn compile_lval(&mut self, lval: &Lval) -> u64 {
+        match lval {
+            Lval::CaptureForm(node_type, attributes, nested_captures, q_expr) => {
+                self.compile_capture_form(node_type, attributes, nested_captures.as_deref(), q_expr.as_deref())
             }
-        }
-        Lval::CaptureForm(node_type, attributes, nested_opt, _) => {
-            handle_capture_form(node_type, attributes, nested_opt.as_deref(), program, parent_rel);
-        }
-        Lval::Emit(node_type, attrs) => {
-            handle_emit_form(node_type, attrs, program, parent_rel);
-        }
-        Lval::WhenForm(cond, emits) => {
-            traverse_lval(cond, program, parent_rel.clone());
-            for em in emits {
-                traverse_lval(em, program, parent_rel.clone());
+            Lval::Emit(node_type, attributes) => {
+                self.compile_emit(node_type, attributes)
             }
-        }
-        Lval::Sexpr(children)
-        | Lval::Qexpr(children)
-        | Lval::DoForm(children)
-        | Lval::Logical(_, children)
-        | Lval::KeyVal(children) => {
-            for child in children {
-                traverse_lval(child, program, parent_rel.clone());
+            Lval::Capture(name) => {
+                if let Some(&id) = self.env.get(name) {
+                    id
+                } else {
+                    let new_id = self.ir.add_rhs_node(
+                        &format!("bare_capture_{}", name),
+                        HashSet::new(),
+                        vec![],
+                    );
+                    self.env.insert(name.clone(), new_id);
+                    new_id
+                }
             }
-        }
-        Lval::Capture(_) | Lval::Num(_) | Lval::Sym(_) | Lval::Fun(_) => {}
-    }
-}
-
-fn handle_capture_form(
-    node_type: &str,
-    attributes: &HashMap<String, Box<Lval>>,
-    nested: Option<&Lval>,
-    program: &mut DatalogProgram,
-    parent_rel: Option<String>,
-) {
-    let input_rel_name = create_input_relation_for_capture(node_type, program, parent_rel);
-
-    for (attr_name, val) in attributes {
-        let rid = RULE_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let output_rel_name = format!("Captured_{}_{}_{}", node_type, attr_name, rid);
-        let output_relation = Relation {
-            pos: Pos::nopos(),
-            role: RelationRole::RelOutput,
-            semantics: RelationSemantics::RelSet,
-            name: output_rel_name.clone(),
-            rtype: DType::TString { pos: Pos::nopos() },
-            primary_key: None,
-        };
-        program.add_relation(output_relation);
-
-        let captured_expr = match **val {
-            Lval::Capture(ref cap_name) => Expr::new(ExprNode::EInterpolated {
-                pos: Pos::nopos(),
-                value: format!("Captured Value from {}", cap_name),
-            }),
-            _ => Expr::new(ExprNode::EString {
-                pos: Pos::nopos(),
-                value: format!("Non-capture data for attribute {}", attr_name),
-            }),
-        };
-
-        let lhs_atom = Atom {
-            pos: Pos::nopos(),
-            relation: output_rel_name,
-            delay: Delay::zero(),
-            diff: false,
-            value: captured_expr,
-        };
-        let lhs = RuleLHS {
-            pos: Pos::nopos(),
-            atom: lhs_atom,
-            location: None,
-        };
-
-        let cond_expr = Expr::new(ExprNode::EInterpolated {
-            pos: Pos::nopos(),
-            value: format!("FromRelation {}", input_rel_name),
-        });
-        let rhs_condition = RuleRHS::RHSCondition {
-            pos: Pos::nopos(),
-            expr: cond_expr,
-        };
-
-        let ddlog_rule = DdlogRule {
-            pos: Pos::nopos(),
-            module: ModuleName { path: vec![] },
-            lhs: vec![lhs],
-            rhs: vec![rhs_condition],
-        };
-        program.add_rule(ddlog_rule);
-    }
-    if let Some(n) = nested {
-        traverse_lval(n, program, Some(input_rel_name));
-    }
-}
-
-fn create_input_relation_for_capture(
-    node_type: &str,
-    program: &mut DatalogProgram,
-    parent_rel: Option<String>,
-) -> String {
-    let index = RELATION_COUNTER.fetch_add(1, Ordering::SeqCst);
-    let input_rel_name = format!("InCapture_{}_{}", node_type, index);
-
-    let relation = Relation {
-        pos: Pos::nopos(),
-        role: RelationRole::RelInput,
-        semantics: RelationSemantics::RelSet,
-        name: input_rel_name.clone(),
-        rtype: DType::TStruct {
-            pos: Pos::nopos(),
-            name: format!("{}_Struct", node_type),
-            fields: vec![],
-        },
-        primary_key: None,
-    };
-    program.add_relation(relation);
-
-    if let Some(parent_name) = parent_rel {
-        // Create a rule linking parent_name to child input_rel_name
-        let lhs_atom = Atom {
-            pos: Pos::nopos(),
-            relation: input_rel_name.clone(),
-            delay: Delay::zero(),
-            diff: false,
-            value: Expr::string_lit("Child of parent capture"),
-        };
-        let lhs = RuleLHS {
-            pos: Pos::nopos(),
-            atom: lhs_atom,
-            location: None,
-        };
-        let rhs_condition = RuleRHS::RHSCondition {
-            pos: Pos::nopos(),
-            expr: Expr::new(ExprNode::EInterpolated {
-                pos: Pos::nopos(),
-                value: format!("ParentRelation {}", parent_name),
-            }),
-        };
-        let link_rule = DdlogRule {
-            pos: Pos::nopos(),
-            module: ModuleName { path: vec![] },
-            lhs: vec![lhs],
-            rhs: vec![rhs_condition],
-        };
-        program.add_rule(link_rule);
-    }
-
-    input_rel_name
-}
-
-fn handle_emit_form(
-    node_type: &str,
-    attrs: &HashMap<String, Box<Lval>>,
-    program: &mut DatalogProgram,
-    parent_rel: Option<String>,
-) {
-    let out_rel_name = create_output_relation_for_emit(node_type, program);
-
-    let rule_id = RULE_COUNTER.fetch_add(1, Ordering::SeqCst);
-    let mut fields_vec = Vec::new();
-    for (k, v) in attrs {
-        match **v {
-            Lval::Capture(ref cap_name) => {
-                // Suppose we rely on a "Captured_*" relation to map the capture
-                let input_relation = guess_relation_for_capture(cap_name);
-                let field_expr = Expr::new(ExprNode::EInterpolated {
-                    pos: Pos::nopos(),
-                    value: format!("Emitting from {}", cap_name),
-                });
-                fields_vec.push((k.clone(), field_expr, input_relation));
-            }
-            _ => {
-                let field_expr = Expr::new(ExprNode::EString {
-                    pos: Pos::nopos(),
-                    value: format!("Literal value for {}", k),
-                });
-                fields_vec.push((k.clone(), field_expr, String::new()));
-            }
+            _ => self.compile_other(lval),
         }
     }
 
-    let fields_interpolated = Expr::new(ExprNode::EInterpolated {
-        pos: Pos::nopos(),
-        value: format!("Emit node {}", node_type),
-    });
+    fn compile_capture_form(
+        &mut self,
+        node_type: &str,
+        attributes: &HashMap<String, Box<Lval>>,
+        nested_captures: Option<&Lval>,
+        q_expr: Option<&Lval>,
+    ) -> u64 {
+        let capture_name = format!("capture_{}", node_type);
 
-    let lhs_atom = Atom {
-        pos: Pos::nopos(),
-        relation: out_rel_name.clone(),
-        delay: Delay::zero(),
-        diff: false,
-        value: fields_interpolated,
-    };
-    let lhs = RuleLHS {
-        pos: Pos::nopos(),
-        atom: lhs_atom,
-        location: None,
-    };
-
-    let mut rhses = Vec::new();
-    for (_, _expr, input_rel) in fields_vec {
-        if !input_rel.is_empty() {
-            rhses.push(RuleRHS::RHSCondition {
-                pos: Pos::nopos(),
-                expr: Expr::new(ExprNode::EInterpolated {
-                    pos: Pos::nopos(),
-                    value: format!("CapturedRelation {}", input_rel),
-                }),
-            });
+        let mut referenced_vars = HashSet::new();
+        for key in attributes.keys() {
+            referenced_vars.insert(key.clone());
         }
-    }
-    if let Some(ref parent_name) = parent_rel {
-        rhses.push(RuleRHS::RHSCondition {
-            pos: Pos::nopos(),
-            expr: Expr::new(ExprNode::EInterpolated {
-                pos: Pos::nopos(),
-                value: format!("ParentRelation {}", parent_name),
-            }),
-        });
-    }
-    let ddlog_rule = DdlogRule {
-        pos: Pos::nopos(),
-        module: ModuleName { path: vec![] },
-        lhs: vec![lhs],
-        rhs: rhses,
-    };
-    program.add_rule(ddlog_rule);
+        let lhs_id = self.ir.add_lhs_node(&capture_name, referenced_vars);
 
-    // If there are nested Lval inside the attributes, we traverse them
-    for v in attrs.values() {
-        traverse_lval(v, program, Some(out_rel_name.clone()));
+        let mut parents = Vec::new();
+        if let Some(nested) = nested_captures {
+            let nested_id = self.compile_lval(nested);
+            parents.push(nested_id);
+        }
+
+        let mut rhs_vars = HashSet::new();
+        for key in attributes.keys() {
+            rhs_vars.insert(key.to_owned());
+        }
+
+        let capture_rhs_id = self.ir.add_rhs_node(&capture_name, rhs_vars, parents);
+
+        let expr_string = format!("{}", q_expr.map(|q| q.to_string()).unwrap_or_default());
+        self.ir.add_rule(lhs_id, capture_rhs_id, &expr_string);
+
+        self.env.insert(node_type.to_string(), capture_rhs_id);
+
+        if let Some(q) = q_expr {
+            let _ = self.compile_lval(q);
+        }
+
+        capture_rhs_id
+    }
+
+    fn compile_emit(
+        &mut self,
+        node_type: &str,
+        attributes: &HashMap<String, Box<Lval>>,
+    ) -> u64 {
+        let emit_name = format!("emit_{}", node_type);
+
+        let mut referenced_vars = HashSet::new();
+        for key in attributes.keys() {
+            referenced_vars.insert(key.clone());
+        }
+        let lhs_id = self.ir.add_lhs_node(&emit_name, referenced_vars);
+
+        let mut parents = Vec::new();
+        let mut rhs_vars = HashSet::new();
+        for (key, val) in attributes {
+            rhs_vars.insert(key.clone());
+            let child_id = self.compile_lval(val);
+            parents.push(child_id);
+        }
+
+        let emit_rhs_id = self.ir.add_rhs_node(&emit_name, rhs_vars, parents);
+
+        let expr_string = format!("{}", Lval::Emit(node_type.to_string(), attributes.clone()));
+        self.ir.add_rule(lhs_id, emit_rhs_id, &expr_string);
+
+        emit_rhs_id
+    }
+
+    fn compile_other(&mut self, lval: &Lval) -> u64 {
+        let auto_name = format!("node_{}", self.ir.next_id());
+        let rhs_vars = HashSet::new();
+
+        let node_id = self.ir.add_rhs_node(&auto_name, rhs_vars, vec![]);
+
+        let lhs_id = self.ir.add_lhs_node(&format!("lhs_{}", auto_name), HashSet::new());
+        self.ir.add_rule(lhs_id, node_id, &format!("{}", lval));
+
+        node_id
     }
 }
 
-fn create_output_relation_for_emit(node_type: &str, program: &mut DatalogProgram) -> String {
-    let rid = RELATION_COUNTER.fetch_add(1, Ordering::SeqCst);
-    let out_rel_name = format!("EmitOut_{}_{}", node_type, rid);
-    let out_relation = Relation {
-        pos: Pos::nopos(),
-        role: RelationRole::RelOutput,
-        semantics: RelationSemantics::RelSet,
-        name: out_rel_name.clone(),
-        rtype: DType::TStruct {
-            pos: Pos::nopos(),
-            name: format!("{}_Struct", node_type),
-            fields: vec![],
-        },
-        primary_key: None,
-    };
-    program.add_relation(out_relation);
-    out_rel_name
-}
-
-fn guess_relation_for_capture(_cap_name: &str) -> String {
-    // For now just dummy out something
-    "CapturedRelation_Inferred".to_string()
+impl Default for Compiler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::Lval;
 
     #[test]
-    fn test_single_capture() {
-        let mut attrs = HashMap::new();
-        attrs.insert(
-            "k".to_string(),
-            Box::new(Lval::Capture("@x".to_string())),
+    fn test_add_rhs_node() {
+        let mut ir_graph = IRGraph::new();
+        let id = ir_graph.add_rhs_node(
+            "parent",
+            HashSet::from(["X".to_string(), "Z".to_string()]),
+            vec![],
         );
-        let capture_node = Lval::CaptureForm("MyNode".to_string(), attrs, None, None);
-        let ast = Lval::Query(vec![Box::new(capture_node)]);
-        let prog = transform_ast_to_ddlog(&ast);
-        let out = format!("{}", prog);
-        assert!(out.contains("output relation Captured_MyNode_k_"));
-        assert!(out.contains("Captured Value from @x"));
-        assert!(out.contains("FromRelation InCapture_MyNode_"));
+
+        let node = ir_graph.rhs_nodes.get(&id).unwrap();
+        assert_eq!(node.relation_name, "parent");
+        assert!(node.variables.contains("X"));
+        assert!(node.variables.contains("Z"));
+    }
+
+    #[test]
+    fn test_add_lhs_node() {
+        let mut ir_graph = IRGraph::new();
+        let id = ir_graph.add_lhs_node(
+            "relation",
+            HashSet::from(["X".to_string(), "Y".to_string()]),
+        );
+
+        let node = ir_graph.lhs_nodes.get(&id).unwrap();
+        assert_eq!(node.relation_name, "relation");
+        assert!(node.referenced_variables.contains("X"));
+        assert!(node.referenced_variables.contains("Y"));
+    }
+
+    #[test]
+    fn test_add_rule() {
+        let mut ir_graph = IRGraph::new();
+        let rhs_id = ir_graph.add_rhs_node(
+            "parent",
+            HashSet::from(["X".to_string(), "Z".to_string()]),
+            vec![],
+        );
+        let lhs_id = ir_graph.add_lhs_node(
+            "relation",
+            HashSet::from(["X".to_string(), "Y".to_string()]),
+        );
+
+        let rule_id = ir_graph.add_rule(lhs_id, rhs_id, "relation(X, Y) :- parent(X, Z).");
+        let rule = ir_graph.rules.get(&rule_id).unwrap();
+
+        assert_eq!(rule.expr, "relation(X, Y) :- parent(X, Z).");
+        assert_eq!(rule.lhs.relation_name, "relation");
+        assert_eq!(rule.rhs.relation_name, "parent");
+    }
+
+    #[test]
+    fn test_traverse_from_rhs() {
+        let mut ir_graph = IRGraph::new();
+        let root_id = ir_graph.add_rhs_node("root", HashSet::new(), vec![]);
+        let child_id = ir_graph.add_rhs_node("child", HashSet::new(), vec![root_id]);
+
+        let mut visited = Vec::new();
+        ir_graph.traverse_from_rhs(root_id, |node| {
+            visited.push(node.relation_name.clone());
+        });
+
+        assert_eq!(visited, vec!["root".to_string(), "child".to_string()]);
+    }
+
+    #[test]
+    fn test_lval_capture() {
+        let cap = Lval::capture("foo");
+        match cap.as_ref() {
+            Lval::Capture(name) => assert_eq!(name, "foo"),
+            _ => panic!("Expected a Capture variant"),
+        }
+    }
+
+    #[test]
+    fn test_lval_emit() {
+        let mut attrs = HashMap::new();
+        attrs.insert("bar".to_string(), Lval::num(99));
+        let em = Lval::emit("testNode", attrs);
+        match em.as_ref() {
+            Lval::Emit(node_type, map) => {
+                assert_eq!(node_type, "testNode");
+                assert_eq!(map.len(), 1);
+            }
+            _ => panic!("Expected an Emit variant"),
+        }
+    }
+
+    #[test]
+    fn test_compiler_capture() {
+        let mut compiler = Compiler::new();
+
+        let mut attributes = HashMap::new();
+        attributes.insert("foo".to_string(), Lval::num(42));
+
+        let form = Lval::capture_form("mycap", attributes, None, None);
+
+        let rhs_id = compiler.compile_lval(&form);
+        assert!(compiler.ir.rhs_nodes.contains_key(&rhs_id));
+
+        let stored_id = compiler.env.get("mycap").unwrap();
+        assert_eq!(*stored_id, rhs_id);
+    }
+
+    #[test]
+    fn test_compiler_emit() {
+        let mut compiler = Compiler::new();
+
+        let mut attributes = HashMap::new();
+        attributes.insert("bar".to_string(), Lval::num(99));
+
+        let form = Lval::emit("myemit", attributes);
+
+        let rhs_id = compiler.compile_lval(&form);
+        assert!(compiler.ir.rhs_nodes.contains_key(&rhs_id));
+    }
+
+    #[test]
+    fn test_compiler_capture_then_emit() {
+        let mut compiler = Compiler::new();
+
+        let mut attrs_cap = HashMap::new();
+        attrs_cap.insert("foo".to_string(), Lval::num(42));
+        let cap_form = Lval::capture_form("capA", attrs_cap, None, None);
+
+        let cap_id = compiler.compile_lval(&cap_form);
+
+        let mut attrs_emit = HashMap::new();
+        attrs_emit.insert("myRef".to_string(), Lval::capture("capA"));
+        let emit_form = Lval::emit("someEmit", attrs_emit);
+
+        let emit_id = compiler.compile_lval(&emit_form);
+
+        let emit_node = compiler.ir.rhs_nodes.get(&emit_id).unwrap();
+        assert_eq!(emit_node.parents.len(), 1);
+        assert_eq!(emit_node.parents[0], cap_id);
     }
 
     #[test]
     fn test_nested_capture() {
-        let mut bottom_attrs = HashMap::new();
-        bottom_attrs.insert(
-            "bk".to_string(),
-            Box::new(Lval::Capture("@bot".to_string())),
-        );
-        let bottom_cf = Lval::CaptureForm("Bottom".to_string(), bottom_attrs, None, None);
-        let mut top_attrs = HashMap::new();
-        top_attrs.insert(
-            "tk".to_string(),
-            Box::new(Lval::Capture("@top".to_string())),
-        );
-        let top_cf = Lval::CaptureForm("Top".to_string(), top_attrs, Some(Box::new(bottom_cf)), None);
-        let ast = Lval::Query(vec![Box::new(top_cf)]);
-        let prog = transform_ast_to_ddlog(&ast);
-        let out = format!("{}", prog);
-               
-        assert!(out.contains("output relation Captured_Top_tk_"));
-        assert!(out.contains("output relation Captured_Bottom_bk_"));
-        assert!(out.contains("Captured Value from @top"));
-        assert!(out.contains("Captured Value from @bot"));
-        assert!(out.contains("FromRelation InCapture_Bottom_"));
-    }
+        let mut compiler = Compiler::new();
 
-    #[test]
-    fn test_capture_and_emit_integration() {
-        let input = r#"
-            (emit OutNode
-                (att1 @capA)
-            )
-            (capture MyNode
-                (k1 @capA)
-            )
-        "#;
+        let mut outer_attrs = HashMap::new();
+        outer_attrs.insert("x".to_string(), Lval::num(10));
 
-        let ast = to_ast(input).expect("Parse error");
-        let ddlog_prog = transform_ast_to_ddlog(&ast);
+        let mut inner_attrs = HashMap::new();
+        inner_attrs.insert("y".to_string(), Lval::num(99));
+        let inner_capture = Lval::capture_form("inner", inner_attrs, None, None);
 
-        // We check that the program has the expected number of relations/rules
-        // 1. Input relation for capture MyNode
-        // 2. Output relation for captured attribute
-        // 3. Rule linking them
-        // 4. Output relation for emit OutNode
-        // 5. Rule linking captured attribute -> emit
-        assert!(!ddlog_prog.relations.is_empty());
-        assert!(!ddlog_prog.rules.is_empty());
+        let outer_capture = Lval::capture_form("outer", outer_attrs, Some(inner_capture), None);
 
-        // Example of partial check:
-        // There's a relation named something like "InCapture_MyNode_1" or "Captured_MyNode_k1_"
-        let rel_names: Vec<_> = ddlog_prog.relations.keys().cloned().collect();
-        assert!(rel_names.iter().any(|r| r.contains("InCapture_MyNode")));
-        assert!(rel_names.iter().any(|r| r.contains("Captured_MyNode_k1_")));
-        assert!(rel_names.iter().any(|r| r.contains("EmitOut_OutNode_")));
+        let outer_id = compiler.compile_lval(&outer_capture);
+        assert!(compiler.ir.rhs_nodes.contains_key(&outer_id));
 
-        let rule_count = ddlog_prog.rules.len();
-        assert!(rule_count >= 2);
-    }
+        let inner_id = compiler.env.get("inner").expect("Inner capture not stored");
 
-    #[test]
-    fn test_nested_capture_emit() {
-        let input = r#"
-            (emit FinalOutput
-                (fkey @childVal)
-            )
-            (capture TopNode
-                (topKey @topVal)
-                (capture ChildNode
-                    (childKey @childVal)
-                )
-            )
-       "#;
+        let mut expected = vec![*inner_id];
 
-        let ast = to_ast(input).expect("Parse error");
-        let ddlog_prog = transform_ast_to_ddlog(&ast);
+        let outer_node = compiler.ir.rhs_nodes.get(&outer_id).unwrap();
+        assert_eq!(outer_node.parents.len(), 1);
+        assert_eq!(outer_node.parents[0], *inner_id);
 
-        // We expect input relations for the top node and child node,
-        // output relations for the captured attributes,
-        // plus the final emit relation and rules connecting them.
-        let rel_names: Vec<_> = ddlog_prog.relations.keys().cloned().collect();
-        assert!(rel_names.iter().any(|r| r.contains("InCapture_TopNode")));
-        assert!(rel_names.iter().any(|r| r.contains("InCapture_ChildNode")));
-        assert!(rel_names.iter().any(|r| r.contains("Captured_TopNode_topKey_")));
-        assert!(rel_names.iter().any(|r| r.contains("Captured_ChildNode_childKey_")));
-        assert!(rel_names.iter().any(|r| r.contains("EmitOut_FinalOutput_")));
-        let rule_count = ddlog_prog.rules.len();
-        assert!(rule_count >= 3);
+        let mut emit_attrs = HashMap::new();
+        emit_attrs.insert("a".to_string(), Lval::capture("outer"));
+        emit_attrs.insert("b".to_string(), Lval::capture("inner"));
+
+        let emit_form = Lval::emit("myEmit", emit_attrs);
+        let emit_id = compiler.compile_lval(&emit_form);
+
+        let emit_node = compiler.ir.rhs_nodes.get(&emit_id).unwrap();
+        assert_eq!(emit_node.parents.len(), 2);
+
+        let mut parent_set = emit_node.parents.clone();
+        parent_set.sort();
+        expected.push(outer_id);
+        expected.sort();
+        assert_eq!(parent_set, expected);
     }
 }
