@@ -42,7 +42,7 @@ impl Iterator for IdGenerator {
 /// NOTE: `parents` is a `Vec<u64>` so we can have multiple parents.
 #[derive(Debug, Clone)]
 pub (crate) struct RHSNode {
-    id: u64,
+    pub(crate) id: u64,
     pub(crate) relation_name: String,
     pub(crate) variables: HashSet<String>,
     pub(crate) parents: Vec<u64>, // <---- The parents field is defined here

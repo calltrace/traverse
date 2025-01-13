@@ -1,6 +1,10 @@
-use crate::ast::Lval;
+use crate::ddlog_lang::{
+    Atom, DType, Delay, Expr, ModuleName, Pos, Relation, RelationRole, RelationSemantics, Rule,
+    RuleLHS, RuleRHS,
+};
 use crate::ir::IRGraph;
-use std::collections::{HashMap, HashSet};
+use crate::{ast::Lval, ddlog_lang::DatalogProgram};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 pub struct Compiler {
     pub(crate) ir: IRGraph,
@@ -17,12 +21,14 @@ impl Compiler {
 
     pub fn compile_lval(&mut self, lval: &Lval) -> u64 {
         match lval {
-            Lval::CaptureForm(node_type, attributes, nested_captures, q_expr) => {
-                self.compile_capture_form(node_type, attributes, nested_captures.as_deref(), q_expr.as_deref())
-            }
-            Lval::Emit(node_type, attributes) => {
-                self.compile_emit(node_type, attributes)
-            }
+            Lval::CaptureForm(node_type, attributes, nested_captures, q_expr) => self
+                .compile_capture_form(
+                    node_type,
+                    attributes,
+                    nested_captures.as_deref(),
+                    q_expr.as_deref(),
+                ),
+            Lval::Emit(node_type, attributes) => self.compile_emit(node_type, attributes),
             Lval::Capture(name) => {
                 if let Some(&id) = self.env.get(name) {
                     id
@@ -80,11 +86,7 @@ impl Compiler {
         capture_rhs_id
     }
 
-    fn compile_emit(
-        &mut self,
-        node_type: &str,
-        attributes: &HashMap<String, Box<Lval>>,
-    ) -> u64 {
+    fn compile_emit(&mut self, node_type: &str, attributes: &HashMap<String, Box<Lval>>) -> u64 {
         let emit_name = format!("emit_{}", node_type);
 
         let mut referenced_vars = HashSet::new();
@@ -115,7 +117,9 @@ impl Compiler {
 
         let node_id = self.ir.add_rhs_node(&auto_name, rhs_vars, vec![]);
 
-        let lhs_id = self.ir.add_lhs_node(&format!("lhs_{}", auto_name), HashSet::new());
+        let lhs_id = self
+            .ir
+            .add_lhs_node(&format!("lhs_{}", auto_name), HashSet::new());
         self.ir.add_rule(lhs_id, node_id, &format!("{}", lval));
 
         node_id
@@ -125,6 +129,108 @@ impl Compiler {
 impl Default for Compiler {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl From<IRGraph> for DatalogProgram {
+    fn from(ir: IRGraph) -> Self {
+        let mut program = DatalogProgram::new();
+
+        let mut all_relations = HashSet::new();
+        for lhs in ir.lhs_nodes.values() {
+            all_relations.insert(lhs.relation_name.clone());
+        }
+        for rhs in ir.rhs_nodes.values() {
+            all_relations.insert(rhs.relation_name.clone());
+        }
+
+        for rel_name in all_relations {
+            let relation = Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelInternal,
+                semantics: RelationSemantics::RelSet,
+                name: rel_name.clone(),
+                rtype: DType::TString { pos: Pos::nopos() },
+                primary_key: None,
+            };
+            program.add_relation(relation);
+        }
+
+        for rule_node in ir.rules.values() {
+            let lhs_atom = Atom {
+                pos: Pos::nopos(),
+                relation: rule_node.lhs.relation_name.clone(),
+                delay: Delay::zero(),
+                diff: false,
+                value: Expr::interpolated(&rule_node.expr),
+            };
+
+            let mut rhs_clauses = vec![];
+
+            rhs_clauses.push(RuleRHS::RHSLiteral {
+                pos: Pos::nopos(),
+                polarity: true,
+                atom: Atom {
+                    pos: Pos::nopos(),
+                    relation: rule_node.rhs.relation_name.clone(),
+                    delay: Delay::zero(),
+                    diff: false,
+                    value: Expr::interpolated(&format!(
+                        "RHS(id: {}, vars: {:?})",
+                        rule_node.rhs.id, rule_node.rhs.variables
+                    )),
+                },
+            });
+
+            // Recursive BFS to include all ancestor relationships
+            let mut visited = HashSet::new();
+            let mut queue = VecDeque::new();
+            queue.push_back(rule_node.rhs.id);
+
+            while let Some(current_id) = queue.pop_front() {
+                if visited.contains(&current_id) {
+                    continue;
+                }
+                visited.insert(current_id);
+
+                if let Some(node) = ir.rhs_nodes.get(&current_id) {
+                    for &parent_id in &node.parents {
+                        if let Some(parent_node) = ir.rhs_nodes.get(&parent_id) {
+                            rhs_clauses.push(RuleRHS::RHSLiteral {
+                                pos: Pos::nopos(),
+                                polarity: true,
+                                atom: Atom {
+                                    pos: Pos::nopos(),
+                                    relation: parent_node.relation_name.clone(),
+                                    delay: Delay::zero(),
+                                    diff: false,
+                                    value: Expr::interpolated(&format!(
+                                        "Parent(id: {}, vars: {:?})",
+                                        parent_node.id, parent_node.variables
+                                    )),
+                                },
+                            });
+                            queue.push_back(parent_id);
+                        }
+                    }
+                }
+            }
+
+            let rule = Rule {
+                pos: Pos::nopos(),
+                module: ModuleName { path: vec![] },
+                lhs: vec![RuleLHS {
+                    pos: Pos::nopos(),
+                    atom: lhs_atom,
+                    location: None,
+                }],
+                rhs: rhs_clauses,
+            };
+
+            program.add_rule(rule);
+        }
+
+        program
     }
 }
 
@@ -308,5 +414,169 @@ mod tests {
         expected.push(outer_id);
         expected.sort();
         assert_eq!(parent_set, expected);
+    }
+
+    #[test]
+    fn test_irgraph_to_datalog_program_basic() {
+        let mut ir = IRGraph::new();
+
+        let lhs_vars = HashSet::from(["X".to_string()]);
+        let lhs_id = ir.add_lhs_node("LHSRel", lhs_vars);
+
+        let rhs_vars = HashSet::from(["A".to_string()]);
+        let rhs_id = ir.add_rhs_node("RHSRel", rhs_vars, vec![]);
+
+        ir.add_rule(lhs_id, rhs_id, "LHSRel(X) :- RHSRel(A).");
+
+        println!("{:?}", ir);
+
+        let program: DatalogProgram = ir.into();
+
+        assert!(program.relations.contains_key("LHSRel"));
+        assert!(program.relations.contains_key("RHSRel"));
+
+        assert_eq!(program.rules.len(), 1);
+        let rule = &program.rules[0];
+        assert_eq!(rule.lhs.len(), 1);
+        assert_eq!(rule.lhs[0].atom.relation, "LHSRel");
+        println!("{:?}", rule.rhs);
+        assert!(rule.rhs.iter().any(
+            |rhs| matches!(rhs, RuleRHS::RHSLiteral { atom, .. } if atom.relation == "RHSRel") 
+        ));
+    }
+
+    #[test]
+    fn test_irgraph_to_datalog_program_with_parents() {
+        let mut ir = IRGraph::new();
+
+        let parent1_id = ir.add_rhs_node("ParentRel1", HashSet::new(), vec![]);
+        let parent2_id = ir.add_rhs_node("ParentRel2", HashSet::new(), vec![]);
+
+        let child_rhs_id =
+            ir.add_rhs_node("ChildRel", HashSet::new(), vec![parent1_id, parent2_id]);
+
+        let lhs_vars = HashSet::from(["Y".to_string()]);
+        let lhs_id = ir.add_lhs_node("LHSRelWithParents", lhs_vars);
+
+        ir.add_rule(
+            lhs_id,
+            child_rhs_id,
+            "LHSRelWithParents(Y) :- ChildRel(...).",
+        );
+
+        let program: DatalogProgram = ir.into();
+
+        assert!(program.relations.contains_key("LHSRelWithParents"));
+        assert!(program.relations.contains_key("ParentRel1"));
+        assert!(program.relations.contains_key("ParentRel2"));
+        assert!(program.relations.contains_key("ChildRel"));
+
+        assert_eq!(program.rules.len(), 1);
+        let rule = &program.rules[0];
+        assert_eq!(rule.lhs.len(), 1);
+        assert_eq!(rule.lhs[0].atom.relation, "LHSRelWithParents");
+
+        assert!(rule.rhs.iter().any(|rhs| {
+            matches!(rhs, RuleRHS::RHSLiteral { atom, .. } if atom.relation == "ParentRel1")
+        }));
+        assert!(rule.rhs.iter().any(|rhs| {
+            matches!(rhs, RuleRHS::RHSLiteral { atom, .. } if atom.relation == "ParentRel2")
+        }));
+    }
+
+    #[test]
+    fn test_irgraph_to_datalog_program_complex_traversal() {
+        let mut ir = IRGraph::new();
+
+        let root_id = ir.add_rhs_node("RootRel", HashSet::new(), vec![]);
+        let child1_id = ir.add_rhs_node("ChildRel1", HashSet::new(), vec![root_id]);
+        let child2_id = ir.add_rhs_node("ChildRel2", HashSet::new(), vec![root_id]);
+        let grandchild_id = ir.add_rhs_node("GrandChildRel", HashSet::new(), vec![child1_id]);
+
+        let lhs_id = ir.add_lhs_node("LHSRelComplex", HashSet::new());
+
+        ir.add_rule(
+            lhs_id,
+            grandchild_id,
+            "LHSRelComplex(...) :- GrandChildRel(...).",
+        );
+
+        let program: DatalogProgram = ir.into();
+
+        assert!(program.relations.contains_key("RootRel"));
+        assert!(program.relations.contains_key("ChildRel1"));
+        assert!(program.relations.contains_key("ChildRel2"));
+        assert!(program.relations.contains_key("GrandChildRel"));
+
+        assert_eq!(program.rules.len(), 1);
+        let rule = &program.rules[0];
+        assert_eq!(rule.lhs.len(), 1);
+        assert_eq!(rule.lhs[0].atom.relation, "LHSRelComplex");
+
+        assert!(rule.rhs.iter().any(|rhs| {
+            matches!(rhs, RuleRHS::RHSLiteral { atom, .. } if atom.relation == "ChildRel1")
+        }));
+        assert!(rule.rhs.iter().any(|rhs| {
+            matches!(rhs, RuleRHS::RHSLiteral { atom, .. } if atom.relation == "RootRel")
+        }));
+    }
+
+    #[test]
+    fn test_irgraph_to_datalog_program_with_rhs() {
+        let mut ir = IRGraph::new();
+
+        let lhs_vars = HashSet::from(["X".to_string()]);
+        let lhs_id = ir.add_lhs_node("LHSRel", lhs_vars);
+
+        let rhs_vars = HashSet::from(["A".to_string()]);
+        let rhs_id = ir.add_rhs_node("RHSRel", rhs_vars.clone(), vec![]);
+
+        ir.add_rule(lhs_id, rhs_id, "LHSRel(X) :- RHSRel(A).");
+
+        let program: DatalogProgram = ir.into();
+
+        assert!(program.relations.contains_key("LHSRel"));
+        assert!(program.relations.contains_key("RHSRel"));
+
+        assert_eq!(program.rules.len(), 1);
+        let rule = &program.rules[0];
+        assert_eq!(rule.lhs.len(), 1);
+        assert_eq!(rule.lhs[0].atom.relation, "LHSRel");
+
+        assert!(rule.rhs.iter().any(|rhs| {
+            matches!(rhs, RuleRHS::RHSLiteral { atom, .. } if atom.relation == "RHSRel" && atom.value.to_string().contains("A"))
+        }));
+    }
+
+    #[test]
+    fn test_irgraph_to_datalog_program_with_parents_and_rhs() {
+        let mut ir = IRGraph::new();
+
+        let parent_id = ir.add_rhs_node("ParentRel", HashSet::new(), vec![]);
+
+        let child_rhs_id = ir.add_rhs_node("ChildRel", HashSet::new(), vec![parent_id]);
+
+        let lhs_vars = HashSet::from(["Y".to_string()]);
+        let lhs_id = ir.add_lhs_node("LHSRelWithParents", lhs_vars);
+
+        ir.add_rule(lhs_id, child_rhs_id, "LHSRelWithParents(Y) :- ChildRel(...).");
+
+        let program: DatalogProgram = ir.into();
+
+        assert!(program.relations.contains_key("LHSRelWithParents"));
+        assert!(program.relations.contains_key("ParentRel"));
+        assert!(program.relations.contains_key("ChildRel"));
+
+        assert_eq!(program.rules.len(), 1);
+        let rule = &program.rules[0];
+        assert_eq!(rule.lhs.len(), 1);
+        assert_eq!(rule.lhs[0].atom.relation, "LHSRelWithParents");
+
+        assert!(rule.rhs.iter().any(|rhs| {
+            matches!(rhs, RuleRHS::RHSLiteral { atom, .. } if atom.relation == "ChildRel")
+        }));
+        assert!(rule.rhs.iter().any(|rhs| {
+            matches!(rhs, RuleRHS::RHSLiteral { atom, .. } if atom.relation == "ParentRel")
+        }));
     }
 }
