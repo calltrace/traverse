@@ -4,7 +4,7 @@ use crate::node_types::{ContextFreeNodeType, NodeTypeKind};
 
 const RESERVED_WORDS: &[&str] = &["else","function","type","match","var"];
 
-fn to_pascal_case(s: &str) -> String {
+pub(crate) fn to_pascal_case(s: &str) -> String {
     s.split('_')
         .filter(|part| !part.is_empty())
         .map(|part| {
@@ -17,7 +17,7 @@ fn to_pascal_case(s: &str) -> String {
         .collect()
 }
 
-fn sanitize_reserved(name: &str) -> String {
+pub(crate) fn sanitize_reserved(name: &str) -> String {
     let lower = name.to_lowercase();
     if RESERVED_WORDS.contains(&lower.as_str()) {
         format!("_{}", name)

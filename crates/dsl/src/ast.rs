@@ -1,4 +1,4 @@
-// Heavily inspired by https://github.com/deciduously/blispr/blob/master/src/lval.rs
+// Lisp AST types and primitives heavily inspired by https://github.com/deciduously/blispr/blob/master/src/lval.rs
 use crate::error::{BlisprResult, Error, Result};
 use std::{collections::HashMap, fmt};
 

@@ -167,7 +167,7 @@ expr = {
 program = { 
     SOI ~ (
         (
-            (emit | when_form) ~ WHITESPACE* ~ capture_form* ~ WHITESPACE* 
+            capture_form* ~ WHITESPACE* ~ (emit | when_form) 
         ) 
         | COMMENT 
         | WHITESPACE

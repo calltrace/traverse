@@ -525,9 +525,9 @@ impl Display for Relation {
             self.ddlog_fields()
         )?;
         if let Some(pk) = &self.primary_key {
-            write!(f, " primary key {};", pk)
+            write!(f, " primary key {}", pk)
         } else {
-            write!(f, ";")
+            write!(f, "")
         }
     }
 }
@@ -694,7 +694,7 @@ impl Display for Rule {
                 .iter()
                 .map(|rc| rc.to_string())
                 .collect::<Vec<_>>()
-                .join(", ");
+                .join(",\n        ");
             write!(f, "{} :- {}.", lhs_str, rhs_str)
         }
     }
@@ -971,12 +971,6 @@ impl DatalogProgram {
     }
 }
 
-impl Default for DatalogProgram {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Display for DatalogProgram {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for i in &self.imports {
@@ -991,6 +985,9 @@ impl Display for DatalogProgram {
         for idx in self.indexes.values() {
             writeln!(f, "{}", idx)?;
         }
+
+        writeln!(f)?;
+
         for rule in &self.rules {
             writeln!(f, "{}", rule)?;
         }

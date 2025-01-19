@@ -1,0 +1,99 @@
+// Defines acceptable whitespace characters, which are ignored in most parts of the grammar.
+WHITESPACE = _{ " " | "\t" | "\n" | "\r" }
+
+// The root of the grammar, which consists of relations and an optional rules section.
+ir = { SOI ~ WHITESPACE* ~ relations_section ~ WHITESPACE* ~ datalog_rules_section* ~ WHITESPACE* ~ EOI }
+
+// Defines the relations section, which declares all input, output, and intermediate relations.
+relations_section = { "relations" ~ WHITESPACE* ~ "{" ~ WHITESPACE* ~ relation* ~ WHITESPACE* ~ "}" }
+
+// Defines a single relation with attributes and its role (Input, Output, or Intermediate).
+relation = { identifier ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ attributes ~ WHITESPACE* ~ ")" ~ WHITESPACE* ~ ":" ~ WHITESPACE* ~ role ~ ";" }
+
+// Defines a list of attributes within a relation, separated by commas.
+attributes = { attribute ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ attribute)* }
+
+// Defines an individual attribute, including its name and type (e.g., String, Number).
+attribute = { identifier ~ WHITESPACE* ~ ":" ~ WHITESPACE* ~ attribute_type }
+
+// Defines valid attribute types for relations.
+attribute_type = { "String" | "Number" | "Boolean" | "Date" | "Float" }
+
+// Defines the role of a relation, such as Input, Intermediate, or Output.
+role = { "Input" | "Intermediate" }
+
+// Defines the section containing Datalog rules.
+datalog_rules_section = { "rules" ~ WHITESPACE* ~ "{" ~ WHITESPACE* ~ datalog_rule* ~ WHITESPACE* ~ "}" }
+
+// Defines a single Datalog rule, consisting of a left-hand side (LHS), a right-hand side (RHS), and an optional SSA instruction block.
+datalog_rule = { lhs_node ~ WHITESPACE* ~ "=>" ~ WHITESPACE* ~ rhs_nodes ~ WHITESPACE* ~ "{" ~ WHITESPACE* ~ (label | ssa_instruction)* ~ WHITESPACE* ~ "}" }
+
+// Defines the LHS of a rule, which specifies the output relation and its attributes.
+lhs_node = { identifier ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ output_attributes ~ WHITESPACE* ~ ")" }
+
+// Defines a list of output attributes in the LHS, separated by commas.
+output_attributes = { identifier ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ identifier)* }
+
+// Defines the RHS of a rule, which consists of one or more input relations (clauses).
+rhs_nodes = { rhs_node ~ (WHITESPACE* ~ "," ~ rhs_node ~ WHITESPACE*)* }
+
+// Defines a single RHS clause, which includes the relation name and its attributes.
+rhs_node = { identifier ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ input_attributes ~ WHITESPACE* ~ ")" }
+
+// Defines a list of input attributes in an RHS clause, separated by commas.
+input_attributes = { identifier ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ identifier)* }
+
+// Defines an SSA instruction, which can be a label, assignment, or control flow instruction.
+ssa_instruction = { (label | ssa_assignment | control_flow) ~ WHITESPACE* ~ ";" }
+
+// Defines a label used for control flow, ending with a colon (e.g., "L1:").
+label = { "L" ~ ASCII_DIGIT ~ ":" }
+
+// Defines an SSA assignment, where a variable is assigned the result of an operation or another variable.
+ssa_assignment = { identifier ~ WHITESPACE* ~ "=" ~ WHITESPACE* ~ (ssa_operation | identifier) }
+
+// Defines an SSA operation, including its type and operands.
+ssa_operation = { operation ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ operands ~ WHITESPACE* ~ ")" }
+
+// Defines a list of operands for an SSA operation, separated by commas.
+operands = { identifier ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ identifier)* }
+
+// Defines the types of operations supported in SSA (e.g., arithmetic, logical, and data operations).
+operation = {
+      "add"         // Arithmetic addition
+    | "sub"         // Arithmetic subtraction
+    | "mul"         // Multiplication
+    | "div"         // Division
+    | "mod"         // Modulus
+    | "concat"      // String concatenation
+    | "eq"          // Equality comparison
+    | "neq"         // Not equal
+    | "lt"          // Less than
+    | "leq"         // Less than or equal
+    | "gt"          // Greater than
+    | "geq"         // Greater than or equal
+    | "and"         // Logical AND
+    | "or"          // Logical OR
+    | "not"         // Logical NOT
+    | "cmp"         // Comparison
+    | "append"      // Appending to collections
+    | "contains"    // Checks if a collection contains an element
+    | "len"         // Length of a collection
+    | "load"        // Load a value
+    | "store"       // Store a value
+}
+
+// Defines control flow instructions, which can be branching or jumping.
+control_flow = { branch | goto }
+
+// Defines a branching instruction, which conditionally jumps to one of two labels based on a condition.
+branch = { "if" ~ WHITESPACE* ~ identifier ~ WHITESPACE* ~ "goto" ~ WHITESPACE* ~ label ~ WHITESPACE* ~ "else" ~ WHITESPACE* ~ "goto" ~ WHITESPACE* ~ label }
+
+// Defines an unconditional jump to a specified label.
+goto = { "goto" ~ WHITESPACE* ~ label_reference }
+
+// Defines an identifier for variable names and relations.
+identifier = @{ (ASCII_ALPHANUMERIC | "_" )+ }
+
+// Defines a reference to a label for control flow.
+label_reference = @{ "L" ~ ASCII_DIGIT+ }
