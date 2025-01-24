@@ -16,12 +16,14 @@ pub enum Lval {
     Query(LvalChildren),
     Fun(Func),
     Num(i64),
+    String(String),
     Sym(String),
     Sexpr(LvalChildren),
     Qexpr(LvalChildren),
     DoForm(LvalChildren),
-    Logical(String, LvalChildren),
-    Emit(String, HashMap<String, Box<Lval>>),
+    Logical(Box<Lval>, LvalChildren),
+    PredicateOperator(String),
+    Emit(String, HashMap<String, Box<Lval>>, Option<Box<Lval>>, Option<Box<Lval>>),
     Capture(String),
     CaptureForm(
         String,
@@ -69,8 +71,12 @@ impl Lval {
         Box::new(Lval::Sym(s.into()))
     }
 
-    pub fn logical(op: &str, operands: Vec<Box<Lval>>) -> Box<Lval> {
-        Box::new(Lval::Logical(op.into(), operands))
+    pub fn logical(op: Box<Lval>, operands: Vec<Box<Lval>>) -> Box<Lval> {
+        Box::new(Lval::Logical(op, operands))
+    }
+
+    pub fn predicate_operator(operator: &str) -> Box<Lval> {
+        Box::new(Lval::PredicateOperator(operator.into()))
     }
 
     pub fn capture(s: &str) -> Box<Lval> {
@@ -85,8 +91,13 @@ impl Lval {
         Box::new(Lval::Qexpr(Vec::new()))
     }
 
-    pub fn emit(node_type: &str, attributes: HashMap<String, Box<Lval>>) -> Box<Lval> {
-        Box::new(Lval::Emit(node_type.to_string(), attributes))
+    pub fn emit(
+        node_type: &str,
+        attributes: HashMap<String, Box<Lval>>,
+        when_form: Option<Box<Lval>>,
+        do_form: Option<Box<Lval>>,
+    ) -> Box<Lval> {
+        Box::new(Lval::Emit(node_type.to_string(), attributes, when_form, do_form))
     }
 
     pub fn capture_form(
@@ -108,12 +119,16 @@ impl Lval {
     }
 
     pub fn add_to_emit(emit: &mut Lval, key: &str, value: Box<Lval>) {
-        if let Lval::Emit(_, ref mut attributes) = emit {
+        if let Lval::Emit(_, ref mut attributes, _, _) = emit {
             attributes.insert(key.to_string(), value);
         }
     }
     pub fn keyvalue() -> Box<Lval> {
         Box::new(Lval::KeyVal(Vec::new()))
+    }
+
+    pub fn string_literal(s: &str) -> Box<Lval> {
+        Box::new(Lval::String(s.into()))
     }
 
     pub fn add(v: &mut Lval, x: &Lval) -> Result<()> {
@@ -209,16 +224,25 @@ impl fmt::Display for Lval {
             },
             Lval::Num(n) => write!(f, "{n}"),
             Lval::Sym(s) => write!(f, "{s}"),
+            Lval::String(s) => write!(f , "\"{s}\""),
             Lval::Logical(operator, operands) => {
                 write!(f, "({} {})", operator, format_children(operands))
             }
-            Lval::Emit(node_type, attributes) => {
+            Lval::PredicateOperator(operator) => write!(f, "{}", operator),
+            Lval::Emit(node_type, attributes, when_block, do_block) => {
                 let formatted_attrs = attributes
                     .iter()
                     .map(|(key, value)| format!("({} {})", key, value))
                     .collect::<Vec<_>>()
                     .join(" ");
-                write!(f, "(emit {} {})", node_type, formatted_attrs)
+                write!(
+                    f,
+                    "(emit {} {} {} {})",
+                    node_type,
+                    formatted_attrs,
+                    when_block.as_ref().map(|b| b.to_string()).unwrap_or_default(),
+                    do_block.as_ref().map(|b| b.to_string()).unwrap_or_default()
+                )
             }
             Lval::WhenForm(condition, body) => {
                 write!(f, "(when {} {})", condition, format_children(body))

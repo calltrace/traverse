@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use serde::de::Error;
+
 use crate::{
     ast::Lval,
     ddlog_gen::{sanitize_reserved, to_pascal_case},
@@ -8,10 +10,46 @@ use crate::{
         RelationRole, RelationSemantics, Rule, RuleLHS, RuleRHS,
     },
     ir::{
-        Attribute, AttributeType, IRProgram, IRRule, LHSNode, RHSNode, RHSVal,
-        RelationRole as IRRelationRole, RelationType as IRRelationType,
+        Attribute, AttributeType, IRProgram, IRRule, LHSNode, OperationType, RHSNode, RHSVal,
+        RelationRole as IRRelationRole, RelationType as IRRelationType, SSAInstruction,
+        SSAInstructionBlock, SSAOperation,
     },
 };
+
+struct SSAContext {
+    temp_counter: usize,
+    label_counter: usize,
+}
+
+impl SSAContext {
+    // Constructor to initialize the counters
+    pub fn new() -> Self {
+        SSAContext {
+            temp_counter: 0,
+            label_counter: 0,
+        }
+    }
+
+    // Generate a temporary variable name
+    pub fn generate_temp_var(&mut self) -> String {
+        let temp_var = format!("t{}", self.temp_counter);
+        self.temp_counter += 1;
+        temp_var
+    }
+
+    // Generate a label
+    pub fn generate_label(&mut self) -> String {
+        let label = format!("L{}", self.label_counter);
+        self.label_counter += 1;
+        label
+    }
+
+    // Reset the counters if needed
+    pub fn reset(&mut self) {
+        self.temp_counter = 0;
+        self.label_counter = 0;
+    }
+}
 
 pub struct Compiler {
     generate_input_relations: bool, // Option to control input relation generation
@@ -38,13 +76,15 @@ impl Compiler {
             relations: Vec::new(),
         };
 
-        self.process_lval(lval, &mut ir_program);
+        let mut context = SSAContext::new();
+
+        self.process_lval(lval, &mut ir_program, &mut context);
 
         ir_program
     }
 
     /// Recursively processes an Lval and populates the IRProgram.
-    fn process_lval(&self, lval: &Lval, ir_program: &mut IRProgram) {
+    fn process_lval(&self, lval: &Lval, ir_program: &mut IRProgram, context: &mut SSAContext) {
         fn collect_outbound_attributes_from_descendants(lval: &Lval) -> Vec<Attribute> {
             let mut attrs = Vec::new();
 
@@ -70,7 +110,7 @@ impl Compiler {
         match lval {
             Lval::Query(items) => {
                 for item in items {
-                    self.process_lval(item, ir_program);
+                    self.process_lval(item, ir_program, context);
                 }
             }
             /*
@@ -124,10 +164,10 @@ impl Compiler {
              * - Transformation rules must correctly map all LHS and RHS attributes to
              *   preserve semantic consistency.
              */
-            Lval::CaptureForm(rel_name, attrs_map, descendant, _) => {
+            Lval::CaptureForm(rel_name, attrs_map, descendant, do_block) => {
                 let descendant_outbound_attrs = if let Some(desc) = descendant {
                     // TODO: avoid double traversal
-                    self.process_lval(desc, ir_program);
+                    self.process_lval(desc, ir_program, context);
                     collect_outbound_attributes_from_descendants(desc)
                 } else {
                     vec![]
@@ -218,10 +258,23 @@ impl Compiler {
 
                 rhs_vals.extend(descendant_rhs_vals);
 
+                let mut instructions: Vec<SSAInstruction> = vec![];
+                if let Some(do_block) = do_block {
+                    process_do_block(do_block, context, &mut instructions);
+                }
+
+                let ssa_block = if instructions.is_empty() {
+                    None
+                } else {
+                    Some(SSAInstructionBlock {
+                        instructions: instructions.clone(),
+                    })
+                };
+
                 let ir_rule = IRRule {
                     lhs: lhs_node,
                     rhs: RHSVal::NestedRHS(rhs_vals),
-                    ssa_block: None,
+                    ssa_block,
                 };
 
                 ir_program.rules.push(ir_rule);
@@ -288,7 +341,7 @@ impl Compiler {
              *   transformation errors) must be detected and handled to maintain system
              *   integrity.
              */
-            Lval::Emit(rel_name, attrs_map) => {
+            Lval::Emit(rel_name, attrs_map, when_block, do_block) => {
                 let output_relation_name = format!("Emit{}", to_pascal_case(rel_name));
                 ir_program.relations.push(IRRelationType {
                     name: output_relation_name.clone(),
@@ -304,6 +357,20 @@ impl Compiler {
                     output_attributes: HashSet::from(["val".to_string()]),
                 };
 
+                let mut instructions: Vec<SSAInstruction> = vec![];
+                if let Some(logical) = when_block {
+                    if let Lval::Logical(po, operands) = &**logical {
+                        // Generate SSA instructions for logical operations
+                        let ssa_instructions = logical_to_ssa(po, operands, context);
+                        instructions.extend(ssa_instructions.clone());
+                        instructions.push(SSAInstruction::Label(context.generate_label()));
+                    }
+                }
+
+                if let Some(do_block) = do_block {
+                    process_do_block(do_block, context, &mut instructions);
+                }
+
                 for capture in attrs_map.values() {
                     if let Lval::Capture(capture_name) = &**capture {
                         let referenced_rel = to_pascal_case(&capture_name[1..]);
@@ -312,6 +379,14 @@ impl Compiler {
                             &referenced_rel,
                             Some(IRRelationRole::Output),
                         ) {
+                            let ssa_block = if instructions.is_empty() {
+                                None
+                            } else {
+                                Some(SSAInstructionBlock {
+                                    instructions: instructions.clone(),
+                                })
+                            };
+
                             let ir_rule = IRRule {
                                 lhs: lhs_node.clone(),
                                 rhs: RHSVal::RHSNode(RHSNode {
@@ -323,7 +398,7 @@ impl Compiler {
                                         .map(|s| s.name.to_lowercase())
                                         .collect::<HashSet<String>>(),
                                 }),
-                                ssa_block: None,
+                                ssa_block,
                             };
 
                             ir_program.rules.push(ir_rule);
@@ -335,6 +410,221 @@ impl Compiler {
                 // Handle other Lval variants as needed
                 // For this transformation, other variants are ignored
             }
+        }
+
+        fn process_do_block(
+            do_block: &Lval,
+            context: &mut SSAContext,
+            instructions: &mut Vec<SSAInstruction>,
+        ) {
+            if let Lval::DoForm(actions) = &do_block {
+                for action in actions {
+                    if let Lval::Qexpr(cells) = &**action {
+                        for cell in cells {
+                            match &**cell {
+                                Lval::Sexpr(lvals) => {
+                                    if let Some(Lval::Sym(operation)) = lvals.first().map(|v| &**v)
+                                    {
+                                        match operation.as_str() {
+                                            "format" => {
+                                                let operands = lvals
+                                                    .iter()
+                                                    .skip(1)
+                                                    .map(|lval| match lval.as_ref() {
+                                                        Lval::Sym(operand) => {
+                                                            if let Some(first_char) =
+                                                                operand.chars().next()
+                                                            {
+                                                                if first_char == '$' {
+                                                                    StringPart::Dynamic(
+                                                                        operand.clone(),
+                                                                    )
+                                                                } else {
+                                                                    StringPart::Static(
+                                                                        operand.clone(),
+                                                                    )
+                                                                }
+                                                            } else {
+                                                                StringPart::Static("".to_string())
+                                                            }
+                                                        }
+                                                        _ => StringPart::Static("".to_string()),
+                                                    })
+                                                    .collect::<Vec<_>>();
+
+                                                let mut last_var = String::new();
+
+                                                for operand in operands {
+                                                    let variable = context.generate_temp_var();
+
+                                                    match operand {
+                                                        StringPart::Static(text) => {
+                                                            instructions.push(
+                                                                SSAInstruction::Assignment {
+                                                                    variable: variable.clone(),
+                                                                    operation: SSAOperation {
+                                                                        op_type:
+                                                                            OperationType::Concat,
+                                                                        operands: if last_var
+                                                                            .is_empty()
+                                                                        {
+                                                                            vec![format!(
+                                                                                "\"{}\"",
+                                                                                text
+                                                                            )]
+                                                                        } else {
+                                                                            vec![
+                                                                                last_var.clone(),
+                                                                                format!(
+                                                                                    "\"{}\"",
+                                                                                    text
+                                                                                ),
+                                                                            ]
+                                                                        },
+                                                                    },
+                                                                },
+                                                            );
+                                                        }
+                                                        StringPart::Dynamic(var) => {
+                                                            instructions.push(
+                                                                SSAInstruction::Assignment {
+                                                                    variable: variable.clone(),
+                                                                    operation: SSAOperation {
+                                                                        op_type:
+                                                                            OperationType::Concat,
+                                                                        operands: if last_var
+                                                                            .is_empty()
+                                                                        {
+                                                                            vec![var.clone()]
+                                                                        } else {
+                                                                            vec![
+                                                                                last_var.clone(),
+                                                                                var.clone(),
+                                                                            ]
+                                                                        },
+                                                                    },
+                                                                },
+                                                            );
+                                                        }
+                                                    }
+
+                                                    last_var = variable;
+                                                }
+                                            }
+                                            _ => {
+                                                println!("Unsupported operation: {}", operation);
+                                            }
+                                        }
+                                    }
+                                }
+                                unsupported_cell => {
+                                    println!("Unsupported QExpr cell type: {:?}", unsupported_cell);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /// Maps a logical operator and operands to SSAOperation, updating counters.
+        fn logical_to_ssa(
+            operator: &Lval,
+            operands: &[Box<Lval>],
+            context: &mut SSAContext,
+        ) -> Vec<SSAInstruction> {
+            let label = context.generate_label();
+            //
+            //
+            //
+            // Extract operator type
+            let op_type = match operator {
+                Lval::PredicateOperator(op) => match op.as_str() {
+                    // Logical Operators
+                    "and" => OperationType::And,
+                    "or" => OperationType::Or,
+                    "not" => OperationType::Not,
+
+                    // Comparison Operators
+                    "eq" => OperationType::Eq,
+                    "neq" => OperationType::Neq,
+                    "lt" => OperationType::Lt,
+                    "leq" => OperationType::Leq,
+                    "gt" => OperationType::Gt,
+                    "geq" => OperationType::Geq,
+
+                    // Membership Operators
+                    "in" => OperationType::In,
+                    "within" => OperationType::Within,
+
+                    // Null/Existence Checks
+                    "exists" => OperationType::Exists,
+
+                    // String Comparisons
+                    "contains" => OperationType::Contains,
+                    "startswith" => OperationType::StartsWith,
+                    "endswith" => OperationType::EndsWith,
+                    _ => panic!("Unknown logical operator: {}", op),
+                },
+                _ => panic!("Expected a logical operator."),
+            };
+
+            let mut instructions = Vec::new();
+
+            instructions.push(SSAInstruction::Label(label.clone()));
+            // Extract operand variables and generate instructions
+            let mut operand_vars = Vec::new();
+            for operand in operands {
+                let temp_var = context.generate_temp_var();
+                match operand.as_ref() {
+                    Lval::Sym(sym) => {
+                        instructions.push(SSAInstruction::Assignment {
+                            variable: temp_var.clone(),
+                            operation: SSAOperation {
+                                op_type: OperationType::Load,
+                                operands: vec![sym.clone()],
+                            },
+                        });
+                    }
+                    Lval::Num(num) => {
+                        instructions.push(SSAInstruction::Assignment {
+                            variable: temp_var.clone(),
+                            operation: SSAOperation {
+                                op_type: OperationType::Load,
+                                operands: vec![num.to_string()],
+                            },
+                        });
+                    }
+                    Lval::String(s) => {
+                        instructions.push(SSAInstruction::Assignment {
+                            variable: temp_var.clone(),
+                            operation: SSAOperation {
+                                op_type: OperationType::Load,
+                                operands: vec![s.clone()],
+                            },
+                        });
+                    }
+                    _ => {
+                        panic!(
+                            "Unsupported operand type for logical operator: {:?}",
+                            operand
+                        );
+                    }
+                }
+
+                operand_vars.push(temp_var);
+            }
+            //
+            // Create the logical/comparison instruction
+            let result_var = context.generate_temp_var();
+            instructions.push(SSAInstruction::Assignment {
+                variable: result_var.clone(),
+                operation: SSAOperation {
+                    op_type, // Use the extracted operator type (e.g., Eq, And, etc.)
+                    operands: operand_vars,
+                },
+            });
+            instructions
         }
     }
 
@@ -468,12 +758,28 @@ impl Compiler {
                 // HACK: the RI grammar should allow for disambiguating relations in terms of their
                 // role (e.g. emission, capturing)
                 if lhs_relation.name.starts_with("Emit") {
-                    let rhs_mapping_expr = rhs_attributes
-                        .iter()
-                        .map(|attr| attr.to_lowercase())
-                        .collect::<Vec<_>>()
-                        .join(" ++ ");
-                    let mapping_expr = format!("var lhs_val = {}", rhs_mapping_expr);
+                    let condition_exprs = Self::process_labeled_blocks_to_mapping_expr(
+                        rule.ssa_block.as_ref().unwrap(),
+                    );
+
+                    for condition_expr in condition_exprs {
+                        conditions.push(RuleRHS::RHSCondition {
+                            pos: Pos::nopos(),
+                            expr: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: condition_expr,
+                            }),
+                        });
+                    }
+
+                    let mapping_expr = self.generate_ddlog_interpolation(
+                        &format!("lhs_{}", lhs_relation.attributes[0].name),
+                        rule.ssa_block
+                            .as_ref()
+                            .map(|block| block.instructions.clone())
+                            .unwrap_or_default(),
+                    );
+
                     conditions.push(RuleRHS::RHSCondition {
                         pos: Pos::nopos(),
                         expr: Expr::new(ExprNode::EVar {
@@ -482,9 +788,19 @@ impl Compiler {
                         }),
                     });
                 } else {
+                    // Capture form
                     let lhs_rhs_pairs = lhs_attributes.iter().zip(rhs_attributes);
-                    for (lhs_attr, rhs_attr) in lhs_rhs_pairs {
-                        let mapping_expr = format!("var lhs_{} = {}", lhs_attr, rhs_attr);
+
+                    // actions override automatic RHS to LHS assignments
+                    if rule.ssa_block.is_some() {
+                        let mapping_expr = self.generate_ddlog_interpolation(
+                            &format!("lhs_{}", lhs_relation.attributes[0].name),
+                            rule.ssa_block
+                                .as_ref()
+                                .map(|block| block.instructions.clone())
+                                .unwrap_or_default(),
+                        );
+
                         conditions.push(RuleRHS::RHSCondition {
                             pos: Pos::nopos(),
                             expr: Expr::new(ExprNode::EVar {
@@ -492,6 +808,17 @@ impl Compiler {
                                 name: mapping_expr,
                             }),
                         });
+                    } else {
+                        for (lhs_attr, rhs_attr) in lhs_rhs_pairs {
+                            let mapping_expr = format!("var lhs_{} = {}", lhs_attr, rhs_attr);
+                            conditions.push(RuleRHS::RHSCondition {
+                                pos: Pos::nopos(),
+                                expr: Expr::new(ExprNode::EVar {
+                                    pos: Pos::nopos(),
+                                    name: mapping_expr,
+                                }),
+                            });
+                        }
                     }
                 }
 
@@ -542,6 +869,173 @@ impl Compiler {
         })
     }
 
+    fn process_labeled_blocks_to_mapping_expr(ssa_block: &SSAInstructionBlock) -> Vec<String> {
+        let mut mapping_expressions = Vec::new();
+        let mut current_label = None;
+        let mut current_instructions = Vec::new();
+
+        for instruction in &ssa_block.instructions {
+            match instruction {
+                SSAInstruction::Label(label) => {
+                    // If there is a current block being processed, check if it ends with a predicate
+                    if let Some(curr_label) = &current_label {
+                        if let Some(expr) =
+                            Self::process_block_for_predicate(curr_label, &current_instructions)
+                        {
+                            mapping_expressions.push(expr);
+                        }
+                    }
+                    // Start a new labeled block
+                    current_label = Some(label.clone());
+                    current_instructions.clear();
+                }
+                _ => {
+                    // Collect instructions for the current block
+                    current_instructions.push(instruction.clone());
+                }
+            }
+        }
+
+        // Process the last block after the loop
+        if let Some(curr_label) = &current_label {
+            if let Some(expr) = Self::process_block_for_predicate(curr_label, &current_instructions)
+            {
+                mapping_expressions.push(expr);
+            }
+        }
+
+        mapping_expressions
+    }
+
+    /// Checks if a block ends with a predicate operator and converts it to a mapping expression.
+    fn process_block_for_predicate(
+        label: &String,
+        instructions: &[SSAInstruction],
+    ) -> Option<String> {
+        let mut operand_mapping: HashMap<String, String> = HashMap::new();
+        let mut operator_mapping: HashMap<OperationType, String> = HashMap::new();
+        operator_mapping.insert(OperationType::Eq, "==".to_string());
+
+        // iterate over the instructions and create variables for each variable assignment and operand
+        for instr in instructions {
+            match instr {
+                SSAInstruction::Assignment {
+                    variable,
+                    operation,
+                } if operation.op_type == OperationType::Load => {
+                    operand_mapping.insert(variable.clone(), operation.operands[0].clone());
+                }
+                _ => {
+                    // Ignore other types of instructions
+                }
+            }
+        }
+
+        if let Some(SSAInstruction::Assignment {
+            variable: _,
+            operation,
+            ..
+        }) = instructions.last()
+        {
+            // Infix
+            if matches!(
+                operation.op_type,
+                OperationType::Eq
+                    | OperationType::Neq
+                    | OperationType::Lt
+                    | OperationType::Leq
+                    | OperationType::Gt
+                    | OperationType::Geq
+                    | OperationType::And
+                    | OperationType::Or
+                    | OperationType::Not
+            ) {
+                // Generate the mapping expression
+                // create infix operator (e.g. a == b)
+                return Some(format!(
+                    "{} {} {}",
+                    operand_mapping.get(&operation.operands[0]).unwrap(),
+                    operator_mapping.get(&operation.op_type).unwrap(),
+                    operand_mapping.get(&operation.operands[1]).unwrap()
+                ));
+
+                /*
+                 */
+            }
+
+            // prefix operator (e.g. string_contains())
+            if matches!(operation.op_type, OperationType::Contains) {
+                let operands_str = operation
+                    .operands
+                    .iter()
+                    .map(|op| operand_mapping.get(op).cloned().unwrap())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Some(format!(
+                    "{}({})",
+                    operator_mapping.get(&operation.op_type).unwrap(),
+                    operands_str
+                ));
+            }
+        }
+        None
+    }
+    /// Generate a DDLog-style string interpolation statement
+    fn generate_ddlog_interpolation(
+        &self,
+        lhs_attribute: &str,
+        ssa_instructions: Vec<SSAInstruction>,
+    ) -> String {
+        // Map to store the operations for each SSA variable
+        let mut instruction_map: HashMap<String, SSAOperation> = HashMap::new();
+
+        // Populate the map with SSA instructions
+        let mut final_var = String::new();
+        for instr in &ssa_instructions {
+            match instr {
+                SSAInstruction::Assignment {
+                    variable,
+                    operation,
+                } => {
+                    instruction_map.insert(variable.clone(), operation.clone());
+
+                    // if it's the last instruction
+                    if ssa_instructions.last().unwrap() == instr {
+                        final_var = variable.clone();
+                    }
+                }
+                _ => {
+                    // Ignore other types of instructions
+                }
+            }
+        }
+
+        // Recursively resolve the operands into a DDLog-style concatenation statement
+        fn resolve_operands(var: &str, map: &HashMap<String, SSAOperation>) -> String {
+            if let Some(operation) = map.get(var) {
+                if operation.op_type == OperationType::Concat {
+                    let resolved_operands: Vec<String> = operation
+                        .operands
+                        .iter()
+                        // remove $ prefix
+                        .map(|operand| operand.trim_start_matches('$'))
+                        .map(|operand| resolve_operands(operand, map))
+                        .collect();
+                    return resolved_operands.join(" ++ ");
+                }
+            }
+            // If it's not an SSA variable (e.g., a static string), return as-is
+            var.to_string()
+        }
+
+        // Generate the DDLog interpolation statement
+        format!(
+            "var {} = {}",
+            lhs_attribute,
+            resolve_operands(&final_var, &instruction_map)
+        )
+    }
+    ///
     /// Full pipeline: Convert Lval -> IRProgram -> DatalogProgram
     pub fn compile(&self, lval: &Lval) -> DatalogProgram {
         let ir_program = self.lval_to_ir(lval);
@@ -553,6 +1047,12 @@ impl Default for Compiler {
     fn default() -> Self {
         Self::new()
     }
+}
+
+#[derive(Debug, Clone)]
+enum StringPart {
+    Static(String),  // Static text
+    Dynamic(String), // Placeholder (e.g., $var)
 }
 
 #[cfg(test)]

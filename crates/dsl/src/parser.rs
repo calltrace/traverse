@@ -38,14 +38,17 @@ pub(crate) fn lval_read(parsed: Pair<Rule>) -> BlisprResult {
         }
         Rule::logical => {
             let mut children = parsed.into_inner();
-            let operator = children.next().unwrap().as_str().to_string(); // "and", "or", "not"
+            let operator = lval_read(children.next().unwrap())?;
             let mut operands = vec![];
 
             for operand in children {
                 operands.push(lval_read(operand)?);
             }
 
-            Ok(Lval::logical(operator.as_str(), operands))
+            Ok(Lval::logical(operator, operands))
+        }
+        Rule::predicate_operator => {
+            Ok(Lval::predicate_operator(parsed.as_str()))
         }
         Rule::expr => lval_read(parsed.into_inner().next().unwrap()),
         Rule::sexpr => {
@@ -62,25 +65,40 @@ pub(crate) fn lval_read(parsed: Pair<Rule>) -> BlisprResult {
         Rule::symbol => Ok(Lval::sym(parsed.as_str())),
         Rule::emit => {
             let mut inner = parsed.into_inner();
+
             let node_type = inner.next().unwrap().as_str().to_string();
-
             let mut attributes = HashMap::new();
+            let mut when: Option<Box<Lval>> = None;
+            let mut do_q_exprs: Vec<Box<Lval>> = vec![];
             for child in inner {
-                let child = *lval_read(child)?;
+                let child = lval_read(child.clone())?;
 
-                if let Lval::KeyVal(kv) = &child {
+                if let Lval::KeyVal(kv) = *child {
                     if let (Some(key), Some(value)) = (kv.first(), kv.get(1)) {
                         if let Lval::Sym(key_str) = &**key {
                             // Dereference twice: first for Box, second for Lval
                             attributes.insert(key_str.clone(), value.clone());
                         }
                     }
-                }
-                if let Lval::Emit(_, _) = child {
-                    attributes.insert("nested_emit".to_string(), Box::new(child));
+                } else if let Lval::WhenForm(condition,_) = *child {
+                    when = Some(condition);
+                                    
+                } else if let Lval::Emit(_, _, _, _) = *child {
+                    attributes.insert("nested_emit".to_string(), child);
+                } else if let Lval::DoForm(children) = *child {
+                    do_q_exprs = children;
                 }
             }
-            Ok(Box::new(Lval::Emit(node_type, attributes)))
+
+            Ok(Box::new(Lval::Emit(
+                node_type,
+                attributes,
+                when,
+                do_q_exprs
+                    .first()
+                    .cloned()
+                    .and(Some(Box::new(Lval::DoForm(do_q_exprs)))),
+            )))
         }
         Rule::when_form => {
             let mut inner = parsed.into_inner();
@@ -91,15 +109,16 @@ pub(crate) fn lval_read(parsed: Pair<Rule>) -> BlisprResult {
             }
             Ok(Box::new(Lval::WhenForm(condition, emits)))
         }
+        /*
         Rule::logical => {
             let mut inner = parsed.into_inner();
-            let operator = inner.next().unwrap().as_str().to_string();
+            let operator = lval_read(inner.next().unwrap())?;
             let mut operands = vec![];
             for child in inner {
                 operands.push(lval_read(child)?);
             }
-            Ok(Lval::logical(&operator, operands))
-        }
+            Ok(Lval::logical(operator, operands))
+        }*/
         Rule::capture => Ok(Lval::capture(parsed.as_str())),
         Rule::capture_form => {
             let mut inner = parsed.into_inner();
@@ -147,6 +166,7 @@ pub(crate) fn lval_read(parsed: Pair<Rule>) -> BlisprResult {
             read_to_lval(&mut ret, parsed)?;
             Ok(ret)
         }
+        Rule::string_literal => Ok(Lval::string_literal(parsed.as_str())),
         e => {
             println!("Unmatched rule: {:?}", e);
             unreachable!()
@@ -195,7 +215,7 @@ mod tests {
         );
 
         let expected = Box::new(Lval::Query(vec![
-            Box::new(Lval::Emit("output_node_type".to_string(), emit_attributes)),
+            Box::new(Lval::Emit("output_node_type".to_string(), emit_attributes, None)),
             Box::new(Lval::CaptureForm(
                 "input_node_type".to_string(),
                 capture_form_attributes,
@@ -248,7 +268,7 @@ mod tests {
 
         // Expected query instantiation
         let expected = Box::new(Lval::Query(vec![
-            Box::new(Lval::Emit("output_node_type".to_string(), emit_attributes)),
+            Box::new(Lval::Emit("output_node_type".to_string(), emit_attributes, None)),
             Box::new(Lval::CaptureForm(
                 "input_node_type".to_string(),
                 nested_attributes,
@@ -304,6 +324,7 @@ mod tests {
             Box::new(Lval::Emit(
                 "output_node_type".to_string(),
                 nested_emit_attributes,
+                None,
             )),
             Box::new(Lval::CaptureForm(
                 "input_node_type".to_string(),
@@ -365,7 +386,7 @@ mod tests {
         );
 
         let expected = Box::new(Lval::Query(vec![
-            Box::new(Lval::Emit("output_node_type".to_string(), emit_attributes)),
+            Box::new(Lval::Emit("output_node_type".to_string(), emit_attributes, None)),
             Box::new(Lval::CaptureForm(
                 "input_node_type_1".to_string(),
                 capture_1_attributes,
@@ -419,6 +440,7 @@ mod tests {
         let inner_emit = Box::new(Lval::Emit(
             "output_node_type_2".to_string(),
             inner_emit_attributes,
+            None,
         ));
 
         // Attributes for the outer emit
@@ -432,6 +454,7 @@ mod tests {
         let outer_emit = Box::new(Lval::Emit(
             "output_node_type_1".to_string(),
             outer_emit_attributes,
+            None
         ));
 
         // Attributes for the capture block
@@ -493,6 +516,7 @@ mod tests {
         let expected = Box::new(Lval::Query(vec![Box::new(Lval::Emit(
             "output_node_type".to_string(),
             attributes,
+            None,
         ))]));
 
         let parsed_lval =
@@ -531,6 +555,7 @@ mod tests {
         let expected = Box::new(Lval::Query(vec![Box::new(Lval::Emit(
             "output_node_type".to_string(),
             attributes,
+            None,
         ))]));
 
         let parsed_lval =
@@ -569,7 +594,7 @@ mod tests {
             Box::new(Lval::Capture("@variable1".to_string())),
         );
 
-        let emit = Box::new(Lval::Emit("output_node_type".to_string(), emit_attributes));
+        let emit = Box::new(Lval::Emit("output_node_type".to_string(), emit_attributes, None));
 
         let mut capture_attributes = HashMap::new();
         capture_attributes.insert(
@@ -642,7 +667,7 @@ mod tests {
             Box::new(Lval::Capture("@var1".to_string())),
         );
 
-        let emit1 = Box::new(Lval::Emit("output_node_type".to_string(), emit1_attributes));
+        let emit1 = Box::new(Lval::Emit("output_node_type".to_string(), emit1_attributes, None));
 
         let mut capture_attributes = HashMap::new();
         capture_attributes.insert(
@@ -673,6 +698,7 @@ mod tests {
         let emit2 = Box::new(Lval::Emit(
             "conditional_output1".to_string(),
             emit2_attributes,
+            None,
         ));
 
         let mut emit3_attributes = HashMap::new();
@@ -684,6 +710,7 @@ mod tests {
         let emit3 = Box::new(Lval::Emit(
             "conditional_output2".to_string(),
             emit3_attributes,
+            None,
         ));
 
         // 10. Create the `when_form` Lval with the logical condition and conditional emits.
@@ -739,7 +766,7 @@ mod tests {
             Box::new(Lval::Capture("@var1".to_string())),
         );
 
-        let emit1 = Box::new(Lval::Emit("output_node_type".to_string(), emit1_attributes));
+        let emit1 = Box::new(Lval::Emit("output_node_type".to_string(), emit1_attributes, None));
 
         // 3. Define attributes for the `capture_form`.
         let mut capture_attributes = HashMap::new();
@@ -773,6 +800,7 @@ mod tests {
         let emit2 = Box::new(Lval::Emit(
             "conditional_output1".to_string(),
             emit2_attributes,
+            None,
         ));
 
         let mut emit3_attributes = HashMap::new();
@@ -785,6 +813,7 @@ mod tests {
         let emit3 = Box::new(Lval::Emit(
             "conditional_output2".to_string(),
             emit3_attributes,
+            None,
         ));
 
         let when_form = Box::new(Lval::WhenForm(logical_condition, vec![emit2, emit3]));
@@ -828,7 +857,7 @@ mod tests {
             "key1".to_string(),
             Box::new(Lval::Capture("@var1".to_string())),
         );
-        let emit_root = Lval::Emit("root_node".to_string(), root_emit_attrs);
+        let emit_root = Lval::Emit("root_node".to_string(), root_emit_attrs, None);
 
         let mut grandchild_attrs = HashMap::new();
         grandchild_attrs.insert(
@@ -893,7 +922,7 @@ mod tests {
             "key1".to_string(),
             Box::new(Lval::Capture("@var1".to_string())),
         );
-        let emit_root = Lval::Emit("root_node".to_string(), root_emit_attrs);
+        let emit_root = Lval::Emit("root_node".to_string(), root_emit_attrs, None);
 
         let mut grandchild_attrs = HashMap::new();
         grandchild_attrs.insert(

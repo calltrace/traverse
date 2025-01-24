@@ -60,27 +60,32 @@ operands = { identifier ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ identifier)* }
 
 // Defines the types of operations supported in SSA (e.g., arithmetic, logical, and data operations).
 operation = {
-      "add"         // Arithmetic addition
-    | "sub"         // Arithmetic subtraction
-    | "mul"         // Multiplication
-    | "div"         // Division
-    | "mod"         // Modulus
-    | "concat"      // String concatenation
-    | "eq"          // Equality comparison
-    | "neq"         // Not equal
-    | "lt"          // Less than
-    | "leq"         // Less than or equal
-    | "gt"          // Greater than
-    | "geq"         // Greater than or equal
-    | "and"         // Logical AND
-    | "or"          // Logical OR
-    | "not"         // Logical NOT
-    | "cmp"         // Comparison
-    | "append"      // Appending to collections
-    | "contains"    // Checks if a collection contains an element
-    | "len"         // Length of a collection
-    | "load"        // Load a value
-    | "store"       // Store a value
+      "add"          // Arithmetic addition
+    | "sub"          // Arithmetic subtraction
+    | "mul"          // Multiplication
+    | "div"          // Division
+    | "mod"          // Modulus
+    | "concat"       // String concatenation
+    | "eq"           // Equality comparison
+    | "neq"          // Not equal
+    | "lt"           // Less than
+    | "leq"          // Less than or equal
+    | "gt"           // Greater than
+    | "geq"          // Greater than or equal
+    | "and"          // Logical AND
+    | "or"           // Logical OR
+    | "not"          // Logical NOT
+    | "cmp"          // General comparison
+    | "append"       // Appending to collections
+    | "contains"     // Checks if a collection contains an element
+    | "exists"       // Check existence
+    | "in"           // Membership operator
+    | "within"       // Membership operator
+    | "startswith"   // String starts with
+    | "endswith"     // String ends with
+    | "len"          // Length of a collection
+    | "load"         // Load a value
+    | "store"        // Store a value
 }
 
 // Defines control flow instructions, which can be branching or jumping.

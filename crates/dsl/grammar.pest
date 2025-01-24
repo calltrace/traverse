@@ -23,8 +23,10 @@ num = @{ int }
 // Define a generic symbol used for node names like `typed_parameter`, `identifier`, etc.
 // The `@` prefix makes this rule atomic, preventing backtracking within it.
 symbol = @{
-    (ASCII_ALPHANUMERIC | "_" | "+" | "-" | "*" | "/" | "%" | "^" | "=" | "<" | ">" | "!")+
+    (ASCII_ALPHANUMERIC | "_" | "+" | "-" | "*" | "/" | "%" | "^" | "=" | "<" | ">" | "!" | "$")+
 }
+
+string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
 
 // Define a capture pattern similar to Tree-sitter captures, such as `@name` or `@val`.
 // The `@` prefix makes this rule atomic.
@@ -59,8 +61,12 @@ emit = {
     ~ WHITESPACE*                                 // Optional whitespace
     ~ key_value+                                  // One or more key-value pairs
     ~ WHITESPACE*                                 // Optional whitespace
-    ~ emit*                                       // Zero or more nested `emit` forms
+    ~ emit?                                       // Zero or more nested `emit` forms
     ~ WHITESPACE*                                 // Optional whitespace
+    ~ when_form?
+    ~ WHITESPACE*                                 // Optional whitespace
+    ~ do_form?
+    ~ WHITESPACE*                                  // Optional whitespace
     ~ ")"                                         // Closing ')'
 }
 
@@ -114,8 +120,6 @@ when_form = {
     "(" ~ WHITESPACE* ~ "when" ~ WHITESPACE*        // Start with '(' followed by 'when' keyword and optional whitespace
     ~ (logical | qexpr)                              // Either a logical expression or a Q-expression as the condition
     ~ WHITESPACE*                                    // Optional whitespace
-    ~ emit+                                       // One or more `emit` forms for conditional output
-    ~ WHITESPACE*                                    // Optional whitespace
     ~ ")"                                            // Closing ')'
 }
 
@@ -123,15 +127,25 @@ when_form = {
 // These constructs allow combining conditions using logical operators.
 logical = {
     "(" ~ WHITESPACE*                                // Start with '(' and optional whitespace
-    ~ logical_operator                               // Logical operator: 'and', 'or', 'not'
+    ~ predicate_operator                               // Logical operator: 'and', 'or', 'not'
     ~ WHITESPACE*                                    // Optional whitespace
-    ~ (num | symbol | capture | logical)+            // One or more operands: number, symbol, capture, or nested logical construct
+    ~ ((num | string_literal | symbol | capture | logical) ~ WHITESPACE*)+            // One or more operands: number, symbol, capture, or nested logical construct
     ~ WHITESPACE*                                    // Optional whitespace
     ~ ")"                                            // Closing ')'
 }
 
-// Define logical operators: 'and', 'or', 'not'.
-logical_operator = { "and" | "or" | "not" }
+predicate_operator = {
+    // Logical Operators
+    "and" | "or" | "not" |
+    // Comparison Operators
+    "eq" | "neq" | "lt" | "leq" | "gt" | "geq" |
+    // Membership Operators
+    "in" | "within" |
+    // Existence Checks
+    "exists" |
+    // String Comparisons
+    "contains" | "startswith" | "endswith" 
+}
 
 // Define a standard S-expression. Allows for zero or more sub-expressions inside parentheses.
 // It can optionally include a capture and a quantifier after the closing ')'.
@@ -167,7 +181,7 @@ expr = {
 program = { 
     SOI ~ (
         (
-            capture_form* ~ WHITESPACE* ~ (emit | when_form) 
+            capture_form* ~ WHITESPACE* ~ emit 
         ) 
         | COMMENT 
         | WHITESPACE

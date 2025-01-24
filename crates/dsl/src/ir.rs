@@ -163,7 +163,7 @@ pub struct SSAOperation {
 }
 
 /// Enum for supported operation types in SSA.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash, Eq)]
 pub enum OperationType {
     Add,
     Sub,
@@ -183,6 +183,11 @@ pub enum OperationType {
     Cmp,
     Append,
     Contains,
+    Exists,
+    In,
+    Within,
+    StartsWith,
+    EndsWith,
     Len,
     Load,
     Store,
@@ -368,6 +373,11 @@ impl fmt::Display for OperationType {
                 OperationType::Len => "len",
                 OperationType::Load => "load",
                 OperationType::Store => "store",
+                OperationType::In => "in",
+                OperationType::Within => "within",
+                OperationType::Exists => "exists",
+                OperationType::StartsWith => "starts_with",
+                OperationType::EndsWith => "ends_with"
             }
         )
     }
