@@ -1,4 +1,4 @@
 #[macro_use]
-pub mod ddlog_gen;
 pub mod ddlog_lang;
-pub mod compiler;
+pub mod ddlog_rt;
+pub mod gen_ddlog;

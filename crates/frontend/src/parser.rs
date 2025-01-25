@@ -1,15 +1,21 @@
 use std::collections::HashMap;
 
-use crate::{ast::Lval, error::Result};
-use log::debug;
+use crate::dsl::Lval;
 use pest::{iterators::Pair, Parser};
 use pest_derive::Parser;
 
-use crate::error::BlisprResult;
+use std::{
+    cmp::Ord,
+    fmt::{self, Debug},
+    hash::Hash,
+    marker::Copy,
+    string::ToString,
+};
+
 
 #[derive(Parser)]
-#[grammar = "./grammar.pest"]
-pub struct Grammar;
+#[grammar = "./dsl.pest"]
+pub struct Dsl;
 
 fn is_bracket_or_eoi(parsed: &Pair<Rule>) -> bool {
     if parsed.as_rule() == Rule::EOI {
@@ -29,7 +35,7 @@ fn read_to_lval(v: &mut Lval, parsed: Pair<Rule>) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn lval_read(parsed: Pair<Rule>) -> BlisprResult {
+fn lval_read(parsed: Pair<Rule>) -> DslResult {
     match parsed.as_rule() {
         Rule::program => {
             let mut ret = Lval::query();
@@ -47,9 +53,7 @@ pub(crate) fn lval_read(parsed: Pair<Rule>) -> BlisprResult {
 
             Ok(Lval::logical(operator, operands))
         }
-        Rule::predicate_operator => {
-            Ok(Lval::predicate_operator(parsed.as_str()))
-        }
+        Rule::predicate_operator => Ok(Lval::predicate_operator(parsed.as_str())),
         Rule::expr => lval_read(parsed.into_inner().next().unwrap()),
         Rule::sexpr => {
             let mut ret = Lval::sexpr();
@@ -80,9 +84,8 @@ pub(crate) fn lval_read(parsed: Pair<Rule>) -> BlisprResult {
                             attributes.insert(key_str.clone(), value.clone());
                         }
                     }
-                } else if let Lval::WhenForm(condition,_) = *child {
+                } else if let Lval::WhenForm(condition, _) = *child {
                     when = Some(condition);
-                                    
                 } else if let Lval::Emit(_, _, _, _) = *child {
                     attributes.insert("nested_emit".to_string(), child);
                 } else if let Lval::DoForm(children) = *child {
@@ -174,10 +177,83 @@ pub(crate) fn lval_read(parsed: Pair<Rule>) -> BlisprResult {
     }
 }
 
-pub fn to_ast(s: &str) -> BlisprResult {
-    let parsed = Grammar::parse(Rule::program, s)?.next().unwrap();
-    debug!("{}", parsed);
+pub fn parse(s: &str) -> DslResult {
+    let parsed = Dsl::parse(Rule::program, s)?.next().unwrap();
     lval_read(parsed)
+}
+
+
+#[derive(Debug)]
+pub enum Error {
+    DivideByZero,
+    EmptyList,
+    FunctionFormat,
+    NoChildren,
+    NotANumber,
+    NumArguments(usize, usize),
+    Parse(String),
+    Readline(String),
+    WrongType(String, String),
+    UnknownFunction(String),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+pub type DslResult = Result<Box<Lval>>;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Error::{
+            DivideByZero, EmptyList, FunctionFormat, NoChildren, NotANumber, NumArguments, Parse,
+            Readline, UnknownFunction, WrongType,
+        };
+        match self {
+            DivideByZero => write!(f, "Divide by zero"),
+            EmptyList => write!(f, "Empty list"),
+            FunctionFormat => write!(
+                f,
+                "Function format invalid.  Symbol '&' not followed by a single symbol"
+            ),
+            NoChildren => write!(f, "Lval has no children"),
+            NotANumber => write!(f, "NaN"),
+            NumArguments(expected, received) => write!(
+                f,
+                "Wrong number of arguments: expected {expected}, received {received}"
+            ),
+            Parse(s) => write!(f, "Parse error: {s}"),
+            Readline(s) => write!(f, "Readline error: {s}"),
+            WrongType(expected, received) => {
+                write!(f, "Wrong type: expected {expected}, received {received}")
+            }
+            UnknownFunction(func_name) => write!(f, "Unknown function {func_name}"),
+        }
+    }
+}
+
+impl<T> From<pest::error::Error<T>> for Error
+where
+    T: Debug + Ord + Copy + Hash,
+{
+    fn from(error: pest::error::Error<T>) -> Self {
+        Error::Parse(format!("{error}"))
+    }
+}
+
+impl From<std::num::ParseIntError> for Error {
+    fn from(_error: std::num::ParseIntError) -> Self {
+        Error::NotANumber
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(error: std::io::Error) -> Self {
+        Error::Parse(error.to_string())
+    }
+}
+
+impl From<rustyline::error::ReadlineError> for Error {
+    fn from(error: rustyline::error::ReadlineError) -> Self {
+        Error::Readline(error.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -194,7 +270,7 @@ mod tests {
                        (capture input_node_type (key2 some_variable))
         "#;
 
-        let parse_result = Grammar::parse(Rule::program, input);
+        let parse_result = Dsl::parse(Rule::program, input);
         assert!(
             parse_result.is_ok(),
             "Failed to parse input: {:?}",
@@ -215,7 +291,11 @@ mod tests {
         );
 
         let expected = Box::new(Lval::Query(vec![
-            Box::new(Lval::Emit("output_node_type".to_string(), emit_attributes, None)),
+            Box::new(Lval::Emit(
+                "output_node_type".to_string(),
+                emit_attributes,
+                None,
+            )),
             Box::new(Lval::CaptureForm(
                 "input_node_type".to_string(),
                 capture_form_attributes,
@@ -240,7 +320,7 @@ mod tests {
                    )
         "#;
 
-        let parse_result = Grammar::parse(Rule::program, input);
+        let parse_result = Dsl::parse(Rule::program, input);
         assert!(
             parse_result.is_ok(),
             "Failed to parse input: {:?}",
@@ -268,7 +348,11 @@ mod tests {
 
         // Expected query instantiation
         let expected = Box::new(Lval::Query(vec![
-            Box::new(Lval::Emit("output_node_type".to_string(), emit_attributes, None)),
+            Box::new(Lval::Emit(
+                "output_node_type".to_string(),
+                emit_attributes,
+                None,
+            )),
             Box::new(Lval::CaptureForm(
                 "input_node_type".to_string(),
                 nested_attributes,
@@ -293,7 +377,7 @@ mod tests {
                    )
         "#;
 
-        let parse_result = Grammar::parse(Rule::program, input);
+        let parse_result = Dsl::parse(Rule::program, input);
         assert!(
             parse_result.is_ok(),
             "Failed to parse input: {:?}",
@@ -354,7 +438,7 @@ mod tests {
                    )
         "#;
 
-        let parse_result = Grammar::parse(Rule::program, input);
+        let parse_result = Dsl::parse(Rule::program, input);
         assert!(
             parse_result.is_ok(),
             "Failed to parse input: {:?}",
@@ -386,7 +470,11 @@ mod tests {
         );
 
         let expected = Box::new(Lval::Query(vec![
-            Box::new(Lval::Emit("output_node_type".to_string(), emit_attributes, None)),
+            Box::new(Lval::Emit(
+                "output_node_type".to_string(),
+                emit_attributes,
+                None,
+            )),
             Box::new(Lval::CaptureForm(
                 "input_node_type_1".to_string(),
                 capture_1_attributes,
@@ -421,7 +509,7 @@ mod tests {
                    )
         "#;
 
-        let parse_result = Grammar::parse(Rule::program, input);
+        let parse_result = Dsl::parse(Rule::program, input);
         assert!(
             parse_result.is_ok(),
             "Failed to parse input: {:?}",
@@ -454,7 +542,7 @@ mod tests {
         let outer_emit = Box::new(Lval::Emit(
             "output_node_type_1".to_string(),
             outer_emit_attributes,
-            None
+            None,
         ));
 
         // Attributes for the capture block
@@ -493,7 +581,7 @@ mod tests {
         "#;
 
         // Parse the input
-        let parse_result = Grammar::parse(Rule::program, input);
+        let parse_result = Dsl::parse(Rule::program, input);
         assert!(
             parse_result.is_ok(),
             "Failed to parse input: {:?}",
@@ -533,7 +621,7 @@ mod tests {
               (key2 some_constant_value)
             )"#;
 
-        let parse_result = Grammar::parse(Rule::program, input);
+        let parse_result = Dsl::parse(Rule::program, input);
         assert!(
             parse_result.is_ok(),
             "Failed to parse input: {:?}",
@@ -578,7 +666,7 @@ mod tests {
         )
     "#;
 
-        let parse_result = Grammar::parse(Rule::program, input);
+        let parse_result = Dsl::parse(Rule::program, input);
         assert!(
             parse_result.is_ok(),
             "Failed to parse input: {:?}",
@@ -594,7 +682,11 @@ mod tests {
             Box::new(Lval::Capture("@variable1".to_string())),
         );
 
-        let emit = Box::new(Lval::Emit("output_node_type".to_string(), emit_attributes, None));
+        let emit = Box::new(Lval::Emit(
+            "output_node_type".to_string(),
+            emit_attributes,
+            None,
+        ));
 
         let mut capture_attributes = HashMap::new();
         capture_attributes.insert(
@@ -651,7 +743,7 @@ mod tests {
     "#;
 
         // Parse the input using the defined Pest grammar.
-        let parse_result = Grammar::parse(Rule::program, input);
+        let parse_result = Dsl::parse(Rule::program, input);
         assert!(
             parse_result.is_ok(),
             "Failed to parse input: {:?}",
@@ -667,7 +759,11 @@ mod tests {
             Box::new(Lval::Capture("@var1".to_string())),
         );
 
-        let emit1 = Box::new(Lval::Emit("output_node_type".to_string(), emit1_attributes, None));
+        let emit1 = Box::new(Lval::Emit(
+            "output_node_type".to_string(),
+            emit1_attributes,
+            None,
+        ));
 
         let mut capture_attributes = HashMap::new();
         capture_attributes.insert(
@@ -751,7 +847,7 @@ mod tests {
     "#;
 
         // Parse the input using the defined Pest grammar.
-        let parse_result = Grammar::parse(Rule::program, input);
+        let parse_result = Dsl::parse(Rule::program, input);
         assert!(
             parse_result.is_ok(),
             "Failed to parse input: {:?}",
@@ -766,7 +862,11 @@ mod tests {
             Box::new(Lval::Capture("@var1".to_string())),
         );
 
-        let emit1 = Box::new(Lval::Emit("output_node_type".to_string(), emit1_attributes, None));
+        let emit1 = Box::new(Lval::Emit(
+            "output_node_type".to_string(),
+            emit1_attributes,
+            None,
+        ));
 
         // 3. Define attributes for the `capture_form`.
         let mut capture_attributes = HashMap::new();
@@ -840,7 +940,7 @@ mod tests {
             )
         "#;
 
-        let parse_result = Grammar::parse(Rule::program, input);
+        let parse_result = Dsl::parse(Rule::program, input);
         assert!(
             parse_result.is_ok(),
             "Grammar::parse failed unexpectedly: {:?}",
@@ -906,7 +1006,7 @@ mod tests {
             )
         "#;
 
-        let parse_result = Grammar::parse(Rule::program, input);
+        let parse_result = Dsl::parse(Rule::program, input);
         assert!(
             parse_result.is_ok(),
             "Grammar::parse failed unexpectedly: {:?}",

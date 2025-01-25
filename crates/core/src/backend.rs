@@ -36,7 +36,7 @@ impl TreeSitterAST {
 }
 
 /// The primary trait that any Datalog backend must implement.
-pub trait Backend {
+pub trait DatalogBackend {
     /// Associated error type for your backend.
     type Error;
 
@@ -128,7 +128,7 @@ impl DDLogBackend {
     }
 }
 
-impl Backend for DDLogBackend {
+impl DatalogBackend for DDLogBackend {
     type Error = String;
 
     fn start(&mut self) -> Result<(), Self::Error> {
@@ -248,7 +248,7 @@ impl SouffleBackend {
     }
 }
 
-impl Backend for SouffleBackend {
+impl DatalogBackend for SouffleBackend {
     type Error = String;
 
     fn start(&mut self) -> Result<(), Self::Error> {

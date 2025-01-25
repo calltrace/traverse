@@ -1,8 +1,8 @@
 use clap::Parser;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use backend::ddlog_gen::generate_ddlog_file;
+use backend::gen_ddlog::DDlogGenerator;
 use language::node_types::parse_node_types;
 
 #[derive(Parser)]
@@ -50,7 +50,7 @@ fn main() -> std::io::Result<()> {
             .expect("Failed to parse node-types.json");
 
         // generate .dl content
-        let ddlog = generate_ddlog_file(&nodes);
+        let ddlog = DDlogGenerator::new().generate_ddlog_file(&nodes);
 
         // write to <stripped_name>.dl
         fs::write(&out_dl, ddlog)

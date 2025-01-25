@@ -1,9 +1,11 @@
 // Lisp AST types and primitives heavily inspired by https://github.com/deciduously/blispr/blob/master/src/lval.rs
-use crate::error::{BlisprResult, Error, Result};
+use crate::parser::{DslResult, Result};
+use crate::parser::Error;
+
 use std::{collections::HashMap, fmt};
 
 type LvalChildren = Vec<Box<Lval>>;
-pub type LBuiltin = fn(&mut Lval) -> BlisprResult;
+pub type LBuiltin = fn(&mut Lval) -> DslResult;
 
 #[derive(Clone)]
 pub enum Func {
@@ -131,7 +133,7 @@ impl Lval {
         Box::new(Lval::String(s.into()))
     }
 
-    pub fn add(v: &mut Lval, x: &Lval) -> Result<()> {
+    pub fn add(v: &mut Lval, x: &Lval) -> crate::parser::Result<()> {
         match *v {
             Lval::Sexpr(ref mut children)
             | Lval::Qexpr(ref mut children)
@@ -139,12 +141,12 @@ impl Lval {
             | Lval::KeyVal(ref mut children) => {
                 children.push(Box::new(x.clone()));
             }
-            _ => return Err(Error::NoChildren),
+            _ => return Err(crate::parser::Error::NoChildren),
         }
         Ok(())
     }
 
-    pub fn pop(v: &mut Lval, i: usize) -> BlisprResult {
+    pub fn pop(v: &mut Lval, i: usize) -> DslResult {
         match *v {
             Lval::Sexpr(ref mut children)
             | Lval::Qexpr(ref mut children)

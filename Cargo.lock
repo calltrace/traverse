@@ -85,6 +85,7 @@ checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 name = "backend"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "cc",
  "clap",
  "ctor",
@@ -103,6 +104,8 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "tempdir",
+ "which",
 ]
 
 [[package]]
@@ -235,7 +238,6 @@ dependencies = [
  "frontend",
  "ir",
  "language",
- "pest",
  "proc-macro2",
  "quote",
  "reedline",

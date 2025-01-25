@@ -1,5 +1,4 @@
 #[macro_use]
+mod dsl;
 pub mod parser;
-mod ast;
-pub mod compiler;
-mod error;
+pub mod gen_ir;

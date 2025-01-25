@@ -1,12 +1,5 @@
-use frontend::{
-    compiler::Compiler,
-    parser::{to_ast, Grammar},
-};
+use frontend::gen_ir::IrGenerator;
 
-use ir::IRProgram;
-use backend::ddlog_lang::DatalogProgram;
-
-use pest::Parser;
 use reedline::{DefaultPrompt, DefaultValidator, FileBackedHistory, Reedline, Signal};
 use std::io;
 
@@ -47,45 +40,42 @@ fn main() -> io::Result<()> {
                         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
                     continue;
                 } else {
-                    let parse_result = frontend::parser::Grammar::parse(frontend::parser::Rule::program, &buffer);
-                    if parse_result.is_err() {
-                        println!("Failed to parse DSL: {:?}", parse_result);
-                        continue;
-                    }
+                    let parse_result = frontend::parser::parse(&buffer);
 
-                    match to_ast(&buffer) {
+                    match parse_result {
                         Ok(lval) => {
                             println!("AST:\n{:#?}\n", lval);
 
-                            let dl_ir: IRProgram =
-                                Compiler::new().with_input_relations(true).lval_to_ir(&lval);
-
-                            println!("Datalog IR:\n\n{}", dl_ir);
-
-                            let ddlog: DatalogProgram = backend::compiler::Compiler::new()
+                            if let Ok(dl_ir) = IrGenerator::new()
                                 .with_input_relations(true)
-                                .ir_to_ddlog(dl_ir);
-                                
-                                //.ir_to_ddlog(dl_ir);
+                                .lval_to_ir(&lval)
+                            {
+                                println!("Datalog IR:\n\n{}", dl_ir);
 
-                            println!("\nGenerated DDLog:\n\n{}", ddlog.to_string().trim());
+                                let ddlog =
+                                    backend::gen_ddlog::DDlogGenerator::new()
+                                        .with_input_relations(true)
+                                        .generate(*dl_ir);
 
-                            match core::ddlog::validate(&ddlog.to_string()) {
-                                Ok(_) => {
-                                    println!("\nDDLog Validation succeded");
+                                if let Ok(ddlog) = ddlog {
+                                    println!("\nGenerated DDLog:\n\n{}", ddlog.to_string().trim());
+                                    match backend::ddlog_rt::validate(&ddlog.to_string()) {
+                                        Ok(_) => {
+                                            println!("\nDDLog Validation succeded");
+                                        }
+                                        Err(e) => {
+                                            println!("\nDDLog Validation Error:\n{}", e);
+                                        }
+                                    }
+                                } else {
+                                    println!("Failed to generate DDLog");
                                 }
-                                Err(e) => {
-                                    println!("\nDDLog Validation Error:\n{}", e);
-                                }
-                                                           
                             }
-
                         }
                         Err(e) => {
                             println!("Failed to parse DSL: {:?}", e);
                         }
                     }
-
                 }
             }
             Signal::CtrlD | Signal::CtrlC => {

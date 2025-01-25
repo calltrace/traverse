@@ -1,7 +1,6 @@
 use std::{
-    fs::{self, File},
-    io::{Read, Result as IoResult, Write},
-    path::{Path, PathBuf},
+    fs::File,
+    io::{Read, Write},
     process::{Command, Stdio},
 };
 use tempdir::TempDir;

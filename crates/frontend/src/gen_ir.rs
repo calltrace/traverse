@@ -1,8 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-use serde::de::Error;
-
-use crate::ast::Lval;
+use crate::{
+    dsl::Lval,
+    parser::parse
+};
 
 use ir::{
     Attribute, AttributeType, IRProgram, IRRule, LHSNode, OperationType, RHSNode, RHSVal,
@@ -69,11 +70,11 @@ impl SSAContext {
     }
 }
 
-pub struct Compiler {
+pub struct IrGenerator {
     generate_input_relations: bool, // Option to control input relation generation
 }
 
-impl Compiler {
+impl IrGenerator {
     /// Creates a new compiler with default options
     pub fn new() -> Self {
         Self {
@@ -99,7 +100,7 @@ impl Compiler {
     }
 
     /// Converts an Lval AST into an IRProgram.
-    pub fn lval_to_ir(&self, lval: &Lval) -> IRProgram {
+    pub fn lval_to_ir(&self, lval: &Lval) -> DslToIrResult {
         let mut ir_program = IRProgram {
             rules: Vec::new(),
             relations: Vec::new(),
@@ -109,7 +110,7 @@ impl Compiler {
 
         self.process_lval(lval, &mut ir_program, &mut context);
 
-        ir_program
+        Ok(Box::new(ir_program))
     }
 
     /// Recursively processes an Lval and populates the IRProgram.
@@ -657,15 +658,14 @@ impl Compiler {
         }
     }
 
-    ///
-    /// Full pipeline: Convert Lval -> IRProgram 
-    pub fn compile(&self, lval: &Lval) -> IRProgram {
-        self.lval_to_ir(lval)
+    pub fn generate(&self, dsl_program: &str) -> DslToIrResult {
+        parse(dsl_program)
+            .map_err(Error::ParserError)
+            .and_then(|lval| self.lval_to_ir(&lval))
     }
-
 }
 
-impl Default for Compiler {
+impl Default for IrGenerator {
     fn default() -> Self {
         Self::new()
     }
@@ -676,6 +676,14 @@ enum StringPart {
     Static(String),  // Static text
     Dynamic(String), // Placeholder (e.g., $var)
 }
+
+#[derive(Debug)]
+pub enum Error {
+    ParserError(crate::parser::Error),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+pub type DslToIrResult = Result<Box<IRProgram>>;
 
 #[cfg(test)]
 mod tests {
@@ -697,7 +705,7 @@ mod tests {
         );
 
         // Use the Compiler fluent API
-        let compiler = Compiler::new().with_input_relations(true);
+        let compiler = IrGenerator::new().with_input_relations(true);
         let ddlog_program = compiler.compile(&lval);
 
         // Verify the DDlog output
@@ -738,7 +746,7 @@ mod tests {
         );
 
         // Create the Compiler and generate IR
-        let compiler = Compiler::new();
+        let compiler = IrGenerator::new();
         let ir_program = compiler.lval_to_ir(&lval);
 
         // Verify output relations
@@ -790,7 +798,7 @@ mod tests {
         );
 
         // Create the Compiler and generate IR
-        let compiler = Compiler::new();
+        let compiler = IrGenerator::new();
         let ir_program = compiler.lval_to_ir(&lval);
 
         // Verify output relations
@@ -834,7 +842,7 @@ mod tests {
         );
 
         // Create the Compiler and generate IR
-        let compiler = Compiler::new();
+        let compiler = IrGenerator::new();
         let ir_program = compiler.lval_to_ir(&lval);
 
         // Verify output relations
@@ -886,7 +894,7 @@ mod tests {
         );
 
         // Create the Compiler
-        let compiler = Compiler::new();
+        let compiler = IrGenerator::new();
 
         // Compile Lval to DDlog
         let ddlog_program = compiler.compile(&lval);

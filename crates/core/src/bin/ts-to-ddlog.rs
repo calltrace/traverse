@@ -1,7 +1,5 @@
 use clap::Parser;
 use core::facts::{to_pascal_case, DDLogCommand};
-use language::Language;
-use std::collections::HashSet;
 use std::fs;
 use tree_sitter::Node;
 
