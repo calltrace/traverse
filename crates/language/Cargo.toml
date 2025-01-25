@@ -15,8 +15,12 @@ name = "ts_parse"  # Name of the binary (executable)
 path = "src/bin/main.rs"
 
 [dependencies]
+indexmap = { version= "2.7.0", features = ["serde"] }
 proc-macro2 = "1.0.92"
 quote = "1.0.37"
+serde = "1.0.217"
+serde_derive = "1.0.217"
+serde_json = "1.0.137"
 syn = { version = "2.0.90", features = ["full"] }
 #tree-sitter-solidity = "1.2.10"
 tree-sitter = "0.24.5"

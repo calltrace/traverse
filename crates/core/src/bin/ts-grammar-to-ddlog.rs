@@ -2,8 +2,8 @@ use clap::Parser;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use dsl::ddlog_gen::generate_ddlog_file;
-use dsl::node_types::parse_node_types;
+use backend::ddlog_gen::generate_ddlog_file;
+use language::node_types::parse_node_types;
 
 #[derive(Parser)]
 #[command(name = "gen_datalog")]

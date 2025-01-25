@@ -2,19 +2,37 @@ use std::collections::{HashMap, HashSet};
 
 use serde::de::Error;
 
-use crate::{
-    ast::Lval,
-    ddlog_gen::{sanitize_reserved, to_pascal_case},
-    ddlog_lang::{
-        Atom, DType, DatalogProgram, Delay, Expr, ExprNode, Field, ModuleName, Pos, Relation,
-        RelationRole, RelationSemantics, Rule, RuleLHS, RuleRHS,
-    },
-    ir::{
-        Attribute, AttributeType, IRProgram, IRRule, LHSNode, OperationType, RHSNode, RHSVal,
-        RelationRole as IRRelationRole, RelationType as IRRelationType, SSAInstruction,
-        SSAInstructionBlock, SSAOperation,
-    },
+use crate::ast::Lval;
+
+use ir::{
+    Attribute, AttributeType, IRProgram, IRRule, LHSNode, OperationType, RHSNode, RHSVal,
+    RelationRole as IRRelationRole, RelationType as IRRelationType, SSAInstruction,
+    SSAInstructionBlock, SSAOperation,
 };
+
+const RESERVED_WORDS: &[&str] = &["else", "function", "type", "match", "var"];
+
+pub(crate) fn to_pascal_case(s: &str) -> String {
+    s.split('_')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(c) => c.to_ascii_uppercase().to_string() + chars.as_str(),
+            }
+        })
+        .collect()
+}
+
+pub(crate) fn sanitize_reserved(name: &str) -> String {
+    let lower = name.to_lowercase();
+    if RESERVED_WORDS.contains(&lower.as_str()) {
+        format!("_{}", name)
+    } else {
+        name.to_string()
+    }
+}
 
 struct SSAContext {
     temp_counter: usize,
@@ -67,6 +85,17 @@ impl Compiler {
     pub fn with_input_relations(mut self, generate: bool) -> Self {
         self.generate_input_relations = generate;
         self
+    }
+
+    fn lookup_relation<'a>(
+        &self,
+        ir: &'a IRProgram,
+        rel_name: &str,
+        rel_role: Option<IRRelationRole>,
+    ) -> Option<&'a IRRelationType> {
+        ir.relations.iter().find(|rel| {
+            rel.name == rel_name && rel_role.as_ref().map(|r| *r == rel.role).unwrap_or(true)
+        })
     }
 
     /// Converts an Lval AST into an IRProgram.
@@ -628,419 +657,12 @@ impl Compiler {
         }
     }
 
-    /// Converts an IRProgram into a DatalogProgram, handling nested RHSVal structures.
-    pub fn ir_to_ddlog(&self, ir: IRProgram) -> DatalogProgram {
-        fn expand_rhs_val(val: &RHSVal) -> Vec<RuleRHS> {
-            match val {
-                RHSVal::RHSNode(node) => {
-                    // Create a RHSLiteral referencing the input relation
-                    let literal = RuleRHS::RHSLiteral {
-                        pos: Pos::nopos(),
-                        polarity: true,
-                        atom: Atom {
-                            pos: Pos::nopos(),
-                            relation: node.relation_name.clone(),
-                            delay: Delay::zero(),
-                            diff: false,
-                            value: Expr::new(ExprNode::EVar {
-                                pos: Pos::nopos(),
-                                name: node
-                                    .attributes
-                                    .iter()
-                                    .cloned()
-                                    .map(|s| s.to_lowercase())
-                                    .collect::<Vec<_>>()
-                                    .join(", "),
-                            }),
-                        },
-                    };
-
-                    vec![literal]
-                }
-
-                RHSVal::NestedRHS(vals) => {
-                    let mut rhs_clauses = Vec::new();
-                    for val in vals {
-                        rhs_clauses.extend(expand_rhs_val(val));
-                    }
-                    rhs_clauses
-                }
-            }
-        }
-
-        let mut program = DatalogProgram::new();
-        for relation in &ir.relations {
-            if let Some(lhs_relation) = self.lookup_relation(&ir, &relation.name, None) {
-                let relation_fields = lhs_relation
-                    .attributes
-                    .iter()
-                    .map(|attr| Field {
-                        pos: Pos::nopos(),
-                        name: attr.name.clone(),
-                        ftype: DType::TString { pos: Pos::nopos() },
-                    })
-                    .collect::<Vec<_>>();
-
-                match relation.role {
-                    IRRelationRole::Output => {
-                        program.add_relation(Relation {
-                            pos: Pos::nopos(),
-                            role: RelationRole::RelOutput, // All are output relations
-                            semantics: RelationSemantics::RelSet, // Defaulting to set semantics
-                            name: relation.name.clone(),
-                            rtype: DType::TStruct {
-                                pos: Pos::nopos(),
-                                name: relation.name.clone(),
-                                fields: relation_fields,
-                            }, // Assuming attributes are strings
-                            primary_key: None,
-                        });
-                    }
-                    IRRelationRole::Input => {
-                        // Optionally add input relations based on the role
-                        if self.generate_input_relations {
-                            program.add_relation(Relation {
-                                pos: Pos::nopos(),
-                                role: RelationRole::RelInput,
-                                semantics: RelationSemantics::RelSet,
-                                name: relation.name.clone(),
-                                rtype: DType::TStruct {
-                                    pos: Pos::nopos(),
-                                    name: relation.name.clone(),
-                                    fields: relation_fields,
-                                }, // Assuming attributes are strings
-                                primary_key: None,
-                            });
-                        }
-                    }
-                    IRRelationRole::Intermediate => {
-                        unreachable!("Intermediate relations are not supported in DDlog");
-                    }
-                }
-            }
-        }
-
-        for rule in &ir.rules {
-            if let Some(lhs_relation) =
-                self.lookup_relation(&ir, &rule.lhs.relation_name, Some(IRRelationRole::Output))
-            {
-                let lhs_attributes = lhs_relation
-                    .attributes
-                    .iter()
-                    .cloned()
-                    .map(|s| s.name)
-                    .collect::<HashSet<_>>();
-
-                let lhs = RuleLHS {
-                    pos: Pos::nopos(),
-                    atom: Atom {
-                        pos: Pos::nopos(),
-                        relation: rule.lhs.relation_name.clone(),
-                        delay: Delay::zero(),
-                        diff: false,
-                        value: Expr::new(ExprNode::EVar {
-                            pos: Pos::nopos(),
-                            name: lhs_attributes
-                                .iter()
-                                .cloned()
-                                .map(|s| format!("lhs_{}", s))
-                                .collect::<Vec<_>>()
-                                .join(", "),
-                        }),
-                    },
-                    location: None,
-                };
-
-                let rhs_clauses = expand_rhs_val(&rule.rhs);
-                let rhs_attributes = self.collect_all_rhs_attributes(&ir, &rule.rhs);
-
-                let mut conditions = Vec::new();
-                // HACK: the RI grammar should allow for disambiguating relations in terms of their
-                // role (e.g. emission, capturing)
-                if lhs_relation.name.starts_with("Emit") {
-                    let condition_exprs = Self::process_labeled_blocks_to_mapping_expr(
-                        rule.ssa_block.as_ref().unwrap(),
-                    );
-
-                    for condition_expr in condition_exprs {
-                        conditions.push(RuleRHS::RHSCondition {
-                            pos: Pos::nopos(),
-                            expr: Expr::new(ExprNode::EVar {
-                                pos: Pos::nopos(),
-                                name: condition_expr,
-                            }),
-                        });
-                    }
-
-                    let mapping_expr = self.generate_ddlog_interpolation(
-                        &format!("lhs_{}", lhs_relation.attributes[0].name),
-                        rule.ssa_block
-                            .as_ref()
-                            .map(|block| block.instructions.clone())
-                            .unwrap_or_default(),
-                    );
-
-                    conditions.push(RuleRHS::RHSCondition {
-                        pos: Pos::nopos(),
-                        expr: Expr::new(ExprNode::EVar {
-                            pos: Pos::nopos(),
-                            name: mapping_expr,
-                        }),
-                    });
-                } else {
-                    // Capture form
-                    let lhs_rhs_pairs = lhs_attributes.iter().zip(rhs_attributes);
-
-                    // actions override automatic RHS to LHS assignments
-                    if rule.ssa_block.is_some() {
-                        let mapping_expr = self.generate_ddlog_interpolation(
-                            &format!("lhs_{}", lhs_relation.attributes[0].name),
-                            rule.ssa_block
-                                .as_ref()
-                                .map(|block| block.instructions.clone())
-                                .unwrap_or_default(),
-                        );
-
-                        conditions.push(RuleRHS::RHSCondition {
-                            pos: Pos::nopos(),
-                            expr: Expr::new(ExprNode::EVar {
-                                pos: Pos::nopos(),
-                                name: mapping_expr,
-                            }),
-                        });
-                    } else {
-                        for (lhs_attr, rhs_attr) in lhs_rhs_pairs {
-                            let mapping_expr = format!("var lhs_{} = {}", lhs_attr, rhs_attr);
-                            conditions.push(RuleRHS::RHSCondition {
-                                pos: Pos::nopos(),
-                                expr: Expr::new(ExprNode::EVar {
-                                    pos: Pos::nopos(),
-                                    name: mapping_expr,
-                                }),
-                            });
-                        }
-                    }
-                }
-
-                let rhs_clauses = rhs_clauses.into_iter().chain(conditions).collect();
-
-                program.add_rule(Rule {
-                    pos: Pos::nopos(),
-                    module: ModuleName { path: vec![] }, // Default module
-                    lhs: vec![lhs],
-                    rhs: rhs_clauses,
-                });
-            }
-        }
-
-        program
-    }
-
-    fn collect_all_rhs_attributes(&self, ir: &IRProgram, val: &RHSVal) -> HashSet<String> {
-        match val {
-            RHSVal::RHSNode(node) => {
-                if self
-                    .lookup_relation(ir, &node.relation_name, None)
-                    .is_some()
-                {
-                    node.attributes.clone()
-                } else {
-                    HashSet::new()
-                }
-            }
-            RHSVal::NestedRHS(vals) => {
-                let mut collected_attributes = HashSet::new();
-                for val in vals {
-                    collected_attributes.extend(self.collect_all_rhs_attributes(ir, val));
-                }
-                collected_attributes
-            }
-        }
-    }
-
-    fn lookup_relation<'a>(
-        &self,
-        ir: &'a IRProgram,
-        rel_name: &str,
-        rel_role: Option<IRRelationRole>,
-    ) -> Option<&'a IRRelationType> {
-        ir.relations.iter().find(|rel| {
-            rel.name == rel_name && rel_role.as_ref().map(|r| *r == rel.role).unwrap_or(true)
-        })
-    }
-
-    fn process_labeled_blocks_to_mapping_expr(ssa_block: &SSAInstructionBlock) -> Vec<String> {
-        let mut mapping_expressions = Vec::new();
-        let mut current_label = None;
-        let mut current_instructions = Vec::new();
-
-        for instruction in &ssa_block.instructions {
-            match instruction {
-                SSAInstruction::Label(label) => {
-                    // If there is a current block being processed, check if it ends with a predicate
-                    if let Some(curr_label) = &current_label {
-                        if let Some(expr) =
-                            Self::process_block_for_predicate(curr_label, &current_instructions)
-                        {
-                            mapping_expressions.push(expr);
-                        }
-                    }
-                    // Start a new labeled block
-                    current_label = Some(label.clone());
-                    current_instructions.clear();
-                }
-                _ => {
-                    // Collect instructions for the current block
-                    current_instructions.push(instruction.clone());
-                }
-            }
-        }
-
-        // Process the last block after the loop
-        if let Some(curr_label) = &current_label {
-            if let Some(expr) = Self::process_block_for_predicate(curr_label, &current_instructions)
-            {
-                mapping_expressions.push(expr);
-            }
-        }
-
-        mapping_expressions
-    }
-
-    /// Checks if a block ends with a predicate operator and converts it to a mapping expression.
-    fn process_block_for_predicate(
-        label: &String,
-        instructions: &[SSAInstruction],
-    ) -> Option<String> {
-        let mut operand_mapping: HashMap<String, String> = HashMap::new();
-        let mut operator_mapping: HashMap<OperationType, String> = HashMap::new();
-        operator_mapping.insert(OperationType::Eq, "==".to_string());
-
-        // iterate over the instructions and create variables for each variable assignment and operand
-        for instr in instructions {
-            match instr {
-                SSAInstruction::Assignment {
-                    variable,
-                    operation,
-                } if operation.op_type == OperationType::Load => {
-                    operand_mapping.insert(variable.clone(), operation.operands[0].clone());
-                }
-                _ => {
-                    // Ignore other types of instructions
-                }
-            }
-        }
-
-        if let Some(SSAInstruction::Assignment {
-            variable: _,
-            operation,
-            ..
-        }) = instructions.last()
-        {
-            // Infix
-            if matches!(
-                operation.op_type,
-                OperationType::Eq
-                    | OperationType::Neq
-                    | OperationType::Lt
-                    | OperationType::Leq
-                    | OperationType::Gt
-                    | OperationType::Geq
-                    | OperationType::And
-                    | OperationType::Or
-                    | OperationType::Not
-            ) {
-                // Generate the mapping expression
-                // create infix operator (e.g. a == b)
-                return Some(format!(
-                    "{} {} {}",
-                    operand_mapping.get(&operation.operands[0]).unwrap(),
-                    operator_mapping.get(&operation.op_type).unwrap(),
-                    operand_mapping.get(&operation.operands[1]).unwrap()
-                ));
-
-                /*
-                 */
-            }
-
-            // prefix operator (e.g. string_contains())
-            if matches!(operation.op_type, OperationType::Contains) {
-                let operands_str = operation
-                    .operands
-                    .iter()
-                    .map(|op| operand_mapping.get(op).cloned().unwrap())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                return Some(format!(
-                    "{}({})",
-                    operator_mapping.get(&operation.op_type).unwrap(),
-                    operands_str
-                ));
-            }
-        }
-        None
-    }
-    /// Generate a DDLog-style string interpolation statement
-    fn generate_ddlog_interpolation(
-        &self,
-        lhs_attribute: &str,
-        ssa_instructions: Vec<SSAInstruction>,
-    ) -> String {
-        // Map to store the operations for each SSA variable
-        let mut instruction_map: HashMap<String, SSAOperation> = HashMap::new();
-
-        // Populate the map with SSA instructions
-        let mut final_var = String::new();
-        for instr in &ssa_instructions {
-            match instr {
-                SSAInstruction::Assignment {
-                    variable,
-                    operation,
-                } => {
-                    instruction_map.insert(variable.clone(), operation.clone());
-
-                    // if it's the last instruction
-                    if ssa_instructions.last().unwrap() == instr {
-                        final_var = variable.clone();
-                    }
-                }
-                _ => {
-                    // Ignore other types of instructions
-                }
-            }
-        }
-
-        // Recursively resolve the operands into a DDLog-style concatenation statement
-        fn resolve_operands(var: &str, map: &HashMap<String, SSAOperation>) -> String {
-            if let Some(operation) = map.get(var) {
-                if operation.op_type == OperationType::Concat {
-                    let resolved_operands: Vec<String> = operation
-                        .operands
-                        .iter()
-                        // remove $ prefix
-                        .map(|operand| operand.trim_start_matches('$'))
-                        .map(|operand| resolve_operands(operand, map))
-                        .collect();
-                    return resolved_operands.join(" ++ ");
-                }
-            }
-            // If it's not an SSA variable (e.g., a static string), return as-is
-            var.to_string()
-        }
-
-        // Generate the DDLog interpolation statement
-        format!(
-            "var {} = {}",
-            lhs_attribute,
-            resolve_operands(&final_var, &instruction_map)
-        )
-    }
     ///
-    /// Full pipeline: Convert Lval -> IRProgram -> DatalogProgram
-    pub fn compile(&self, lval: &Lval) -> DatalogProgram {
-        let ir_program = self.lval_to_ir(lval);
-        self.ir_to_ddlog(ir_program)
+    /// Full pipeline: Convert Lval -> IRProgram 
+    pub fn compile(&self, lval: &Lval) -> IRProgram {
+        self.lval_to_ir(lval)
     }
+
 }
 
 impl Default for Compiler {

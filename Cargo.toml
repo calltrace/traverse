@@ -1,8 +1,10 @@
 [workspace]
 members = [
     "crates/core",
+    "crates/ir", 
     "crates/language",
-    "crates/dsl",
+    "crates/frontend",
+    "crates/backend",
 ]
 
 # exclude workspae members 

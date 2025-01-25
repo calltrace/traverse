@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
-use crate::node_types::{ContextFreeNodeType, NodeTypeKind};
+use language::node_types::{ContextFreeNodeType, NodeTypeKind};
 
 const RESERVED_WORDS: &[&str] = &["else","function","type","match","var"];
 

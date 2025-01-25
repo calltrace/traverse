@@ -2,6 +2,9 @@
 use std::path::Path;
 use tree_sitter::{Language as TreeSitterLanguage, Parser, Tree};
 
+#[macro_use]
+pub mod node_types;
+
 /// Language trait to define parsing behavior for multiple languages
 pub trait Language {
     /// Name of the language (e.g., "Solidity", "Mermaid").

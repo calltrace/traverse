@@ -12,7 +12,18 @@ path = "src/bin/ts-to-ddlog.rs"
 name = "traverse-to-ddlog"
 path = "src/bin/traverse-to-ddlog.rs"
 
+[[bin]]
+name = "repl"
+path = "src/bin/repl.rs"
+
+[[bin]]
+name = "ts-grammar-to-ddlog"
+path = "src/bin/ts-grammar-to-ddlog.rs"
+
 [dependencies]
+frontend = { path = "../frontend" }
+backend = { path = "../backend" }
+ir = { path = "../ir" }
 language = { path = "../language" }
 proc-macro2 = "1.0.92"
 quote = "1.0.37"
@@ -23,6 +34,8 @@ tempfile = "3.14.0"
 which = "7.0.1"
 bytes = "1.9.0"
 tempdir = "0.3.7"
+pest = "2.7.15"
+reedline = "0.38.0"
 
 [build-dependencies]
 cc = "1.0"

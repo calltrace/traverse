@@ -1,9 +1,11 @@
-use dsl::{
+use frontend::{
     compiler::Compiler,
-    ddlog_lang::DatalogProgram,
-    ir::IRProgram,
     parser::{to_ast, Grammar},
 };
+
+use ir::IRProgram;
+use backend::ddlog_lang::DatalogProgram;
+
 use pest::Parser;
 use reedline::{DefaultPrompt, DefaultValidator, FileBackedHistory, Reedline, Signal};
 use std::io;
@@ -45,7 +47,7 @@ fn main() -> io::Result<()> {
                         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
                     continue;
                 } else {
-                    let parse_result = Grammar::parse(dsl::parser::Rule::program, &buffer);
+                    let parse_result = frontend::parser::Grammar::parse(frontend::parser::Rule::program, &buffer);
                     if parse_result.is_err() {
                         println!("Failed to parse DSL: {:?}", parse_result);
                         continue;
@@ -60,9 +62,11 @@ fn main() -> io::Result<()> {
 
                             println!("Datalog IR:\n\n{}", dl_ir);
 
-                            let ddlog: DatalogProgram = Compiler::new()
+                            let ddlog: DatalogProgram = backend::compiler::Compiler::new()
                                 .with_input_relations(true)
                                 .ir_to_ddlog(dl_ir);
+                                
+                                //.ir_to_ddlog(dl_ir);
 
                             println!("\nGenerated DDLog:\n\n{}", ddlog.to_string().trim());
 

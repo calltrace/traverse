@@ -1,10 +1,9 @@
 [package]
-name = "dsl"
+name = "ir"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-core = { path = "../core" }
 clap = { version = "4.5.23", features = ["derive"] }
 from-pest = "0.3.2"
 indexmap = { version= "2.7.0", features = ["serde"] }
