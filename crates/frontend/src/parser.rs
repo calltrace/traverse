@@ -263,6 +263,47 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_parse_simple_emit_2() {
+        // Given: A simple DSL input with emit and capture
+        let input = r#"
+            (emit output_type 
+                (key1 @var1)
+            )
+            (capture input_type
+                (key2 value2)
+            )
+        "#;
+
+        // When: Parsing the input
+        let parsed = Dsl::parse(Rule::program, input)
+            .expect("Parse failed")
+            .next()
+            .unwrap();
+        let result = lval_read(parsed).expect("Lval construction failed");
+
+        // Then: Verify the structure matches expectations
+        let expected = Box::new(Lval::Query(vec![
+            // Emit node
+            Box::new(Lval::Emit(
+                "output_type".to_string(),
+                attrs(&[("key1", capture("var1"))]),
+                None,
+                None
+            )),
+            // Capture node
+            Box::new(Lval::CaptureForm(
+                "input_type".to_string(),
+                attrs(&[("key2", sym("value2"))]),
+                None,
+                None
+            ))
+        ]));
+
+        assert_eq!(result, expected);
+    }
+
+
+    #[test]
     fn test_parse_simple_emit() {
         let input = r#"(emit output_node_type
                          (key1 @some_variable)
