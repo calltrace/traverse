@@ -1,5 +1,7 @@
-use frontend::gen_ir::IrGenerator;
+use std::path::PathBuf;
 
+use clap::Parser;
+use frontend::gen_ir::IrGenerator;
 use reedline::{DefaultPrompt, DefaultValidator, FileBackedHistory, Reedline, Signal};
 
 #[derive(Debug)]
@@ -43,6 +45,7 @@ impl From<std::io::Error> for ReplError {
 struct Repl {
     line_editor: Reedline,
     prompt: DefaultPrompt,
+    ts_grammars: Vec<String>,
 }
 
 enum Command {
@@ -54,7 +57,7 @@ enum Command {
 }
 
 impl Repl {
-    fn new() -> Result<Self, ReplError> {
+    fn new(parser_homes: Vec<String>) -> Result<Self, ReplError> {
         let history = Box::new(
             FileBackedHistory::with_file(5, "history.txt".into())
                 .map_err(|e| ReplError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?,
@@ -69,6 +72,7 @@ impl Repl {
         Ok(Self {
             line_editor,
             prompt: DefaultPrompt::default(),
+            ts_grammars: parser_homes,
         })
     }
 
@@ -95,8 +99,9 @@ impl Repl {
             }
             Command::ClearHistory => {
                 let hstry = Box::new(self.line_editor.history_mut());
-                hstry.clear()
-                    .map_err(|e| ReplError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+                hstry.clear().map_err(|e| {
+                    ReplError::Io(std::io::Error::new(std::io::ErrorKind::Other, e))
+                })?;
                 Ok(true)
             }
             Command::Process(input) => {
@@ -107,9 +112,9 @@ impl Repl {
     }
 
     fn process_input(&self, input: &str) -> Result<(), ReplError> {
-        let lval = frontend::parser::parse(input)
-            .map_err(|e| ReplError::Parse(format!("{:?}", e)))?;
-        
+        let lval =
+            frontend::parser::parse(input).map_err(|e| ReplError::Parse(format!("{:?}", e)))?;
+
         println!("AST:\n{:#?}\n", lval);
 
         let dl_ir = IrGenerator::new()
@@ -121,6 +126,7 @@ impl Repl {
 
         let ddlog = backend::gen_ddlog::DDlogGenerator::new()
             .with_input_relations(true)
+            .with_treesitter_grammars(&self.ts_grammars)
             .generate(*dl_ir)
             .map_err(|e| ReplError::DdlogGeneration(format!("{:?}", e)))?;
 
@@ -152,8 +158,43 @@ impl Repl {
     }
 }
 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Paths to parser home directories
+    #[arg(short = 'p', long = "parser-home", value_name = "DIR")]
+    parser_homes: Vec<PathBuf>,
+}
+
+impl Args {
+    fn validate(&self) -> Result<Vec<String>, ReplError> {
+        // Validate that all parser homes exist
+        for path in &self.parser_homes {
+            if !path.is_dir() {
+                return Err(ReplError::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("Parser home directory does not exist: {}", path.display()),
+                )));
+            }
+        }
+
+        // Convert PathBuf to String for compatibility
+        Ok(self
+            .parser_homes
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect())
+    }
+}
+
 fn main() -> Result<(), ReplError> {
-    let mut repl = Repl::new()?;
+    // Parse command line arguments
+    let args = Args::parse();
+
+    // Validate parser homes and get as strings
+    let parser_homes = args.validate()?;
+
+    let mut repl = Repl::new(parser_homes)?;
     repl.run()
 }
 
@@ -173,14 +214,14 @@ mod tests {
 
     #[test]
     fn test_process_valid_input() {
-        let repl = Repl::new().unwrap();
+        let repl = Repl::new(vec![]).unwrap();
         let result = repl.process_input("x := 1");
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_process_invalid_input() {
-        let repl = Repl::new().unwrap();
+        let repl = Repl::new(vec![]).unwrap();
         let result = repl.process_input("invalid := ::");
         assert!(matches!(result, Err(ReplError::Parse(_))));
     }

@@ -17,7 +17,7 @@ const RESERVED_WORDS: &[&str] = &["else", "function", "type", "match", "var"];
 
 pub struct DDlogGenerator {
     generate_input_relations: bool, // Option to control input relation generation
-    parser_home: Option<String>,    // Optional path to tree-sitter grammar
+    ts_grammars: Vec<String>,       // Paths to tree-sitter grammars
 }
 
 impl DDlogGenerator {
@@ -25,7 +25,7 @@ impl DDlogGenerator {
     pub fn new() -> Self {
         Self {
             generate_input_relations: false, // Default to not generating input relations
-            parser_home: None,               // Default to no parser home
+            ts_grammars: Vec::new(),         // Default to no parser homes
         }
     }
 
@@ -35,9 +35,19 @@ impl DDlogGenerator {
         self
     }
 
-    /// Specify a tree-sitter grammar to generate from
-    pub fn with_treesitter_grammar(mut self, parser_home: impl Into<String>) -> Self {
-        self.parser_home = Some(parser_home.into());
+    /// Add a tree-sitter grammar to generate from
+    pub fn with_treesitter_grammar(mut self, ts_grammar: impl Into<String>) -> Self {
+        self.ts_grammars.push(ts_grammar.into());
+        self
+    }
+
+    /// Add multiple tree-sitter grammars to generate from
+    pub fn with_treesitter_grammars(
+        mut self,
+        ts_grammars: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.ts_grammars
+            .extend(ts_grammars.into_iter().map(|h| h.into()));
         self
     }
 
@@ -82,37 +92,54 @@ impl DDlogGenerator {
             }
         }
 
-        let node_types: Vec<ContextFreeNodeType> = self.parser_home.as_ref().map_or_else(
-            || {
-                Err(Error::GenerationError(
-                    "No input tree sitter grammar specified. Use with_treesitter_grammar()".into(),
-                ))
-            },
-            |parser_home| {
-                let node_types_path = format!("{}/src/node-types.json", parser_home);
+        let ddlog_home = std::env::var_os("DDLOG_HOME").ok_or_else(|| {
+            Error::GenerationError("DDLOG_HOME environment variable is not set".to_string())
+        })?;
+        let ddlog_path = std::path::Path::new(&ddlog_home);
+        if !ddlog_path.exists() {
+            return Err(Error::GenerationError(format!(
+                "DDLOG_HOME path does not exist: {}",
+                ddlog_path.display()
+            )));
+        }
+        if !ddlog_path.is_dir() {
+            return Err(Error::GenerationError(format!(
+                "DDLOG_HOME is not a directory: {}",
+                ddlog_path.display()
+            )));
+        }
 
-                if !std::path::Path::new(&node_types_path).exists() {
-                    return Err(Error::GenerationError(format!(
-                        "node-types.json not found at {}",
-                        node_types_path
-                    )));
-                }
+        //
+        // Collect all node types from all grammars
+        let mut all_node_types = Vec::new();
+        for parser_home in &self.ts_grammars {
+            let node_types_path = format!("{}/src/node-types.json", parser_home);
 
-                std::fs::read_to_string(&node_types_path)
-                    .map_err(|e| {
-                        Error::GenerationError(format!("Failed to read node-types.json: {}", e))
+            if !std::path::Path::new(&node_types_path).exists() {
+                return Err(Error::GenerationError(format!(
+                    "node-types.json not found at {}",
+                    node_types_path
+                )));
+            }
+
+            let node_types: Vec<ContextFreeNodeType> = std::fs::read_to_string(&node_types_path)
+                .map_err(|e| {
+                    Error::GenerationError(format!("Failed to read node-types.json: {}", e))
+                })
+                .and_then(|content| {
+                    serde_json::from_str(&content).map_err(|e| {
+                        Error::GenerationError(format!("Failed to parse node-types.json: {}", e))
                     })
-                    .and_then(|content| {
-                        serde_json::from_str(&content).map_err(|e| {
-                            Error::GenerationError(format!(
-                                "Failed to parse node-types.json: {}",
-                                e
-                            ))
-                        })
-                    })
-            },
-        )?;
+                })?;
 
+            all_node_types.extend(node_types);
+        }
+
+        if all_node_types.is_empty() {
+            eprintln!(
+                "Warning: No input tree sitter grammars specified. Use with_treesitter_grammar()"
+            );
+        }
         let mut program = DatalogProgram::new();
         for relation in &ir.relations {
             if let Some(lhs_relation) = self.lookup_relation(&ir, &relation.name, None) {
@@ -1106,7 +1133,6 @@ mod tests {
             "DDlog output doesn't match expected structure"
         );
     }
-
 
     fn normalize_whitespace(s: &str) -> String {
         s.split_whitespace().collect::<Vec<&str>>().join(" ")
