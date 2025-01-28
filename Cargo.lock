@@ -90,6 +90,7 @@ dependencies = [
  "clap",
  "ctor",
  "from-pest",
+ "frontend",
  "indexmap",
  "ir",
  "language",

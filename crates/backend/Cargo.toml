@@ -25,6 +25,7 @@ bytes = "1.9.0"
 which = "7.0.1"
 
 [dev-dependencies]
+frontend = { path = "../frontend" }
 ctor = "0.1.26"
 
 [build-dependencies]

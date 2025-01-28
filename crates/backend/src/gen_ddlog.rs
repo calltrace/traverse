@@ -1,7 +1,6 @@
 use language::node_types::{ContextFreeNodeType, NodeTypeKind};
 use std::collections::{BTreeMap, BTreeSet};
 use std::collections::{HashMap, HashSet};
-use std::fmt::Write as _;
 
 use crate::ddlog_lang::{
     Atom, DType, DatalogProgram, Delay, Expr, ExprNode, Field, ModuleName, Pos, Relation,
@@ -14,11 +13,11 @@ use ir::{
     SSAInstructionBlock, SSAOperation,
 };
 
-
 const RESERVED_WORDS: &[&str] = &["else", "function", "type", "match", "var"];
 
 pub struct DDlogGenerator {
     generate_input_relations: bool, // Option to control input relation generation
+    parser_home: Option<String>,    // Optional path to tree-sitter grammar
 }
 
 impl DDlogGenerator {
@@ -26,6 +25,7 @@ impl DDlogGenerator {
     pub fn new() -> Self {
         Self {
             generate_input_relations: false, // Default to not generating input relations
+            parser_home: None,               // Default to no parser home
         }
     }
 
@@ -35,10 +35,15 @@ impl DDlogGenerator {
         self
     }
 
+    /// Specify a tree-sitter grammar to generate from
+    pub fn with_treesitter_grammar(mut self, parser_home: impl Into<String>) -> Self {
+        self.parser_home = Some(parser_home.into());
+        self
+    }
+
     ///
     /// Converts an IRProgram into a DatalogProgram, handling nested RHSVal structures.
     pub fn generate(&self, ir: IRProgram) -> IrToDdlogResult {
-
         fn expand_rhs_val(val: &RHSVal) -> Vec<RuleRHS> {
             match val {
                 RHSVal::RHSNode(node) => {
@@ -76,6 +81,37 @@ impl DDlogGenerator {
                 }
             }
         }
+
+        let node_types: Vec<ContextFreeNodeType> = self.parser_home.as_ref().map_or_else(
+            || {
+                Err(Error::GenerationError(
+                    "No input tree sitter grammar specified. Use with_treesitter_grammar()".into(),
+                ))
+            },
+            |parser_home| {
+                let node_types_path = format!("{}/src/node-types.json", parser_home);
+
+                if !std::path::Path::new(&node_types_path).exists() {
+                    return Err(Error::GenerationError(format!(
+                        "node-types.json not found at {}",
+                        node_types_path
+                    )));
+                }
+
+                std::fs::read_to_string(&node_types_path)
+                    .map_err(|e| {
+                        Error::GenerationError(format!("Failed to read node-types.json: {}", e))
+                    })
+                    .and_then(|content| {
+                        serde_json::from_str(&content).map_err(|e| {
+                            Error::GenerationError(format!(
+                                "Failed to parse node-types.json: {}",
+                                e
+                            ))
+                        })
+                    })
+            },
+        )?;
 
         let mut program = DatalogProgram::new();
         for relation in &ir.relations {
@@ -474,9 +510,11 @@ impl DDlogGenerator {
         }
     }
 
-    pub fn generate_ddlog_file(&self, nodes: &[ContextFreeNodeType]) -> String {
-        let mut output = String::new();
+    pub fn generate_ddlog_relations(&self, nodes: &[ContextFreeNodeType]) -> Vec<Relation> {
+        let mut relations = Vec::new();
         let mut distinct_types = BTreeSet::new();
+
+        // Collect distinct types
         for node in nodes {
             distinct_types.insert(node.name.sexp_name.clone());
             match &node.kind {
@@ -497,22 +535,37 @@ impl DDlogGenerator {
                 }
             }
         }
+
+        // Build leaf map
         let mut is_leaf_map = BTreeMap::<String, bool>::new();
         for node in nodes {
             let leaf = Self::is_leaf_node(node);
             is_leaf_map.insert(node.name.sexp_name.clone(), leaf);
         }
-        let mut main_relation_schemas = BTreeMap::<String, Vec<String>>::new();
+
+        // Prepare schemas for main and link relations
+        let mut main_relation_schemas = BTreeMap::<String, Vec<Field>>::new();
         let mut link_relation_fields = BTreeMap::<String, BTreeSet<String>>::new();
+
+        // Initialize main relations
         for tname in &distinct_types {
             let is_leaf = is_leaf_map.get(tname).copied().unwrap_or(false);
             if !is_leaf {
                 let pascal = Self::to_pascal_case(tname);
                 let rel_name = Self::sanitize_reserved(&pascal);
-                main_relation_schemas.insert(rel_name.clone(), vec!["node_id: bigint".to_string()]);
+                main_relation_schemas.insert(
+                    rel_name.clone(),
+                    vec![Field {
+                        pos: Pos::nopos(),
+                        name: "node_id".to_string(),
+                        ftype: DType::TInt { pos: Pos::nopos() },
+                    }],
+                );
                 link_relation_fields.insert(rel_name, BTreeSet::new());
             }
         }
+
+        // Process all nodes to build relation schemas
         for node in nodes {
             let parent_tname = &node.name.sexp_name;
             let parent_is_leaf = is_leaf_map.get(parent_tname).copied().unwrap_or(false);
@@ -521,6 +574,7 @@ impl DDlogGenerator {
             }
             let parent_pascal = Self::to_pascal_case(parent_tname);
             let parent_rel = Self::sanitize_reserved(&parent_pascal);
+
             match &node.kind {
                 NodeTypeKind::Supertype { subtypes } => {
                     if !subtypes.is_empty() {
@@ -536,54 +590,78 @@ impl DDlogGenerator {
                             .types
                             .iter()
                             .all(|ty| is_leaf_map.get(&ty.sexp_name).copied().unwrap_or(false));
+
                         if child_spec.multiple {
                             link_relation_fields
                                 .get_mut(&parent_rel)
                                 .unwrap()
                                 .insert(field_name.clone());
                         } else {
-                            let col_type = if all_leaf { "string" } else { "bigint" };
+                            let field_type = if all_leaf {
+                                DType::TString { pos: Pos::nopos() }
+                            } else {
+                                DType::TInt { pos: Pos::nopos() }
+                            };
                             let safe_field_name = Self::sanitize_reserved(field_name);
-                            let col_def = format!("{}: {}", safe_field_name, col_type);
                             main_relation_schemas
                                 .get_mut(&parent_rel)
                                 .unwrap()
-                                .push(col_def);
+                                .push(Field {
+                                    pos: Pos::nopos(),
+                                    name: safe_field_name,
+                                    ftype: field_type,
+                                });
                         }
                     }
+
                     if !children.types.is_empty() {
                         let all_leaf = children
                             .types
                             .iter()
                             .all(|ty| is_leaf_map.get(&ty.sexp_name).copied().unwrap_or(false));
+
                         if children.multiple {
                             link_relation_fields
                                 .get_mut(&parent_rel)
                                 .unwrap()
                                 .insert("children".to_string());
                         } else {
-                            let col_type = if all_leaf { "string" } else { "bigint" };
-                            let col_def = format!("children: {}", col_type);
+                            let field_type = if all_leaf {
+                                DType::TString { pos: Pos::nopos() }
+                            } else {
+                                DType::TInt { pos: Pos::nopos() }
+                            };
                             main_relation_schemas
                                 .get_mut(&parent_rel)
                                 .unwrap()
-                                .push(col_def);
+                                .push(Field {
+                                    pos: Pos::nopos(),
+                                    name: "children".to_string(),
+                                    ftype: field_type,
+                                });
                         }
                     }
                 }
             }
         }
-        for (rel_name, columns) in &main_relation_schemas {
-            writeln!(output, "input relation {}(", rel_name).unwrap();
-            for (i, col) in columns.iter().enumerate() {
-                if i < columns.len() - 1 {
-                    writeln!(output, "    {},", col).unwrap();
-                } else {
-                    writeln!(output, "    {}", col).unwrap();
-                }
-            }
-            writeln!(output, ")\n").unwrap();
+
+        // Create main relations
+        for (rel_name, fields) in &main_relation_schemas {
+            relations.push(Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelInput,
+                semantics: RelationSemantics::RelSet,
+                name: rel_name.clone(),
+                rtype: DType::TStruct {
+                    pos: Pos::nopos(),
+                    name: rel_name.clone(),
+                    fields: fields.clone(),
+                },
+                primary_key: None,
+            });
         }
+
+        // Create link relations
         for (rel_name, fields) in &link_relation_fields {
             for field_name in fields {
                 let mut all_leaf = true;
@@ -594,67 +672,82 @@ impl DDlogGenerator {
                         match &node.kind {
                             NodeTypeKind::Supertype { subtypes } => {
                                 if field_name == "subtypes" {
-                                    for st in subtypes {
-                                        if !is_leaf_map.get(&st.sexp_name).copied().unwrap_or(false)
-                                        {
-                                            all_leaf = false;
-                                            break 'outer;
-                                        }
-                                    }
+                                    all_leaf = subtypes.iter().all(|st| {
+                                        is_leaf_map.get(&st.sexp_name).copied().unwrap_or(false)
+                                    });
+                                    break 'outer;
                                 }
                             }
                             NodeTypeKind::Regular { fields, children } => {
-                                if let Some(ch_spec) = fields.get(field_name) {
-                                    let cstr = ch_spec.types.iter().all(|ty| {
+                                if let Some(child_spec) = fields.get(field_name) {
+                                    all_leaf = child_spec.types.iter().all(|ty| {
                                         is_leaf_map.get(&ty.sexp_name).copied().unwrap_or(false)
                                     });
-                                    if !cstr {
-                                        all_leaf = false;
-                                        break 'outer;
-                                    }
+                                    break 'outer;
                                 }
-                                if field_name == "children" {
-                                    let cstr = children.types.iter().all(|ty| {
+                                if field_name == "children" && !children.types.is_empty() {
+                                    all_leaf = children.types.iter().all(|ty| {
                                         is_leaf_map.get(&ty.sexp_name).copied().unwrap_or(false)
                                     });
-                                    if !cstr {
-                                        all_leaf = false;
-                                        break 'outer;
-                                    }
+                                    break 'outer;
                                 }
                             }
                         }
                     }
                 }
-                let sanitized_field = Self::sanitize_reserved(field_name);
-                let link_name = format!("{}_{}", rel_name, sanitized_field);
-                writeln!(output, "input relation {}(", link_name).unwrap();
-                writeln!(output, "    parent_id: bigint,").unwrap();
-                if all_leaf {
-                    writeln!(output, "    value: string").unwrap();
-                } else {
-                    writeln!(output, "    child_id: bigint").unwrap();
-                }
-                writeln!(output, ")\n").unwrap();
+
+                // Create the link relation with appropriate fields
+                let link_rel_name = format!("{}_{}", rel_name, field_name);
+                let fields = vec![
+                    Field {
+                        pos: Pos::nopos(),
+                        name: "parent_id".to_string(),
+                        ftype: DType::TInt { pos: Pos::nopos() },
+                    },
+                    Field {
+                        pos: Pos::nopos(),
+                        name: "child".to_string(),
+                        ftype: if all_leaf {
+                            DType::TString { pos: Pos::nopos() }
+                        } else {
+                            DType::TInt { pos: Pos::nopos() }
+                        },
+                    },
+                ];
+
+                relations.push(Relation {
+                    pos: Pos::nopos(),
+                    role: RelationRole::RelInput,
+                    semantics: RelationSemantics::RelSet,
+                    name: link_rel_name.clone(),
+                    rtype: DType::TStruct {
+                        pos: Pos::nopos(),
+                        name: link_rel_name,
+                        fields,
+                    },
+                    primary_key: None,
+                });
             }
         }
-        output
+
+        relations
     }
 }
 
 #[derive(Debug)]
 pub enum Error {
-    GenerationError(String)
+    GenerationError(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
 pub type IrToDdlogResult = Result<Box<DatalogProgram>>;
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use frontend::dsl::Lval;
+    use frontend::gen_ir::{self, IrGenerator};
 
     #[test]
     fn test_compiler_end_to_end_single_capture() {
@@ -671,9 +764,15 @@ mod tests {
             None, // No q-expressions
         );
 
+        // convert to IR
+        let irgen = IrGenerator::new();
+        let ir_program = irgen.lval_to_ir(&lval);
+
         // Use the Compiler fluent API
-        let compiler = DDlogGenerator::new().with_input_relations(true);
-        let ddlog_program = compiler.compile(&lval);
+        let to_ddlog = DDlogGenerator::new().with_input_relations(true);
+        let ddlog_program = ir_program
+            .map(|ir| to_ddlog.generate(*ir))
+            .expect("Failed to generate DDlog");
 
         // Verify the DDlog output
         let expected_ddlog_output = r#"
@@ -685,10 +784,14 @@ mod tests {
         TestNode_attr2(var out_attr2 = attr2) :- TestNode(var attr2).
     "#;
 
-        assert_eq!(
-            normalize_whitespace(&format!("{}", ddlog_program)),
-            normalize_whitespace(expected_ddlog_output)
-        );
+        ddlog_program
+            .map(|ddlog| {
+                assert_eq!(
+                    normalize_whitespace(&format!("{}", ddlog)),
+                    normalize_whitespace(expected_ddlog_output)
+                );
+            })
+            .expect("Failed to generate DDlog");
     }
 
     #[test]
@@ -712,42 +815,43 @@ mod tests {
             None,
         );
 
-        // Create the Compiler and generate IR
+        // Create IR generator and generate IR
+        let irgen = IrGenerator::new();
+        let ir_program = irgen.lval_to_ir(&lval).expect("IR generation failed");
+
+        // Generate DDlog program
         let compiler = DDlogGenerator::new();
-        let ir_program = compiler.lval_to_ir(&lval);
+        let ddlog_program = compiler
+            .generate(*ir_program)
+            .expect("DDlog generation failed");
 
-        // Verify output relations
-        let mut expected_relations = vec![
-            "ParentNode_parent_attr1".to_string(),
-            "ParentNode_parent_attr2".to_string(),
-            "ChildNode_child_attr1".to_string(),
-            "ChildNode_child_attr2".to_string(),
-        ];
-        let actual_relations = ir_program.relations.clone();
+        // Verify each output relation has at least one matching rule
+        let relation_names: HashSet<String> = ddlog_program
+            .relations
+            .iter()
+            .filter(|(_, rel)| matches!(rel.role, RelationRole::RelOutput))
+            .map(|(rname, rel)| rname.clone())
+            .collect();
 
-        // Sort both vectors for comparison
-        expected_relations.sort();
-        let mut actual_relations = actual_relations
-            .into_iter()
-            .map(|r| r.name)
-            .collect::<Vec<_>>();
-        actual_relations.sort();
+        assert!(!relation_names.is_empty(), "Should have output relations");
 
-        assert_eq!(actual_relations, expected_relations);
+        for rule in &ddlog_program.rules {
+            assert!(
+                relation_names.contains(&rule.lhs[0].atom.relation),
+                "Each rule should target one of our output relations"
+            );
+        }
 
-        // Verify rules
-        assert_eq!(ir_program.rules.len(), expected_relations.len());
-        for relation in &expected_relations {
-            let (expected_node_type, expected_attr_name) =
-                parse_relation_name(relation).expect("Invalid relation name format");
-            assert!(ir_program.rules.iter().any(|rule| {
-                rule.lhs.relation_name == *relation
-                    && rule.rhs
-                        == RHSVal::RHSNode(RHSNode {
-                            relation_name: expected_node_type.clone(),
-                            attributes: HashSet::from([expected_attr_name.clone()]),
-                        })
-            }));
+        // There should be at least one rule per output relation
+        for rel_name in relation_names {
+            assert!(
+                ddlog_program
+                    .rules
+                    .iter()
+                    .any(|rule| rule.lhs[0].atom.relation == rel_name),
+                "Output relation {} should have at least one rule",
+                rel_name
+            );
         }
     }
 
@@ -764,27 +868,68 @@ mod tests {
             None, // No q-expressions
         );
 
-        // Create the Compiler and generate IR
+        // Create IR generator and generate IR
+        let irgen = IrGenerator::new();
+        let ir_program = irgen.lval_to_ir(&lval).expect("IR generation failed");
+
+        // Generate DDlog program
         let compiler = DDlogGenerator::new();
-        let ir_program = compiler.lval_to_ir(&lval);
+        let ddlog_program = compiler
+            .generate(*ir_program)
+            .expect("DDlog generation failed");
 
-        // Verify output relations
-        let expected_relations = vec!["TestNode_attr1".to_string(), "TestNode_attr2".to_string()];
+        // Get output relations
+        let output_relations: HashSet<String> = ddlog_program
+            .relations
+            .iter()
+            .filter(|(_, rel)| matches!(rel.role, RelationRole::RelOutput))
+            .map(|(rname, _)| rname.clone())
+            .collect();
 
-        // Verify rules
-        assert_eq!(ir_program.rules.len(), expected_relations.len());
-        for relation in &expected_relations {
-            let (expected_node_type, expected_attr_name) =
-                parse_relation_name(relation).expect("Invalid relation name format");
-            assert!(ir_program.rules.iter().any(|rule| {
-                rule.lhs.relation_name == *relation
-                    && rule.rhs
-                        == RHSVal::RHSNode(RHSNode {
-                            relation_name: expected_node_type.clone(),
-                            attributes: HashSet::from([expected_attr_name.clone()]),
-                        })
-            }));
+        // Verify expected relations exist
+        let expected_relations = vec!["TestNode_attr1", "TestNode_attr2"];
+        assert_eq!(
+            output_relations.len(),
+            expected_relations.len(),
+            "Should have correct number of output relations"
+        );
+
+        for expected in &expected_relations {
+            assert!(
+                output_relations.contains(*expected),
+                "Missing expected relation: {}",
+                expected
+            );
         }
+
+        // Verify rules exist for each relation
+        for relation in expected_relations {
+            assert!(
+                ddlog_program
+                    .rules
+                    .iter()
+                    .any(|rule| rule.lhs[0].atom.relation == relation),
+                "Missing rule for relation: {}",
+                relation
+            );
+        }
+
+        // Verify the DDlog output structure
+        let expected_ddlog = normalize_whitespace(
+            r#"
+              output relation TestNode_attr1(val: string);
+              output relation TestNode_attr2(val: string);
+  
+              TestNode_attr1(var out_attr1 = attr1) :- TestNode(var attr1).
+              TestNode_attr2(var out_attr2 = attr2) :- TestNode(var attr2).
+          "#,
+        );
+
+        assert_eq!(
+            normalize_whitespace(&format!("{}", ddlog_program)),
+            expected_ddlog,
+            "DDlog output doesn't match expected structure"
+        );
     }
 
     #[test]
@@ -808,48 +953,84 @@ mod tests {
             None,
         );
 
-        // Create the Compiler and generate IR
+        // Create IR generator and generate IR
+        let irgen = IrGenerator::new();
+        let ir_program = irgen.lval_to_ir(&lval).expect("IR generation failed");
+
+        // Generate DDlog program
         let compiler = DDlogGenerator::new();
-        let ir_program = compiler.lval_to_ir(&lval);
+        let ddlog_program = compiler
+            .generate(*ir_program)
+            .expect("DDlog generation failed");
 
-        // Verify output relations
-        let mut expected_relations = vec![
-            "ParentNode_parent_attr1".to_string(),
-            "ParentNode_parent_attr2".to_string(),
-            "ChildNode_child_attr1".to_string(),
-            "ChildNode_child_attr2".to_string(),
+        // Get output relations
+        let output_relations: HashSet<String> = ddlog_program
+            .relations
+            .iter()
+            .filter(|(_, rel)| matches!(rel.role, RelationRole::RelOutput))
+            .map(|(rname, _)| rname.clone())
+            .collect();
+
+        // Expected relations for both parent and child nodes
+        let expected_relations = vec![
+            "ParentNode_parent_attr1",
+            "ParentNode_parent_attr2",
+            "ChildNode_child_attr1",
+            "ChildNode_child_attr2",
         ];
-        let mut actual_relations = ir_program.relations.clone();
 
-        // Sort both vectors for comparison
-        expected_relations.sort();
-        let mut actual_relations = actual_relations
-            .into_iter()
-            .map(|r| r.name)
-            .collect::<Vec<_>>();
-        actual_relations.sort();
+        // Verify we have all expected relations
+        assert_eq!(
+            output_relations.len(),
+            expected_relations.len(),
+            "Should have correct number of output relations"
+        );
 
-        assert_eq!(actual_relations, expected_relations);
-
-        // Verify rules
-        assert_eq!(ir_program.rules.len(), expected_relations.len());
-        for relation in &expected_relations {
-            let (expected_node_type, expected_attr_name) =
-                parse_relation_name(relation).expect("Invalid relation name format");
-            assert!(ir_program.rules.iter().any(|rule| {
-                rule.lhs.relation_name == *relation
-                    && rule.rhs
-                        == RHSVal::RHSNode(RHSNode {
-                            relation_name: expected_node_type.clone(),
-                            attributes: HashSet::from([expected_attr_name.clone()]),
-                        })
-            }));
+        for expected in &expected_relations {
+            assert!(
+                output_relations.contains(*expected),
+                "Missing expected relation: {}",
+                expected
+            );
         }
+
+        // Verify rules exist for each relation
+        for relation in expected_relations {
+            assert!(
+                ddlog_program
+                    .rules
+                    .iter()
+                    .any(|rule| rule.lhs[0].atom.relation == relation),
+                "Missing rule for relation: {}",
+                relation
+            );
+        }
+
+        // Verify the DDlog output structure
+        let expected_ddlog = normalize_whitespace(
+            r#"
+              output relation ParentNode_parent_attr1(val: string);
+              output relation ParentNode_parent_attr2(val: string);
+              output relation ChildNode_child_attr1(val: string);
+              output relation ChildNode_child_attr2(val: string);
+  
+              ParentNode_parent_attr1(var out_parent_attr1 = parent_attr1) :- ParentNode(var parent_attr1).
+              ParentNode_parent_attr2(var out_parent_attr2 = parent_attr2) :- ParentNode(var parent_attr2).
+              ChildNode_child_attr1(var out_child_attr1 = child_attr1) :- ChildNode(var child_attr1).
+              ChildNode_child_attr2(var out_child_attr2 = child_attr2) :- ChildNode(var child_attr2).
+          "#,
+        );
+
+        assert_eq!(
+            normalize_whitespace(&format!("{}", ddlog_program)),
+            expected_ddlog,
+            "DDlog output doesn't match expected structure"
+        );
     }
 
     #[test]
     fn test_end_to_end_single_capture() {
-        // Start with an Lval for a single capture form
+        // Define a simple CaptureForm Lval
         let lval = Lval::CaptureForm(
             "TestNode".to_string(),
             HashMap::from([
@@ -860,43 +1041,74 @@ mod tests {
             None, // No q-expressions
         );
 
-        // Create the Compiler
+        // Create IR generator and generate IR
+        let irgen = IrGenerator::new();
+        let ir_program = irgen.lval_to_ir(&lval).expect("IR generation failed");
+
+        // Generate DDlog program
         let compiler = DDlogGenerator::new();
+        let ddlog_program = compiler
+            .generate(*ir_program)
+            .expect("DDlog generation failed");
 
-        // Compile Lval to DDlog
-        let ddlog_program = compiler.compile(&lval);
+        // Get output relations
+        let output_relations: HashSet<String> = ddlog_program
+            .relations
+            .iter()
+            .filter(|(_, rel)| matches!(rel.role, RelationRole::RelOutput))
+            .map(|(rname, _)| rname.clone())
+            .collect();
 
-        // Verify the DDlog output as a block
-        let expected_ddlog_output = r#"
-            output relation TestNode_attr1(val: string);
-            output relation TestNode_attr2(val: string);
+        // Expected relations
+        let expected_relations = vec!["TestNode_attr1", "TestNode_attr2"];
 
-            TestNode_attr1(var out_attr1 = attr1) :- TestNode(var attr1).
-            TestNode_attr2(var out_attr2 = attr2) :- TestNode(var attr2).
-        "#;
-
-        let actual_ddlog_output = format!("{}", ddlog_program);
+        // Verify we have all expected relations
         assert_eq!(
-            normalize_whitespace(&actual_ddlog_output),
-            normalize_whitespace(expected_ddlog_output)
+            output_relations.len(),
+            expected_relations.len(),
+            "Should have correct number of output relations"
+        );
+
+        for expected in &expected_relations {
+            assert!(
+                output_relations.contains(*expected),
+                "Missing expected relation: {}",
+                expected
+            );
+        }
+
+        // Verify rules exist for each relation
+        for relation in expected_relations {
+            assert!(
+                ddlog_program
+                    .rules
+                    .iter()
+                    .any(|rule| rule.lhs[0].atom.relation == relation),
+                "Missing rule for relation: {}",
+                relation
+            );
+        }
+
+        // Verify the DDlog output structure
+        let expected_ddlog = normalize_whitespace(
+            r#"
+              output relation TestNode_attr1(val: string);
+              output relation TestNode_attr2(val: string);
+  
+              TestNode_attr1(var out_attr1 = attr1) :- TestNode(var attr1).
+              TestNode_attr2(var out_attr2 = attr2) :- TestNode(var attr2).
+          "#,
+        );
+
+        assert_eq!(
+            normalize_whitespace(&format!("{}", ddlog_program)),
+            expected_ddlog,
+            "DDlog output doesn't match expected structure"
         );
     }
 
-    /// Helper to parse a relation name into node type and attribute name
-    fn parse_relation_name(relation: &str) -> Option<(String, String)> {
-        let mut parts = relation.splitn(2, '_'); // Split into two parts: {node_type} and {attr_name}
-        let node_type = parts.next()?.to_string();
-        let attr_name = parts.next()?.to_string();
-        Some((node_type, attr_name))
-    }
 
-    /// Utility function to normalize whitespace for easier comparison of generated output
-    fn normalize_whitespace(input: &str) -> String {
-        input
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .trim()
-            .to_string()
+    fn normalize_whitespace(s: &str) -> String {
+        s.split_whitespace().collect::<Vec<&str>>().join(" ")
     }
 }

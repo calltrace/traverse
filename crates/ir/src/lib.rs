@@ -79,6 +79,12 @@ pub struct IRProgram {
     pub relations: Vec<RelationType>,
 }
 
+impl IRProgram {
+    pub fn new() -> Self {
+        Self { rules: vec![], relations: vec![] }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct IRRule {
     pub lhs: LHSNode,
