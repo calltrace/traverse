@@ -1,6 +1,7 @@
 use clap::Parser;
-use core::facts::{to_pascal_case, DDLogCommand};
-use std::fs;
+use core::facts::{DDLogCommand, TreeSitterToDDLog};
+use std::io;
+use std::path::PathBuf;
 use tree_sitter::Node;
 
 #[derive(Parser, Debug)]
@@ -9,48 +10,32 @@ use tree_sitter::Node;
 struct Args {
     /// Path to the input source code file
     #[arg(short, long)]
-    input: String,
+    input: PathBuf,
 
-    /// Path to the output file
+    /// Path to the output file (stdout if not specified)
     #[arg(short, long)]
-    output: String,
+    output: Option<PathBuf>,
+}
+
+
+fn run() -> io::Result<()> {
+    let args = Args::parse();
+    let source_code = std::fs::read_to_string(&args.input)?;
+    let language = language::Solidity;
+    let converter = TreeSitterToDDLog::new(&source_code, &language);
+    let commands = converter.extract_commands::<core::facts::InsertCommandFn>(None);
+
+    match args.output {
+        Some(path) => converter.save_to_file(&commands, path.to_str().unwrap()),
+        None => converter.save_to_stdout(&commands),
+    }
+
+    Ok(())
 }
 
 fn main() {
-    let args = Args::parse();
-
-    let source_code =
-        fs::read_to_string(&args.input).expect("Failed to read the input source code file.");
-    // Initialize the converter
-    let language = language::Solidity;
-    let converter = core::facts::TreeSitterToDDLog::new(&source_code, &language);
-
-    //
-    // Extract DDLog commands
-
-    let create_insert_command = |source: &str, node: &Node, id: usize, parent_id: Option<usize>| {
-        let fact_type = to_pascal_case(node.kind());
-        if node.child_count() > 0 {
-            DDLogCommand::Insert {
-                fact_type,
-                id,
-                parent_id: parent_id.unwrap_or(0),
-                field_name: None,
-            }
-            .into()
-        } else {
-            let field_name = source[node.start_byte()..node.end_byte()].to_string();
-            DDLogCommand::Insert {
-                fact_type,
-                id,
-                parent_id: parent_id.unwrap_or(0),
-                field_name: Some(field_name),
-            }
-            .into()
-        }
-    };
-    let commands = converter.extract_commands(create_insert_command);
-
-    // Save the commands to the output file
-    converter.save_to_file(&commands, &args.output);
+    if let Err(e) = run() {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    }
 }

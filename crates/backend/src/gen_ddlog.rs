@@ -139,8 +139,20 @@ impl DDlogGenerator {
             eprintln!(
                 "Warning: No input tree sitter grammars specified. Use with_treesitter_grammar()"
             );
+        } else {
+            eprintln!(
+                "Loaded {} node types from {} grammars",
+                all_node_types.len(),
+                self.ts_grammars.len()
+            );
         }
+
         let mut program = DatalogProgram::new();
+
+        for ts_ir in self.generate_ddlog_relations(&all_node_types) {
+            program.add_relation(ts_ir);
+        }
+
         for relation in &ir.relations {
             if let Some(lhs_relation) = self.lookup_relation(&ir, &relation.name, None) {
                 let relation_fields = lhs_relation

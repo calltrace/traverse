@@ -155,6 +155,100 @@ impl Expr {
             value: b,
         })
     }
+
+    pub fn tuple(items: Vec<Expr>) -> Self {
+        Self::new(ExprNode::ETuple {
+            pos: Pos::nopos(),
+            items,
+        })
+    }
+
+    pub fn apply(func: Expr, args: Vec<Expr>) -> Self {
+        Self::new(ExprNode::EApply {
+            pos: Pos::nopos(),
+            func: Box::new(func),
+            args,
+        })
+    }
+
+    pub fn binop(op: BOp, left: Expr, right: Expr) -> Self {
+        Self::new(ExprNode::EBinOp {
+            pos: Pos::nopos(),
+            op,
+            left: Box::new(left),
+            right: Box::new(right),
+        })
+    }
+
+    pub fn unop(op: UOp, expr: Expr) -> Self {
+        Self::new(ExprNode::EUnOp {
+            pos: Pos::nopos(),
+            op,
+            expr: Box::new(expr),
+        })
+    }
+
+    pub fn struct_lit(constructor: &str, fields: Vec<(String, Expr)>) -> Self {
+        Self::new(ExprNode::EStruct {
+            pos: Pos::nopos(),
+            constructor: constructor.into(),
+            fields,
+        })
+    }
+
+    pub fn field(base: Expr, field: &str) -> Self {
+        Self::new(ExprNode::EField {
+            pos: Pos::nopos(),
+            base: Box::new(base),
+            field: field.into(),
+        })
+    }
+
+    pub fn ite(cond: Expr, then_expr: Expr, else_expr: Expr) -> Self {
+        Self::new(ExprNode::EITE {
+            pos: Pos::nopos(),
+            cond: Box::new(cond),
+            then_expr: Box::new(then_expr),
+            else_expr: Box::new(else_expr),
+        })
+    }
+
+    pub fn match_expr(match_expr: Expr, cases: Vec<(Expr, Expr)>) -> Self {
+        Self::new(ExprNode::EMatch {
+            pos: Pos::nopos(),
+            match_expr: Box::new(match_expr),
+            cases,
+        })
+    }
+
+    pub fn seq(first: Expr, second: Expr) -> Self {
+        Self::new(ExprNode::ESeq {
+            pos: Pos::nopos(),
+            first: Box::new(first),
+            second: Box::new(second),
+        })
+    }
+
+    pub fn set(lhs: Expr, rhs: Expr) -> Self {
+        Self::new(ExprNode::ESet {
+            pos: Pos::nopos(),
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        })
+    }
+
+    pub fn var_decl(name: &str) -> Self {
+        Self::new(ExprNode::EVarDecl {
+            pos: Pos::nopos(),
+            name: name.into(),
+        })
+    }
+
+    pub fn placeholder() -> Self {
+        Self::new(ExprNode::EPHolder { pos: Pos::nopos() })
+    }
+
+
 }
 
 impl Display for Expr {
@@ -231,7 +325,7 @@ impl Display for Expr {
                         .map(|x| x.to_string())
                         .collect::<Vec<_>>()
                         .join(", ");
-                    write!(f, "({})", joined)
+                    write!(f, "{}", joined)
                 }
             }
             ExprNode::EField { base, field, .. } => {
@@ -969,6 +1063,26 @@ impl DatalogProgram {
         self.sources.insert(module.into(), code.into());
         self
     }
+
+    fn dump_relations_ordered(&self) -> String {
+        let mut result = String::new();
+
+        // Dump input relations first
+        for rel in self.relations.values() {
+            if matches!(rel.role, RelationRole::RelInput) {
+                result.push_str(&format!("{}\n", rel));
+            }
+        }
+
+        // Then dump output relations
+        for rel in self.relations.values() {
+            if matches!(rel.role, RelationRole::RelOutput) {
+                result.push_str(&format!("{}\n", rel));
+            }
+        }
+
+        result
+    }
 }
 
 impl Display for DatalogProgram {
@@ -979,9 +1093,7 @@ impl Display for DatalogProgram {
         for td in self.typedefs.values() {
             writeln!(f, "{}", td)?;
         }
-        for rel in self.relations.values() {
-            writeln!(f, "{}", rel)?;
-        }
+        writeln!(f, "{}", self.dump_relations_ordered())?;
         for idx in self.indexes.values() {
             writeln!(f, "{}", idx)?;
         }
@@ -1431,6 +1543,3 @@ mod tests {
         assert!(output.contains("TestRel(42)."));
     }
 }
-
-
-
