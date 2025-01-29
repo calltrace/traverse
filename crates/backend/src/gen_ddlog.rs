@@ -1,6 +1,7 @@
 use language::node_types::{ContextFreeNodeType, NodeTypeKind};
 use std::collections::{BTreeMap, BTreeSet};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 use crate::ddlog_lang::{
     Atom, DType, DatalogProgram, Delay, Expr, ExprNode, Field, ModuleName, Pos, Relation,
@@ -17,7 +18,7 @@ const RESERVED_WORDS: &[&str] = &["else", "function", "type", "match", "var"];
 
 pub struct DDlogGenerator {
     generate_input_relations: bool, // Option to control input relation generation
-    ts_grammars: Vec<String>,       // Paths to tree-sitter grammars
+    ts_grammars: Vec<PathBuf>,      // Paths to tree-sitter grammars
 }
 
 impl DDlogGenerator {
@@ -36,16 +37,13 @@ impl DDlogGenerator {
     }
 
     /// Add a tree-sitter grammar to generate from
-    pub fn with_treesitter_grammar(mut self, ts_grammar: impl Into<String>) -> Self {
-        self.ts_grammars.push(ts_grammar.into());
+    pub fn with_treesitter_grammar(mut self, ts_grammar: PathBuf) -> Self {
+        self.ts_grammars.push(ts_grammar);
         self
     }
 
     /// Add multiple tree-sitter grammars to generate from
-    pub fn with_treesitter_grammars(
-        mut self,
-        ts_grammars: impl IntoIterator<Item = impl Into<String>>,
-    ) -> Self {
+    pub fn with_treesitter_grammars(mut self, ts_grammars: Vec<String>) -> Self {
         self.ts_grammars
             .extend(ts_grammars.into_iter().map(|h| h.into()));
         self
@@ -113,7 +111,8 @@ impl DDlogGenerator {
         // Collect all node types from all grammars
         let mut all_node_types = Vec::new();
         for parser_home in &self.ts_grammars {
-            let node_types_path = format!("{}/src/node-types.json", parser_home);
+            println!("Processing parser home: {}", parser_home.to_string_lossy());
+            let node_types_path = format!("{}/src/node-types.json", parser_home.to_string_lossy());
 
             if !std::path::Path::new(&node_types_path).exists() {
                 return Err(Error::GenerationError(format!(
@@ -543,10 +542,7 @@ impl DDlogGenerator {
     }
 
     fn is_leaf_node(node: &ContextFreeNodeType) -> bool {
-        match &node.kind {
-            NodeTypeKind::Regular { fields, children } => fields.is_empty() && children.is_empty(),
-            NodeTypeKind::Supertype { subtypes } => subtypes.is_empty(),
-        }
+        !node.name.is_named
     }
 
     pub fn generate_ddlog_relations(&self, nodes: &[ContextFreeNodeType]) -> Vec<Relation> {
@@ -594,96 +590,29 @@ impl DDlogGenerator {
                 let rel_name = Self::sanitize_reserved(&pascal);
                 main_relation_schemas.insert(
                     rel_name.clone(),
-                    vec![Field {
-                        pos: Pos::nopos(),
-                        name: "node_id".to_string(),
-                        ftype: DType::TInt { pos: Pos::nopos() },
-                    }],
+                    vec![
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "node_id".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "parent_id".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "value".to_string(),
+                            ftype: DType::TString { pos: Pos::nopos() },
+                        }
+                    ],
                 );
                 link_relation_fields.insert(rel_name, BTreeSet::new());
             }
         }
 
         // Process all nodes to build relation schemas
-        for node in nodes {
-            let parent_tname = &node.name.sexp_name;
-            let parent_is_leaf = is_leaf_map.get(parent_tname).copied().unwrap_or(false);
-            if parent_is_leaf {
-                continue;
-            }
-            let parent_pascal = Self::to_pascal_case(parent_tname);
-            let parent_rel = Self::sanitize_reserved(&parent_pascal);
-
-            match &node.kind {
-                NodeTypeKind::Supertype { subtypes } => {
-                    if !subtypes.is_empty() {
-                        link_relation_fields
-                            .get_mut(&parent_rel)
-                            .unwrap()
-                            .insert("subtypes".to_string());
-                    }
-                }
-                NodeTypeKind::Regular { fields, children } => {
-                    for (field_name, child_spec) in fields {
-                        let all_leaf = child_spec
-                            .types
-                            .iter()
-                            .all(|ty| is_leaf_map.get(&ty.sexp_name).copied().unwrap_or(false));
-
-                        if child_spec.multiple {
-                            link_relation_fields
-                                .get_mut(&parent_rel)
-                                .unwrap()
-                                .insert(field_name.clone());
-                        } else {
-                            let field_type = if all_leaf {
-                                DType::TString { pos: Pos::nopos() }
-                            } else {
-                                DType::TInt { pos: Pos::nopos() }
-                            };
-                            let safe_field_name = Self::sanitize_reserved(field_name);
-                            main_relation_schemas
-                                .get_mut(&parent_rel)
-                                .unwrap()
-                                .push(Field {
-                                    pos: Pos::nopos(),
-                                    name: safe_field_name,
-                                    ftype: field_type,
-                                });
-                        }
-                    }
-
-                    if !children.types.is_empty() {
-                        let all_leaf = children
-                            .types
-                            .iter()
-                            .all(|ty| is_leaf_map.get(&ty.sexp_name).copied().unwrap_or(false));
-
-                        if children.multiple {
-                            link_relation_fields
-                                .get_mut(&parent_rel)
-                                .unwrap()
-                                .insert("children".to_string());
-                        } else {
-                            let field_type = if all_leaf {
-                                DType::TString { pos: Pos::nopos() }
-                            } else {
-                                DType::TInt { pos: Pos::nopos() }
-                            };
-                            main_relation_schemas
-                                .get_mut(&parent_rel)
-                                .unwrap()
-                                .push(Field {
-                                    pos: Pos::nopos(),
-                                    name: "children".to_string(),
-                                    ftype: field_type,
-                                });
-                        }
-                    }
-                }
-            }
-        }
-
         // Create main relations
         for (rel_name, fields) in &main_relation_schemas {
             relations.push(Relation {
@@ -698,75 +627,6 @@ impl DDlogGenerator {
                 },
                 primary_key: None,
             });
-        }
-
-        // Create link relations
-        for (rel_name, fields) in &link_relation_fields {
-            for field_name in fields {
-                let mut all_leaf = true;
-                'outer: for node in nodes {
-                    let node_parent_pascal = Self::to_pascal_case(&node.name.sexp_name);
-                    let node_parent_rel = Self::sanitize_reserved(&node_parent_pascal);
-                    if node_parent_rel == *rel_name {
-                        match &node.kind {
-                            NodeTypeKind::Supertype { subtypes } => {
-                                if field_name == "subtypes" {
-                                    all_leaf = subtypes.iter().all(|st| {
-                                        is_leaf_map.get(&st.sexp_name).copied().unwrap_or(false)
-                                    });
-                                    break 'outer;
-                                }
-                            }
-                            NodeTypeKind::Regular { fields, children } => {
-                                if let Some(child_spec) = fields.get(field_name) {
-                                    all_leaf = child_spec.types.iter().all(|ty| {
-                                        is_leaf_map.get(&ty.sexp_name).copied().unwrap_or(false)
-                                    });
-                                    break 'outer;
-                                }
-                                if field_name == "children" && !children.types.is_empty() {
-                                    all_leaf = children.types.iter().all(|ty| {
-                                        is_leaf_map.get(&ty.sexp_name).copied().unwrap_or(false)
-                                    });
-                                    break 'outer;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Create the link relation with appropriate fields
-                let link_rel_name = format!("{}_{}", rel_name, field_name);
-                let fields = vec![
-                    Field {
-                        pos: Pos::nopos(),
-                        name: "parent_id".to_string(),
-                        ftype: DType::TInt { pos: Pos::nopos() },
-                    },
-                    Field {
-                        pos: Pos::nopos(),
-                        name: "child".to_string(),
-                        ftype: if all_leaf {
-                            DType::TString { pos: Pos::nopos() }
-                        } else {
-                            DType::TInt { pos: Pos::nopos() }
-                        },
-                    },
-                ];
-
-                relations.push(Relation {
-                    pos: Pos::nopos(),
-                    role: RelationRole::RelInput,
-                    semantics: RelationSemantics::RelSet,
-                    name: link_rel_name.clone(),
-                    rtype: DType::TStruct {
-                        pos: Pos::nopos(),
-                        name: link_rel_name,
-                        fields,
-                    },
-                    primary_key: None,
-                });
-            }
         }
 
         relations

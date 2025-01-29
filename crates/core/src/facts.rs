@@ -176,7 +176,12 @@ impl Display for DDLogCommand {
         match self {
             DDLogCommand::Start => write!(f, "start;"),
             DDLogCommand::Commit => write!(f, "commit;"),
-            DDLogCommand::Insert(rule) => write!(f, "{}", rule), // Uses Rule's Display impl
+            DDLogCommand::Insert(rule) => {
+                let mut insert = format!("insert {}", rule);
+                insert.pop();
+                insert.push(';');
+                write!(f, "{}", insert) // Uses Rule's Display impl
+            }
         }
     }
 }

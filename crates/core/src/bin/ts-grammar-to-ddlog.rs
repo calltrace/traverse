@@ -31,6 +31,8 @@ fn main() -> std::io::Result<()> {
             .map(|os| os.to_string_lossy().to_string())
             .unwrap_or_else(|| "unknown".to_string());
 
+        println!("Processing parser home: {}", parser_dirname);
+
         // e.g. "tree-sitter-solidity" => "solidity"
         let stripped_name = strip_treesitter_prefix(&parser_dirname);
         // Our .dl file => "solidity.dl"
@@ -42,12 +44,12 @@ fn main() -> std::io::Result<()> {
         // Create program, add nodes, and generate DDlog
         let prog = IRProgram::new();
         let ddlog_dump = DDlogGenerator::new()
-            .with_treesitter_grammar(parser_dirname)
+            .with_treesitter_grammar(parser_home.clone())
             .generate(prog)
             .map(|gen| {
                 gen.to_string()
-            }).map_err(|_| {
-                std::io::Error::new(std::io::ErrorKind::Other, "Error generating DDlog")
+            }).map_err(|e| {
+                std::io::Error::new(std::io::ErrorKind::Other, format!("Error generating DDlog {:?}", e))
             })?;
 
         // write to <stripped_name>.dl
