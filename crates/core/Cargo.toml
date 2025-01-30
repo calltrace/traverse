@@ -4,21 +4,7 @@ version = "0.1.0"
 edition = "2021"
 resolver = "2"
 
-[[bin]]
-name = "ts-to-ddlog"
-path = "src/bin/ts-to-ddlog.rs"
-
-[[bin]]
-name = "repl"
-path = "src/bin/repl.rs"
-
-[[bin]]
-name = "ts-grammar-to-ddlog"
-path = "src/bin/ts-grammar-to-ddlog.rs"
-
 [dependencies]
-frontend = { path = "../frontend" }
-backend = { path = "../backend" }
 ir = { path = "../ir" }
 language = { path = "../language" }
 proc-macro2 = "1.0.92"

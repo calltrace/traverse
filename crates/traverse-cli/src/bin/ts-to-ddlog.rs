@@ -1,8 +1,7 @@
 use clap::Parser;
-use core::facts::{DDLogCommand, TreeSitterToDDLog};
+use backend::facts::TreeSitterToDDLog;
 use std::io;
 use std::path::PathBuf;
-use tree_sitter::Node;
 
 #[derive(Parser, Debug)]
 #[command(name = "ts-to-ddlog")]
@@ -23,7 +22,7 @@ fn run() -> io::Result<()> {
     let source_code = std::fs::read_to_string(&args.input)?;
     let language = language::Solidity;
     let converter = TreeSitterToDDLog::new(&source_code, &language);
-    let commands = converter.extract_commands::<core::facts::InsertCommandFn>(None);
+    let commands = converter.extract_commands::<backend::facts::InsertCommandFn>(None);
 
     match args.output {
         Some(path) => converter.save_to_file(&commands, path.to_str().unwrap()),

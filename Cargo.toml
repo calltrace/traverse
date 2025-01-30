@@ -5,6 +5,7 @@ members = [
     "crates/language",
     "crates/frontend",
     "crates/backend",
+    "crates/traverse-cli",
 ]
 
 # exclude workspae members 

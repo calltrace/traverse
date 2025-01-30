@@ -1,7 +1,12 @@
 use std::{
-    fs::{self, File}, io::{Read, Write, Result as IoResult}, path::Path, process::{Command, Stdio}
+    fs::{self, File},
+    io::{Read, Result as IoResult, Write},
+    path::Path,
+    process::{Command, Stdio},
 };
 use tempdir::TempDir;
+
+use crate::facts::DDLogCommand;
 
 pub fn validate(dl_program: &str) -> Result<String, String> {
     if which::which("ddlog").is_err() {
@@ -18,11 +23,7 @@ pub fn validate(dl_program: &str) -> Result<String, String> {
         .map_err(|e| format!("Failed to write .dl file: {}", e))?;
 
     let mut ddlog_run = Command::new("ddlog")
-        .args([
-            "-i",
-            &dl_file.to_string_lossy(),
-            "--action=validate",
-        ])
+        .args(["-i", &dl_file.to_string_lossy(), "--action=validate"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -40,9 +41,8 @@ pub fn validate(dl_program: &str) -> Result<String, String> {
 
         let bytes = bytes::Bytes::from(buffer);
         Ok(String::from_utf8_lossy(&bytes).into())
-
-   } else {
-        // read stderr 
+    } else {
+        // read stderr
         let mut stderr = ddlog_run.stderr.take().ok_or("Failed to get stderr")?;
         let mut buffer = Vec::new();
         stderr
@@ -50,12 +50,10 @@ pub fn validate(dl_program: &str) -> Result<String, String> {
             .map_err(|e| format!("Failed to read stderr: {}", e))?;
         let bytes = bytes::Bytes::from(buffer);
         let stderr_dump: String = String::from_utf8_lossy(&bytes).into();
- 
+
         Err(stderr_dump)
     }
-
 }
-
 
 pub fn generate_rust_project(base_dir: &Path, project_name: &str, dl_content: &str) {
     let cargo_toml_content = format!(
@@ -169,7 +167,7 @@ pub fn build_ddlog_crate(base_dir: &Path, project_name: &str) -> Result<(), Stri
 pub fn run_ddlog_crate(
     base_dir: &Path,
     project_name: &str,
-    dat_content: &str,
+    cmds: &[DDLogCommand] 
 ) -> Result<String, String> {
     let project_dir = format!(
         "{}/{}_ddlog",
@@ -177,47 +175,53 @@ pub fn run_ddlog_crate(
         project_name
     );
     let dat_file = format!("{}/input.dat", project_dir);
-    fs::write(&dat_file, dat_content).map_err(|e| format!("Failed to write input.dat: {}", e))?;
+    let dat_content = cmds.iter().map(|cmd| cmd.to_string()).collect::<Vec<String>>().join("\n");
+    fs::write(&dat_file, &dat_content).map_err(|e| format!("Failed to write input.dat: {}", e))?;
 
-    let exec_path = format!("{}/target/debug/{}_cli", project_dir, project_name);
-    let mut cargo_run = Command::new(exec_path)
+    let exec_path = format!("target/debug/{}_cli", project_name);
+    
+    println!("Running generated DDLog application: {}/{}", project_dir, exec_path);
+    let mut ddlog_app_run = Command::new(&exec_path)
         .current_dir(project_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
-        .map_err(|e| format!("Failed to launch cargo run: {}", e))?;
+        .map_err(|e| format!("Failed to launch generated DDLog application: {} ({})", e, exec_path))?;
 
-    write!(cargo_run.stdin.as_ref().unwrap(), "{}", dat_content).unwrap();
+    write!(ddlog_app_run.stdin.as_ref().unwrap(), "{}", dat_content).unwrap();
 
-    if cargo_run.wait().is_ok() {
-        println!("Cargo run succeeded");
+    if ddlog_app_run.wait().is_ok() {
+        let mut stdout = ddlog_app_run.stdout.take().ok_or("Failed to get stdout")?;
+
+        let mut buffer = Vec::new();
+        stdout
+            .read_to_end(&mut buffer)
+            .map_err(|e| format!("Failed to read stdout: {}", e))?;
+
+        let bytes = bytes::Bytes::from(buffer);
+
+        let output = String::from_utf8_lossy(&bytes);
+
+        Ok(output.into())
     } else {
-        println!("Cargo run failed");
+        Err("Failed to run ddlog app".into())
     }
-
-    let mut stdout = cargo_run.stdout.take().ok_or("Failed to get stdout")?;
-
-    let mut buffer = Vec::new();
-    stdout
-        .read_to_end(&mut buffer)
-        .map_err(|e| format!("Failed to read stdout: {}", e))?;
-
-    let bytes = bytes::Bytes::from(buffer);
-
-    let output = String::from_utf8_lossy(&bytes);
-
-    Ok(output.into())
 }
 
 pub fn teardown_ddlog_project(base_dir: &Path, project_name: &str) -> Result<(), String> {
-    let project_descriptor = format!("{}/{}.dl", base_dir.to_str().unwrap_or_default(), project_name);
+    let project_descriptor = format!(
+        "{}/{}.dl",
+        base_dir.to_str().unwrap_or_default(),
+        project_name
+    );
     let project_dir = format!(
         "{}/{}_ddlog",
         base_dir.to_str().unwrap_or_default(),
         project_name
     );
-    fs::remove_file(project_descriptor).map_err(|e| format!("Failed to remove project descriptor: {}", e))?;
+    fs::remove_file(project_descriptor)
+        .map_err(|e| format!("Failed to remove project descriptor: {}", e))?;
     fs::remove_dir_all(project_dir).map_err(|e| format!("Failed to remove project dir: {}", e))
 }
 
@@ -331,4 +335,3 @@ DoubledRun(t) :- TestRun(d),
         );
     }
 }
-

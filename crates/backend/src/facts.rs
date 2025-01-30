@@ -1,4 +1,4 @@
-use backend::{
+use crate::{
     ddlog_lang::{Atom, Delay, Expr, ModuleName, Pos, Rule, RuleLHS},
     gen_ddlog,
 };

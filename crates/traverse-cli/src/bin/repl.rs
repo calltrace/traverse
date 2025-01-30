@@ -1,4 +1,4 @@
-use core::facts::{DDLogCommand, TreeSitterToDDLog};
+use backend::facts::{DDLogCommand, InsertCommandFn, TreeSitterToDDLog};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -17,6 +17,7 @@ enum ReplError {
     IrGeneration(String),
     DdlogGeneration(String),
     DdlogValidation(String),
+    DdlogExecution(String),
 }
 
 impl std::fmt::Display for ReplError {
@@ -27,6 +28,7 @@ impl std::fmt::Display for ReplError {
             ReplError::IrGeneration(msg) => write!(f, "IR generation error: {}", msg),
             ReplError::DdlogGeneration(msg) => write!(f, "DDlog generation error: {}", msg),
             ReplError::DdlogValidation(msg) => write!(f, "DDlog validation error: {}", msg),
+            ReplError::DdlogExecution(msg) => write!(f, "DDlog execution error: {}", msg),
         }
     }
 }
@@ -97,7 +99,7 @@ impl Repl {
         let source_code = std::fs::read_to_string(&self.source_file).map_err(ReplError::Io)?;
         let language = self.source_type.to_tree_sitter_language();
         let converter = TreeSitterToDDLog::new(&source_code, &language);
-        Ok(converter.extract_commands::<core::facts::InsertCommandFn>(None))
+        Ok(converter.extract_commands::<InsertCommandFn>(None))
     }
 
     fn parse_command(input: &str) -> Command {
@@ -159,6 +161,10 @@ impl Repl {
         validate(&ddlog.to_string()).map_err(|e| ReplError::DdlogValidation(e.to_string()))?;
 
         println!("\nDDLog Validation succeeded");
+
+        println!("Ingesting source file");
+        let cmds = self.parse_source_file()?;
+
         let base_dir = PathBuf::from(format!("./{}", self.project_name));
         fs::create_dir_all(&base_dir).expect("Failed to create base directory");
 
@@ -174,6 +180,13 @@ impl Repl {
             self.project_name, base_dir
         );
 
+        backend::ddlog_rt::run_ddlog_crate(&base_dir, &self.project_name, &cmds ).map_err(|e| {
+            ReplError::DdlogExecution(format!("Failed to run DDlog project: {}", e))
+        })?;
+
+        println!("DDlog project executed successfully");
+
+
         // TODO: run the generated ddlog CLI application with the supplied facts
         // TODO: dump and collect emit output relation
 
@@ -181,11 +194,6 @@ impl Repl {
     }
 
     fn run(&mut self) -> Result<(), ReplError> {
-        let cmds = self.parse_source_file()?;
-
-        for cmd in cmds {
-            println!("{}", cmd);
-        }
 
         loop {
             match self.line_editor.read_line(&self.prompt)? {
