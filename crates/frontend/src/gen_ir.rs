@@ -244,7 +244,7 @@ impl IrGenerator {
                             .unwrap(),
                     ),
                     attributes: all_outbound_attrs.clone(),
-                    role: IRRelationRole::Output,
+                    role: IRRelationRole::Intermediate,
                 });
 
                 if self.generate_input_relations {

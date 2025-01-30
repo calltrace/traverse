@@ -54,7 +54,8 @@ struct Repl {
     line_editor: Reedline,
     prompt: DefaultPrompt,
     project_name: String,
-    ts_grammars: Vec<String>,
+    input_ts_grammars: Vec<PathBuf>,
+    intermediate_ts_grammars: Vec<PathBuf>,
     source_file: Box<Path>,
     source_type: SourceType,
 }
@@ -70,7 +71,8 @@ enum Command {
 impl Repl {
     fn new(
         project_name: String,
-        parser_homes: Vec<String>,
+        input_parser_homes: Vec<PathBuf>,
+        intermediate_parser_homes: Vec<PathBuf>,
         source_file: Box<Path>,
         source_type: SourceType,
     ) -> Result<Self, ReplError> {
@@ -89,7 +91,8 @@ impl Repl {
             line_editor,
             prompt: DefaultPrompt::default(),
             project_name,
-            ts_grammars: parser_homes,
+            input_ts_grammars: input_parser_homes,
+            intermediate_ts_grammars: intermediate_parser_homes,
             source_file,
             source_type,
         })
@@ -152,7 +155,8 @@ impl Repl {
 
         let ddlog = backend::gen_ddlog::DDlogGenerator::new()
             .with_input_relations(true)
-            .with_treesitter_grammars(self.ts_grammars.clone())
+            .with_input_treesitter_grammars(self.input_ts_grammars.clone())
+            .with_intermediate_treesitter_grammars(self.intermediate_ts_grammars.clone())
             .generate(*dl_ir)
             .map_err(|e| ReplError::DdlogGeneration(format!("{:?}", e)))?;
 
@@ -180,12 +184,11 @@ impl Repl {
             self.project_name, base_dir
         );
 
-        backend::ddlog_rt::run_ddlog_crate(&base_dir, &self.project_name, &cmds ).map_err(|e| {
+        backend::ddlog_rt::run_ddlog_crate(&base_dir, &self.project_name, &cmds).map_err(|e| {
             ReplError::DdlogExecution(format!("Failed to run DDlog project: {}", e))
         })?;
 
         println!("DDlog project executed successfully");
-
 
         // TODO: run the generated ddlog CLI application with the supplied facts
         // TODO: dump and collect emit output relation
@@ -194,7 +197,6 @@ impl Repl {
     }
 
     fn run(&mut self) -> Result<(), ReplError> {
-
         loop {
             match self.line_editor.read_line(&self.prompt)? {
                 Signal::Success(buffer) => {
@@ -226,8 +228,11 @@ struct Args {
     project_name: String,
 
     /// Paths to parser home directories
-    #[arg(short = 'l', long = "parser-home", value_name = "DIR")]
-    parser_homes: Vec<PathBuf>,
+    #[arg(short = 'i', long = "input-parser-home", value_name = "DIR")]
+    input_parser_homes: Vec<PathBuf>,
+
+    #[arg(short = 'n', long = "intermediate-parser-home", value_name = "DIR")]
+    intermediate_parser_homes: Vec<PathBuf>,
 
     /// Path to the source file to analyze
     #[arg(short = 's', long = "source", value_name = "FILE")]
@@ -239,13 +244,28 @@ struct Args {
 }
 
 impl Args {
-    fn validate(&self) -> Result<Vec<String>, ReplError> {
+    fn validate(&self) -> Result<(Vec<String>, Vec<String>), ReplError> {
         // Validate that all parser homes exist
-        for path in &self.parser_homes {
+        for path in &self.input_parser_homes {
             if !path.is_dir() {
                 return Err(ReplError::Io(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    format!("Parser home directory does not exist: {}", path.display()),
+                    format!(
+                        "Input Parser home directory does not exist: {}",
+                        path.display()
+                    ),
+                )));
+            }
+        }
+
+        for path in &self.intermediate_parser_homes {
+            if !path.is_dir() {
+                return Err(ReplError::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!(
+                        "Intermediate Parser home directory does not exist: {}",
+                        path.display()
+                    ),
                 )));
             }
         }
@@ -259,20 +279,23 @@ impl Args {
         }
 
         // Convert PathBuf to String for compatibility
-        Ok(self
-            .parser_homes
-            .iter()
-            .map(|p| p.to_string_lossy().into_owned())
-            .collect())
+        Ok((
+            self.input_parser_homes
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect(),
+            self.intermediate_parser_homes
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect(),
+        ))
     }
 }
 
 impl SourceType {
     fn to_tree_sitter_language(&self) -> impl Language {
         match self {
-            SourceType::Solidity => {
-                Solidity
-            }
+            SourceType::Solidity => Solidity,
             // TODO: Add Mermaid language support once available
             SourceType::Mermaid => unimplemented!("Mermaid language support not yet implemented"),
         }
@@ -284,9 +307,15 @@ fn main() -> Result<(), ReplError> {
     let args = Args::parse();
 
     // Validate parser homes and get as strings
-    let parser_homes = args.validate()?;
+    let (input_parser_homes, intermediate_parser_homes) = args.validate()?;
 
-    let mut repl = Repl::new(args.project_name, parser_homes, args.source_path.into(), args.source_type)?;
+    let mut repl = Repl::new(
+        args.project_name,
+        args.input_parser_homes,        //input_parser_homes,
+        args.intermediate_parser_homes, //intermediate_parser_homes,
+        args.source_path.into(),
+        args.source_type,
+    )?;
     repl.run()
 }
 

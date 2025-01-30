@@ -247,8 +247,6 @@ impl Expr {
     pub fn placeholder() -> Self {
         Self::new(ExprNode::EPHolder { pos: Pos::nopos() })
     }
-
-
 }
 
 impl Display for Expr {
@@ -1077,6 +1075,12 @@ impl DatalogProgram {
         // Then dump output relations
         for rel in self.relations.values() {
             if matches!(rel.role, RelationRole::RelOutput) {
+                result.push_str(&format!("{}\n", rel));
+            }
+        }
+
+        for rel in self.relations.values() {
+            if matches!(rel.role, RelationRole::RelInternal) {
                 result.push_str(&format!("{}\n", rel));
             }
         }

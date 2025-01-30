@@ -7,11 +7,15 @@ use backend::gen_ddlog::DDlogGenerator;
 
 #[derive(Parser)]
 #[command(name = "gen_datalog")]
-#[command(about = "Generate .dl files from multiple tree-sitter parser homes, plus an aggregator.")]
+#[command(about = "Generate .dl files from input and intermediate language tree-sitter parsers")]
 struct Cli {
-    /// One or more tree-sitter parser home paths
-    #[arg(required = true)]
-    parser_homes: Vec<PathBuf>,
+    /// Path to the input language tree-sitter parser home
+    #[arg(long = "input", short = 'i', required = true)]
+    input_parser: PathBuf,
+
+    /// Path to the intermediate language tree-sitter parser home
+    #[arg(long = "intermediate", short = 'n', required = true)]
+    intermediate_parser: PathBuf,
 
     /// Aggregator file to create
     #[arg(long, short = 'A', default_value = "aggregated.dl")]
@@ -20,12 +24,12 @@ struct Cli {
 
 fn main() -> std::io::Result<()> {
     let cli = Cli::parse();
-
-    // We'll accumulate lines like: `import solidity`
-    // (no file extension, as requested).
     let mut aggregator_imports = String::new();
 
-    for parser_home in &cli.parser_homes {
+    // Process parsers in sequence
+    let parsers = [&cli.input_parser, &cli.intermediate_parser];
+
+    for parser_home in &parsers {
         let parser_dirname = parser_home
             .file_name()
             .map(|os| os.to_string_lossy().to_string())
@@ -44,17 +48,18 @@ fn main() -> std::io::Result<()> {
         // Create program, add nodes, and generate DDlog
         let prog = IRProgram::new();
         let ddlog_dump = DDlogGenerator::new()
-            .with_treesitter_grammar(parser_home.clone())
+            .with_treesitter_grammar(parser_home.into())
             .generate(prog)
-            .map(|gen| {
-                gen.to_string()
-            }).map_err(|e| {
-                std::io::Error::new(std::io::ErrorKind::Other, format!("Error generating DDlog {:?}", e))
+            .map(|gen| gen.to_string())
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Error generating DDlog {:?}", e),
+                )
             })?;
 
         // write to <stripped_name>.dl
-        fs::write(&out_dl, ddlog_dump)
-            .expect("Failed to write .dl file");
+        fs::write(&out_dl, ddlog_dump).expect("Failed to write .dl file");
 
         // aggregator line => e.g. `import solidity`
         aggregator_imports.push_str(&format!("import {}\n", stripped_name));
@@ -63,9 +68,9 @@ fn main() -> std::io::Result<()> {
     // final aggregator file
     let aggregator_contents = format!(
         "// Aggregator file: imports all generated .dl files by base name.\n\
-         // No file extension is used in these imports.\n\
-         \n\
-         {}",
+           // No file extension is used in these imports.\n\
+           \n\
+           {}",
         aggregator_imports
     );
 

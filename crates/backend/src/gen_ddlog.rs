@@ -16,9 +16,15 @@ use ir::{
 
 const RESERVED_WORDS: &[&str] = &["else", "function", "type", "match", "var"];
 
+enum RelationType {
+    Input,
+    Intermediate,
+}
+
 pub struct DDlogGenerator {
     generate_input_relations: bool, // Option to control input relation generation
-    ts_grammars: Vec<PathBuf>,      // Paths to tree-sitter grammars
+    input_ts_grammars: Vec<PathBuf>, // Paths to input tree-sitter grammars
+    intermediate_ts_grammars: Vec<PathBuf>, // Paths to intermediate/internal tree-sitter grammars
 }
 
 impl DDlogGenerator {
@@ -26,7 +32,8 @@ impl DDlogGenerator {
     pub fn new() -> Self {
         Self {
             generate_input_relations: false, // Default to not generating input relations
-            ts_grammars: Vec::new(),         // Default to no parser homes
+            input_ts_grammars: Vec::new(),   // Default to no parser homes
+            intermediate_ts_grammars: Vec::new(), // Default to no intermediate grammars
         }
     }
 
@@ -37,15 +44,29 @@ impl DDlogGenerator {
     }
 
     /// Add a tree-sitter grammar to generate from
-    pub fn with_treesitter_grammar(mut self, ts_grammar: PathBuf) -> Self {
-        self.ts_grammars.push(ts_grammar);
+    pub fn with_input_treesitter_grammar(mut self, input_ts_grammar: PathBuf) -> Self {
+        self.input_ts_grammars.push(input_ts_grammar);
         self
     }
 
+    pub fn with_input_treesitter_grammars(mut self, input_ts_grammars: Vec<PathBuf>) -> Self {
+        self.input_ts_grammars
+            .extend(input_ts_grammars.into_iter().map(|h| h.into()));
+        self
+    }
+
+    pub fn with_intermediate_treesitter_grammar(mut self, intermediate_ts_grammar: PathBuf) -> Self {
+        self.intermediate_ts_grammars.push(intermediate_ts_grammar);
+        self
+    }
+    
     /// Add multiple tree-sitter grammars to generate from
-    pub fn with_treesitter_grammars(mut self, ts_grammars: Vec<String>) -> Self {
-        self.ts_grammars
-            .extend(ts_grammars.into_iter().map(|h| h.into()));
+    pub fn with_intermediate_treesitter_grammars(
+        mut self,
+        intermediate_ts_grammars: Vec<PathBuf>,
+    ) -> Self {
+        self.intermediate_ts_grammars
+            .extend(intermediate_ts_grammars.into_iter().map(|h| h.into()));
         self
     }
 
@@ -109,9 +130,12 @@ impl DDlogGenerator {
 
         //
         // Collect all node types from all grammars
-        let mut all_node_types = Vec::new();
-        for parser_home in &self.ts_grammars {
-            println!("Processing parser home: {}", parser_home.to_string_lossy());
+        let mut input_node_types = Vec::new();
+        for parser_home in &self.input_ts_grammars {
+            println!(
+                "Processing parser home (input): {}",
+                parser_home.to_string_lossy()
+            );
             let node_types_path = format!("{}/src/node-types.json", parser_home.to_string_lossy());
 
             if !std::path::Path::new(&node_types_path).exists() {
@@ -131,25 +155,56 @@ impl DDlogGenerator {
                     })
                 })?;
 
-            all_node_types.extend(node_types);
+            input_node_types.extend(node_types);
         }
 
-        if all_node_types.is_empty() {
+        if input_node_types.is_empty() {
             eprintln!(
                 "Warning: No input tree sitter grammars specified. Use with_treesitter_grammar()"
             );
         } else {
             eprintln!(
                 "Loaded {} node types from {} grammars",
-                all_node_types.len(),
-                self.ts_grammars.len()
+                input_node_types.len(),
+                self.input_ts_grammars.len()
             );
+        }
+
+        let mut intermediate_node_types = Vec::new();
+        for parser_home in &self.intermediate_ts_grammars {
+            println!(
+                "Processing parser home (intermediate): {}",
+                parser_home.to_string_lossy()
+            );
+            let node_types_path = format!("{}/src/node-types.json", parser_home.to_string_lossy());
+            if !std::path::Path::new(&node_types_path).exists() {
+                return Err(Error::GenerationError(format!(
+                    "node-types.json not found at {}",
+                    node_types_path
+                )));
+            }
+            let node_types: Vec<ContextFreeNodeType> = std::fs::read_to_string(&node_types_path)
+                .map_err(|e| {
+                    Error::GenerationError(format!("Failed to read node-types.json: {}", e))
+                })
+                .and_then(|content| {
+                    serde_json::from_str(&content).map_err(|e| {
+                        Error::GenerationError(format!("Failed to parse node-types.json: {}", e))
+                    })
+                })?;
+            intermediate_node_types.extend(node_types);
         }
 
         let mut program = DatalogProgram::new();
 
-        for ts_ir in self.generate_ddlog_relations(&all_node_types) {
-            program.add_relation(ts_ir);
+        for input_ts_ir in self.generate_ddlog_relations(&input_node_types, RelationType::Input) {
+            program.add_relation(input_ts_ir);
+        }
+
+        for intermediate_ts_ir in
+            self.generate_ddlog_relations(&intermediate_node_types, RelationType::Intermediate)
+        {
+            program.add_relation(intermediate_ts_ir);
         }
 
         for relation in &ir.relations {
@@ -197,7 +252,18 @@ impl DDlogGenerator {
                         }
                     }
                     IRRelationRole::Intermediate => {
-                        unreachable!("Intermediate relations are not supported in DDlog");
+                        program.add_relation(Relation {
+                            pos: Pos::nopos(),
+                            role: RelationRole::RelInternal,
+                            semantics: RelationSemantics::RelSet,
+                            name: relation.name.clone(),
+                            rtype: DType::TStruct {
+                                pos: Pos::nopos(),
+                                name: relation.name.clone(),
+                                fields: relation_fields,
+                            }, // Assuming attributes are strings
+                            primary_key: None,
+                        });
                     }
                 }
             }
@@ -545,7 +611,11 @@ impl DDlogGenerator {
         !node.name.is_named
     }
 
-    pub fn generate_ddlog_relations(&self, nodes: &[ContextFreeNodeType]) -> Vec<Relation> {
+    pub fn generate_ddlog_relations(
+        &self,
+        nodes: &[ContextFreeNodeType],
+        rel_type: RelationType,
+    ) -> Vec<Relation> {
         let mut relations = Vec::new();
         let mut distinct_types = BTreeSet::new();
 
@@ -605,7 +675,7 @@ impl DDlogGenerator {
                             pos: Pos::nopos(),
                             name: "value".to_string(),
                             ftype: DType::TString { pos: Pos::nopos() },
-                        }
+                        },
                     ],
                 );
                 link_relation_fields.insert(rel_name, BTreeSet::new());
@@ -615,18 +685,36 @@ impl DDlogGenerator {
         // Process all nodes to build relation schemas
         // Create main relations
         for (rel_name, fields) in &main_relation_schemas {
-            relations.push(Relation {
-                pos: Pos::nopos(),
-                role: RelationRole::RelInput,
-                semantics: RelationSemantics::RelSet,
-                name: rel_name.clone(),
-                rtype: DType::TStruct {
-                    pos: Pos::nopos(),
-                    name: rel_name.clone(),
-                    fields: fields.clone(),
-                },
-                primary_key: None,
-            });
+            match rel_type {
+                RelationType::Input => {
+                    relations.push(Relation {
+                        pos: Pos::nopos(),
+                        role: RelationRole::RelInput,
+                        semantics: RelationSemantics::RelSet,
+                        name: rel_name.clone(),
+                        rtype: DType::TStruct {
+                            pos: Pos::nopos(),
+                            name: rel_name.clone(),
+                            fields: fields.clone(),
+                        },
+                        primary_key: None,
+                    });
+                }
+                RelationType::Intermediate => {
+                    relations.push(Relation {
+                        pos: Pos::nopos(),
+                        role: RelationRole::RelInternal,
+                        semantics: RelationSemantics::RelSet,
+                        name: rel_name.clone(),
+                        rtype: DType::TStruct {
+                            pos: Pos::nopos(),
+                            name: rel_name.clone(),
+                            fields: fields.clone(),
+                        },
+                        primary_key: None,
+                    });
+                }
+            }
         }
 
         relations

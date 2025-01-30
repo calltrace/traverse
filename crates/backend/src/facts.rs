@@ -15,6 +15,7 @@ pub enum DDLogCommand {
     Start,
     Insert(Rule),
     Commit,
+    Dump
 }
 
 impl DDLogCommand {
@@ -150,6 +151,7 @@ impl<'a, T: language::Language> TreeSitterToDDLog<'a, T> {
         );
 
         commands.push(DDLogCommand::Commit);
+        commands.push(DDLogCommand::Dump);
         commands
     }
 
@@ -175,13 +177,14 @@ impl Display for DDLogCommand {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             DDLogCommand::Start => write!(f, "start;"),
-            DDLogCommand::Commit => write!(f, "commit;"),
             DDLogCommand::Insert(rule) => {
                 let mut insert = format!("insert {}", rule);
                 insert.pop();
                 insert.push(';');
                 write!(f, "{}", insert) // Uses Rule's Display impl
             }
+            DDLogCommand::Commit => write!(f, "commit;"),
+            DDLogCommand::Dump => write!(f, "dump;"),
         }
     }
 }
