@@ -1,7 +1,13 @@
-use std::path::PathBuf;
+use core::facts::{DDLogCommand, TreeSitterToDDLog};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
+use backend::ddlog_rt::{build_ddlog_crate, generate_rust_project, validate};
 use clap::Parser;
 use frontend::gen_ir::IrGenerator;
+use language::{Language, Solidity};
 use reedline::{DefaultPrompt, DefaultValidator, FileBackedHistory, Reedline, Signal};
 
 #[derive(Debug)]
@@ -45,7 +51,10 @@ impl From<std::io::Error> for ReplError {
 struct Repl {
     line_editor: Reedline,
     prompt: DefaultPrompt,
+    project_name: String,
     ts_grammars: Vec<String>,
+    source_file: Box<Path>,
+    source_type: SourceType,
 }
 
 enum Command {
@@ -57,7 +66,12 @@ enum Command {
 }
 
 impl Repl {
-    fn new(parser_homes: Vec<String>) -> Result<Self, ReplError> {
+    fn new(
+        project_name: String,
+        parser_homes: Vec<String>,
+        source_file: Box<Path>,
+        source_type: SourceType,
+    ) -> Result<Self, ReplError> {
         let history = Box::new(
             FileBackedHistory::with_file(5, "history.txt".into())
                 .map_err(|e| ReplError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?,
@@ -72,8 +86,18 @@ impl Repl {
         Ok(Self {
             line_editor,
             prompt: DefaultPrompt::default(),
+            project_name,
             ts_grammars: parser_homes,
+            source_file,
+            source_type,
         })
+    }
+
+    fn parse_source_file(&self) -> Result<Vec<DDLogCommand>, ReplError> {
+        let source_code = std::fs::read_to_string(&self.source_file).map_err(ReplError::Io)?;
+        let language = self.source_type.to_tree_sitter_language();
+        let converter = TreeSitterToDDLog::new(&source_code, &language);
+        Ok(converter.extract_commands::<core::facts::InsertCommandFn>(None))
     }
 
     fn parse_command(input: &str) -> Command {
@@ -126,20 +150,43 @@ impl Repl {
 
         let ddlog = backend::gen_ddlog::DDlogGenerator::new()
             .with_input_relations(true)
-            .with_treesitter_grammars(&self.ts_grammars)
+            .with_treesitter_grammars(self.ts_grammars.clone())
             .generate(*dl_ir)
             .map_err(|e| ReplError::DdlogGeneration(format!("{:?}", e)))?;
 
         println!("\nGenerated DDLog:\n\n{}", ddlog.to_string().trim());
 
-        backend::ddlog_rt::validate(&ddlog.to_string())
-            .map_err(|e| ReplError::DdlogValidation(e.to_string()))?;
+        validate(&ddlog.to_string()).map_err(|e| ReplError::DdlogValidation(e.to_string()))?;
 
         println!("\nDDLog Validation succeeded");
+        let base_dir = PathBuf::from(format!("./{}", self.project_name));
+        fs::create_dir_all(&base_dir).expect("Failed to create base directory");
+
+        generate_rust_project(&base_dir, &self.project_name, &ddlog.to_string());
+
+        match build_ddlog_crate(&base_dir, &self.project_name) {
+            Ok(_) => println!("Build succeeded"),
+            Err(e) => eprintln!("Build failed: {}", e),
+        }
+
+        println!(
+            "Scaffolded DDlog project '{}' at: {:?}",
+            self.project_name, base_dir
+        );
+
+        // TODO: run the generated ddlog CLI application with the supplied facts
+        // TODO: dump and collect emit output relation
+
         Ok(())
     }
 
     fn run(&mut self) -> Result<(), ReplError> {
+        let cmds = self.parse_source_file()?;
+
+        for cmd in cmds {
+            println!("{}", cmd);
+        }
+
         loop {
             match self.line_editor.read_line(&self.prompt)? {
                 Signal::Success(buffer) => {
@@ -158,12 +205,29 @@ impl Repl {
     }
 }
 
+#[derive(Debug, clap::ValueEnum, Clone)]
+pub enum SourceType {
+    Solidity,
+    Mermaid,
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    #[arg(short = 'p', long = "project-name", required = true)]
+    project_name: String,
+
     /// Paths to parser home directories
-    #[arg(short = 'p', long = "parser-home", value_name = "DIR")]
+    #[arg(short = 'l', long = "parser-home", value_name = "DIR")]
     parser_homes: Vec<PathBuf>,
+
+    /// Path to the source file to analyze
+    #[arg(short = 's', long = "source", value_name = "FILE")]
+    source_path: PathBuf,
+
+    /// Type of the source file
+    #[arg(short = 't', long = "type", value_enum)]
+    source_type: SourceType,
 }
 
 impl Args {
@@ -178,12 +242,32 @@ impl Args {
             }
         }
 
+        // Validate that source file exists
+        if !self.source_path.exists() {
+            return Err(ReplError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Source file does not exist: {}", self.source_path.display()),
+            )));
+        }
+
         // Convert PathBuf to String for compatibility
         Ok(self
             .parser_homes
             .iter()
             .map(|p| p.to_string_lossy().into_owned())
             .collect())
+    }
+}
+
+impl SourceType {
+    fn to_tree_sitter_language(&self) -> impl Language {
+        match self {
+            SourceType::Solidity => {
+                Solidity
+            }
+            // TODO: Add Mermaid language support once available
+            SourceType::Mermaid => unimplemented!("Mermaid language support not yet implemented"),
+        }
     }
 }
 
@@ -194,7 +278,7 @@ fn main() -> Result<(), ReplError> {
     // Validate parser homes and get as strings
     let parser_homes = args.validate()?;
 
-    let mut repl = Repl::new(parser_homes)?;
+    let mut repl = Repl::new(args.project_name, parser_homes, args.source_path.into(), args.source_type)?;
     repl.run()
 }
 

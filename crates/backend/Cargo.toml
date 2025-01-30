@@ -23,6 +23,7 @@ reedline = "0.38.0"
 tempdir = "0.3.7"
 bytes = "1.9.0"
 which = "7.0.1"
+tempfile = "3.16.0"
 
 [dev-dependencies]
 frontend = { path = "../frontend" }
