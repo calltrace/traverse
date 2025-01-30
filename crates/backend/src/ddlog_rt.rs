@@ -174,9 +174,7 @@ pub fn run_ddlog_crate(
         base_dir.to_str().unwrap_or_default(),
         project_name
     );
-    let dat_file = format!("{}/input.dat", project_dir);
     let dat_content = cmds.iter().map(|cmd| cmd.to_string()).collect::<Vec<String>>().join("\n");
-    fs::write(&dat_file, &dat_content).map_err(|e| format!("Failed to write input.dat: {}", e))?;
 
     let exec_path = format!("target/debug/{}_cli", project_name);
     
@@ -189,6 +187,8 @@ pub fn run_ddlog_crate(
         .spawn()
         .map_err(|e| format!("Failed to launch generated DDLog application: {} ({})", e, exec_path))?;
 
+    // print just first 80 lines of the facts 
+    println!("Facts:\n{}", dat_content.lines().take(80).collect::<Vec<&str>>().join("\n"));
     write!(ddlog_app_run.stdin.as_ref().unwrap(), "{}", dat_content).unwrap();
 
     if ddlog_app_run.wait().is_ok() {
