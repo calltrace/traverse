@@ -65,6 +65,8 @@ rules {
 ```
 */
 
+pub mod formatter;
+
 use std::fmt;
 use std::{
     collections::{HashMap, HashSet},
@@ -72,6 +74,7 @@ use std::{
 };
 
 use log::debug;
+
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct IRProgram {

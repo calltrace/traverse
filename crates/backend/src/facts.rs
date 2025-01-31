@@ -15,7 +15,7 @@ pub enum DDLogCommand {
     Start,
     Insert(Rule),
     Commit,
-    Dump
+    Dump,
 }
 
 impl DDLogCommand {
@@ -57,6 +57,7 @@ impl DDLogCommand {
 pub struct TreeSitterToDDLog<'a, T: language::Language> {
     source_code: &'a str,
     language: &'a T,
+    excluded_relations: Option<HashSet<String>>,
 }
 
 pub type InsertCommandFn = fn(&str, &Node, usize, Option<usize>) -> Option<DDLogCommand>;
@@ -66,7 +67,13 @@ impl<'a, T: language::Language> TreeSitterToDDLog<'a, T> {
         Self {
             source_code,
             language,
+            excluded_relations: None,
         }
+    }
+
+    pub fn with_excluded_relations(mut self, excluded_relations: HashSet<String>) -> Self {
+        self.excluded_relations = Some(excluded_relations);
+        self
     }
 
     pub fn extract_commands<F>(
@@ -88,10 +95,32 @@ impl<'a, T: language::Language> TreeSitterToDDLog<'a, T> {
             facts: &mut Vec<DDLogCommand>,
             next_id: &mut usize,
             create_insert_command: Option<&F>,
+            excluded_relations: &Option<HashSet<String>>,
         ) where
             F: Fn(&str, &Node, usize, Option<usize>) -> Option<DDLogCommand>,
         {
             let kind = node.kind().to_string();
+            let relation = to_pascal_case(&kind);
+
+            // Skip if relation is in exclusion list
+            if let Some(excluded) = excluded_relations {
+                if excluded.contains(&relation) {
+                    for i in 0..node.child_count() {
+                        if let Some(child) = node.named_child(i) {
+                            traverse(
+                                source_code,
+                                child,
+                                parent_id,
+                                facts,
+                                next_id,
+                                create_insert_command,
+                                excluded_relations,
+                            );
+                        }
+                    }
+                    return;
+                }
+            }
 
             let content = source_code.get(node.start_byte()..node.end_byte()).unwrap();
 
@@ -123,6 +152,7 @@ impl<'a, T: language::Language> TreeSitterToDDLog<'a, T> {
                         facts,
                         next_id,
                         create_insert_command,
+                        excluded_relations,
                     );
                 }
             }
@@ -148,6 +178,7 @@ impl<'a, T: language::Language> TreeSitterToDDLog<'a, T> {
             &mut commands,
             &mut next_id,
             create_insert_command,
+            &self.excluded_relations,
         );
 
         commands.push(DDLogCommand::Commit);

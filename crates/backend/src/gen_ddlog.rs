@@ -271,7 +271,7 @@ impl DDlogGenerator {
 
         for rule in &ir.rules {
             if let Some(lhs_relation) =
-                self.lookup_relation(&ir, &rule.lhs.relation_name, Some(IRRelationRole::Output))
+                self.lookup_relation(&ir, &rule.lhs.relation_name, None)
             {
                 let lhs_attributes = lhs_relation
                     .attributes

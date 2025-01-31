@@ -26,44 +26,59 @@ fn main() -> std::io::Result<()> {
     let cli = Cli::parse();
     let mut aggregator_imports = String::new();
 
-    // Process parsers in sequence
-    let parsers = [&cli.input_parser, &cli.intermediate_parser];
+    let input_parser_dirname = cli
+        .input_parser
+        .file_name()
+        .map(|os| os.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
 
-    for parser_home in &parsers {
-        let parser_dirname = parser_home
-            .file_name()
-            .map(|os| os.to_string_lossy().to_string())
-            .unwrap_or_else(|| "unknown".to_string());
+    println!("Processing input parser home: {}", input_parser_dirname);
 
-        println!("Processing parser home: {}", parser_dirname);
+    // e.g. "tree-sitter-solidity" => "solidity"
+    let stripped_name = strip_treesitter_prefix(&input_parser_dirname);
+    // Our .dl file => "solidity.dl"
+    let out_dl = format!("{}.dl", stripped_name);
 
-        // e.g. "tree-sitter-solidity" => "solidity"
-        let stripped_name = strip_treesitter_prefix(&parser_dirname);
-        // Our .dl file => "solidity.dl"
-        let out_dl = format!("{}.dl", stripped_name);
+    println!(
+        "Processing input parser home: {}",
+        cli.input_parser.display()
+    );
+    println!(" -> output dl: {}", out_dl);
 
-        println!("Processing parser home: {}", parser_home.display());
-        println!(" -> output dl: {}", out_dl);
+    let intermediate_parser_dirname = cli
+        .intermediate_parser
+        .file_name()
+        .map(|os| os.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
 
-        // Create program, add nodes, and generate DDlog
-        let prog = IRProgram::new();
-        let ddlog_dump = DDlogGenerator::new()
-            .with_treesitter_grammar(parser_home.into())
-            .generate(prog)
-            .map(|gen| gen.to_string())
-            .map_err(|e| {
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Error generating DDlog {:?}", e),
-                )
-            })?;
+    println!(
+        "Processing intermediate parser home: {}",
+        intermediate_parser_dirname
+    );
 
-        // write to <stripped_name>.dl
-        fs::write(&out_dl, ddlog_dump).expect("Failed to write .dl file");
+    let stripped_name = strip_treesitter_prefix(&intermediate_parser_dirname);
 
-        // aggregator line => e.g. `import solidity`
-        aggregator_imports.push_str(&format!("import {}\n", stripped_name));
-    }
+    let out_dl = format!("{}.dl", stripped_name);
+
+    // Create program, add nodes, and generate DDlog
+    let prog = IRProgram::new();
+    let ddlog_dump = DDlogGenerator::new()
+        .with_input_treesitter_grammar(input_parser_dirname.into())
+        .with_intermediate_treesitter_grammar(intermediate_parser_dirname.into())
+        .generate(prog)
+        .map(|gen| gen.to_string())
+        .map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Error generating DDlog {:?}", e),
+            )
+        })?;
+
+    // write to <stripped_name>.dl
+    fs::write(&out_dl, ddlog_dump).expect("Failed to write .dl file");
+
+    // aggregator line => e.g. `import solidity`
+    aggregator_imports.push_str(&format!("import {}\n", stripped_name));
 
     // final aggregator file
     let aggregator_contents = format!(

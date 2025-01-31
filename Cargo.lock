@@ -1214,6 +1214,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "reedline",
+ "regex",
  "syn 2.0.90",
  "tempdir",
  "tempfile",

@@ -268,7 +268,7 @@ impl fmt::Display for Lval {
                 )
             }
             Lval::Capture(capture) => {
-                write!(f, "@{}", capture)
+                write!(f, "{}", capture)
             }
             Lval::DoForm(cell) => write!(f, "(do {})", Lval::lval_expr_print(cell)),
             Lval::Sexpr(cell) => write!(f, "({})", Lval::lval_expr_print(cell)),

@@ -1,12 +1,13 @@
 use backend::facts::{DDLogCommand, InsertCommandFn, TreeSitterToDDLog};
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
 
 use backend::ddlog_rt::{build_ddlog_crate, generate_rust_project, validate};
 use clap::Parser;
-use frontend::gen_ir::IrGenerator;
+use frontend::{gen_ir::IrGenerator, syntax::SyntaxTheme};
 use language::{Language, Solidity};
 use reedline::{DefaultPrompt, DefaultValidator, FileBackedHistory, Reedline, Signal};
 
@@ -58,6 +59,7 @@ struct Repl {
     intermediate_ts_grammars: Vec<PathBuf>,
     source_file: Box<Path>,
     source_type: SourceType,
+    no_execute: bool,
 }
 
 enum Command {
@@ -75,6 +77,7 @@ impl Repl {
         intermediate_parser_homes: Vec<PathBuf>,
         source_file: Box<Path>,
         source_type: SourceType,
+        no_execute: bool,
     ) -> Result<Self, ReplError> {
         let history = Box::new(
             FileBackedHistory::with_file(5, "history.txt".into())
@@ -95,13 +98,15 @@ impl Repl {
             intermediate_ts_grammars: intermediate_parser_homes,
             source_file,
             source_type,
+            no_execute,
         })
     }
 
     fn parse_source_file(&self) -> Result<Vec<DDLogCommand>, ReplError> {
         let source_code = std::fs::read_to_string(&self.source_file).map_err(ReplError::Io)?;
         let language = self.source_type.to_tree_sitter_language();
-        let converter = TreeSitterToDDLog::new(&source_code, &language);
+        let converter = TreeSitterToDDLog::new(&source_code, &language)
+            .with_excluded_relations(HashSet::from(["SourceFile".to_string()]));
         Ok(converter.extract_commands::<InsertCommandFn>(None))
     }
 
@@ -144,7 +149,11 @@ impl Repl {
         let lval =
             frontend::parser::parse(input).map_err(|e| ReplError::Parse(format!("{:?}", e)))?;
 
-        println!("AST:\n{:#?}\n", lval);
+        let formatted = frontend::formatter::Formatter::new(2)
+            .with_syntax_highlighting(Some(SyntaxTheme::default()))
+            .format_with_highlighting(&lval);
+
+        println!("Formatted and Highlighted DSL:\n\n{}\n", formatted);
 
         let dl_ir = IrGenerator::new()
             .with_input_relations(true)
@@ -160,37 +169,46 @@ impl Repl {
             .generate(*dl_ir)
             .map_err(|e| ReplError::DdlogGeneration(format!("{:?}", e)))?;
 
-        println!("\nGenerated DDLog:\n\n{}", ddlog.to_string().trim());
-
+        let re = regex::Regex::new(r"^(?:input|output|relation)\b").unwrap();
+        let filtered_ddlog = ddlog
+            .to_string()
+            .lines()
+            .filter(|line| !re.is_match(line.trim()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        println!("\nGenerated DDLog:\n\n{}", filtered_ddlog.trim());
         validate(&ddlog.to_string()).map_err(|e| ReplError::DdlogValidation(e.to_string()))?;
 
         println!("\nDDLog Validation succeeded");
 
-        println!("Ingesting source file");
-        let cmds = self.parse_source_file()?;
+        if !self.no_execute {
+            println!("Ingesting source file");
+            let cmds = self.parse_source_file()?;
 
-        let base_dir = PathBuf::from(format!("./{}", self.project_name));
-        fs::create_dir_all(&base_dir).expect("Failed to create base directory");
+            let base_dir = PathBuf::from(format!("./{}", self.project_name));
+            fs::create_dir_all(&base_dir).expect("Failed to create base directory");
 
-        generate_rust_project(&base_dir, &self.project_name, &ddlog.to_string());
+            generate_rust_project(&base_dir, &self.project_name, &ddlog.to_string());
 
-        match build_ddlog_crate(&base_dir, &self.project_name) {
-            Ok(_) => println!("Build succeeded"),
-            Err(e) => eprintln!("Build failed: {}", e),
+            match build_ddlog_crate(&base_dir, &self.project_name) {
+                Ok(_) => println!("Build succeeded"),
+                Err(e) => eprintln!("Build failed: {}", e),
+            }
+
+            println!(
+                "Scaffolded DDlog project '{}' at: {:?}",
+                self.project_name, base_dir
+            );
+
+            backend::ddlog_rt::run_ddlog_crate(&base_dir, &self.project_name, &cmds).map_err(
+                |e| ReplError::DdlogExecution(format!("Failed to run DDlog project: {}", e)),
+            )?;
+
+            println!("DDlog project executed successfully");
+        } else {
+            println!("Skipping DDlog execution (--no-execute was specified)");
         }
 
-        println!(
-            "Scaffolded DDlog project '{}' at: {:?}",
-            self.project_name, base_dir
-        );
-
-        backend::ddlog_rt::run_ddlog_crate(&base_dir, &self.project_name, &cmds).map_err(|e| {
-            ReplError::DdlogExecution(format!("Failed to run DDlog project: {}", e))
-        })?;
-
-        println!("DDlog project executed successfully");
-
-        // TODO: run the generated ddlog CLI application with the supplied facts
         // TODO: dump and collect emit output relation
 
         Ok(())
@@ -241,6 +259,10 @@ struct Args {
     /// Type of the source file
     #[arg(short = 't', long = "type", value_enum)]
     source_type: SourceType,
+
+    /// Skip executing the generated DDlog script
+    #[arg(long = "no-execute", default_value = "false")]
+    no_execute: bool,
 }
 
 impl Args {
@@ -307,7 +329,7 @@ fn main() -> Result<(), ReplError> {
     let args = Args::parse();
 
     // Validate parser homes and get as strings
-    let (input_parser_homes, intermediate_parser_homes) = args.validate()?;
+    args.validate()?;
 
     let mut repl = Repl::new(
         args.project_name,
@@ -315,6 +337,7 @@ fn main() -> Result<(), ReplError> {
         args.intermediate_parser_homes, //intermediate_parser_homes,
         args.source_path.into(),
         args.source_type,
+        args.no_execute,
     )?;
     repl.run()
 }
@@ -322,28 +345,163 @@ fn main() -> Result<(), ReplError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::TempDir;
 
-    #[test]
-    fn test_command_parsing() {
-        assert!(matches!(Repl::parse_command("exit"), Command::Exit));
-        assert!(matches!(Repl::parse_command("clear"), Command::Clear));
-        assert!(matches!(
-            Repl::parse_command("select * from table"),
-            Command::Process(s) if s == "select * from table"
-        ));
+    // Test helper functions
+    fn setup_test_environment() -> (TempDir, PathBuf) {
+        let temp_dir = TempDir::new().unwrap();
+        let source_file = temp_dir.path().join("test.sol");
+        File::create(&source_file)
+            .unwrap()
+            .write_all(b"contract Test {}")
+            .unwrap();
+        (temp_dir, source_file)
     }
 
-    #[test]
-    fn test_process_valid_input() {
-        let repl = Repl::new(vec![]).unwrap();
-        let result = repl.process_input("x := 1");
-        assert!(result.is_ok());
+    fn create_test_repl(source_file: PathBuf) -> Repl {
+        Repl::new(
+            "test_project".to_string(),
+            vec![],
+            vec![],
+            source_file.into_boxed_path(),
+            SourceType::Solidity,
+            true,
+        )
+        .unwrap()
     }
 
-    #[test]
-    fn test_process_invalid_input() {
-        let repl = Repl::new(vec![]).unwrap();
-        let result = repl.process_input("invalid := ::");
-        assert!(matches!(result, Err(ReplError::Parse(_))));
+    mod command_tests {
+        use super::*;
+
+        #[test]
+        fn test_command_parsing() {
+            assert!(matches!(Repl::parse_command("exit"), Command::Exit));
+            assert!(matches!(Repl::parse_command("logout"), Command::Exit));
+            assert!(matches!(Repl::parse_command("clear"), Command::Clear));
+            assert!(matches!(Repl::parse_command("history"), Command::History));
+            assert!(matches!(
+                Repl::parse_command("clear-history"),
+                Command::ClearHistory
+            ));
+            assert!(matches!(
+                Repl::parse_command("select * from table"),
+                Command::Process(s) if s == "select * from table"
+            ));
+        }
+
+        #[test]
+        fn test_command_with_whitespace() {
+            assert!(matches!(Repl::parse_command("  exit  "), Command::Exit));
+            assert!(matches!(
+                Repl::parse_command("  select * from table  "),
+                Command::Process(s) if s.trim() == "select * from table"
+            ));
+        }
+    }
+
+    mod input_processing_tests {
+        use super::*;
+
+        #[test]
+        fn test_process_valid_input() {
+            let (_temp_dir, source_file) = setup_test_environment();
+            let repl = create_test_repl(source_file);
+            let result = repl.process_input("x := 1");
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn test_process_invalid_input() {
+            let (_temp_dir, source_file) = setup_test_environment();
+            let repl = create_test_repl(source_file);
+            let result = repl.process_input("invalid := ::");
+            assert!(matches!(result, Err(ReplError::Parse(_))));
+        }
+
+        #[test]
+        fn test_empty_input() {
+            let (_temp_dir, source_file) = setup_test_environment();
+            let repl = create_test_repl(source_file);
+            let result = repl.process_input("");
+            assert!(matches!(result, Err(ReplError::Parse(_))));
+        }
+    }
+
+    mod source_file_tests {
+        use super::*;
+
+        #[test]
+        fn test_parse_valid_source_file() {
+            let (temp_dir, source_file) = setup_test_environment();
+            let repl = create_test_repl(source_file);
+            let result = repl.parse_source_file();
+            assert!(result.is_ok());
+            temp_dir.close().unwrap();
+        }
+
+        #[test]
+        fn test_parse_nonexistent_source_file() {
+            let (_temp_dir, mut source_file) = setup_test_environment();
+            source_file.pop();
+            source_file.push("nonexistent.sol");
+            let repl = create_test_repl(source_file);
+            let result = repl.parse_source_file();
+            assert!(matches!(result, Err(ReplError::Io(_))));
+        }
+    }
+
+    mod repl_initialization_tests {
+        use super::*;
+
+        #[test]
+        fn test_repl_creation_with_valid_params() {
+            let (_temp_dir, source_file) = setup_test_environment();
+            let result = Repl::new(
+                "test".to_string(),
+                vec![],
+                vec![],
+                source_file.into_boxed_path(),
+                SourceType::Solidity,
+                true,
+            );
+            assert!(result.is_ok());
+        }
+    }
+
+    mod args_validation_tests {
+        use super::*;
+
+        #[test]
+        fn test_args_validation_with_valid_paths() {
+            let temp_dir = TempDir::new().unwrap();
+            let args = Args {
+                project_name: "test".to_string(),
+                input_parser_homes: vec![temp_dir.path().to_path_buf()],
+                intermediate_parser_homes: vec![temp_dir.path().to_path_buf()],
+                source_path: temp_dir.path().join("test.sol"),
+                source_type: SourceType::Solidity,
+                no_execute: true,
+            };
+            File::create(temp_dir.path().join("test.sol")).unwrap();
+            let result = args.validate();
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn test_args_validation_with_invalid_source() {
+            let temp_dir = TempDir::new().unwrap();
+            let args = Args {
+                project_name: "test".to_string(),
+                input_parser_homes: vec![temp_dir.path().to_path_buf()],
+                intermediate_parser_homes: vec![temp_dir.path().to_path_buf()],
+                source_path: temp_dir.path().join("nonexistent.sol"),
+                source_type: SourceType::Solidity,
+                no_execute: true,
+            };
+            let result = args.validate();
+            assert!(matches!(result, Err(ReplError::Io(_))));
+        }
     }
 }

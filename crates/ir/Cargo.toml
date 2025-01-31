@@ -24,3 +24,8 @@ ctor = "0.1.26"
 
 [build-dependencies]
 cc = "1.2.4"
+
+[[bin]]
+name = "dsl-fmt"
+path = "src/bin/fmt.rs"
+

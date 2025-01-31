@@ -407,7 +407,7 @@ impl IrGenerator {
                         if let Some(relation) = self.lookup_relation(
                             ir_program,
                             &referenced_rel,
-                            Some(IRRelationRole::Output),
+                            Some(IRRelationRole::Intermediate),
                         ) {
                             let ssa_block = if instructions.is_empty() {
                                 None
