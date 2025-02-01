@@ -4,10 +4,11 @@ use crate::{
     RelationType, SSAInstruction, SSAInstructionBlock, SSAOperation,
 };
 
-/// Formats an IR program with configurable indentation and spacing.
+/// Formats an IR program with configurable indentation, spacing and optional syntax highlighting.
 pub struct IRFormatter {
     indent_size: usize,
     indent_char: char,
+    use_highlighting: bool,
 }
 
 impl Default for IRFormatter {
@@ -15,6 +16,7 @@ impl Default for IRFormatter {
         Self {
             indent_size: 4,
             indent_char: ' ',
+            use_highlighting: false,
         }
     }
 }
@@ -24,7 +26,22 @@ impl IRFormatter {
         Self {
             indent_size,
             indent_char,
+            use_highlighting: false,
         }
+    }
+
+    /// Creates a new formatter with syntax highlighting enabled
+    pub fn with_highlighting(indent_size: usize, indent_char: char) -> Self {
+        Self {
+            indent_size,
+            indent_char,
+            use_highlighting: true,
+        }
+    }
+
+    /// Enable or disable syntax highlighting
+    pub fn set_highlighting(&mut self, enabled: bool) {
+        self.use_highlighting = enabled;
     }
 
     fn indent(&self, level: usize) -> String {
@@ -32,6 +49,33 @@ impl IRFormatter {
     }
 
     pub fn format(&self, program: &IRProgram) -> String {
+        if self.use_highlighting {
+            use crate::syntax::Highlight;
+            // First format the program normally, then apply highlighting
+            let highlighted = program.highlight();
+            let mut output = String::new();
+            
+            for part in highlighted {
+                output.push_str(&part.to_string());
+            }
+            
+            // Apply indentation to each line
+            output.lines()
+                .map(|line| {
+                    if line.trim().is_empty() {
+                        line.to_string()
+                    } else {
+                        format!("{}{}", self.indent(1), line)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            self.format_program_structure(program)
+        }
+    }
+
+    fn format_program_structure(&self, program: &IRProgram) -> String {
         let mut output = String::new();
         
         // Format relations section
@@ -146,15 +190,15 @@ impl IRFormatter {
         match instruction {
             SSAInstruction::Label(label) => format!("{}{}:", indent, label),
             SSAInstruction::Assignment { variable, operation } => {
-                format!("{}{} = {}", indent, variable, self.format_ssa_operation(operation))
+                format!("{}{} = {};", indent, variable, self.format_ssa_operation(operation))
             }
-            SSAInstruction::Goto(label) => format!("{}goto {}", indent, label),
+            SSAInstruction::Goto(label) => format!("{}goto {};", indent, label),
             SSAInstruction::Branch {
                 condition,
                 true_label,
                 false_label,
             } => format!(
-                "{}if {} goto {} else goto {}",
+                "{}if {} goto {} else goto {};",
                 indent, condition, true_label, false_label
             ),
         }
@@ -203,7 +247,37 @@ impl IRFormatter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::AttributeType;
+    use crate::RelationRole;
     use std::collections::HashSet;
+
+    #[test]
+    fn test_highlighting() {
+        let program = crate::IRProgram {
+            relations: vec![crate::RelationType {
+                name: "test_relation".to_string(),
+                attributes: vec![
+                    crate::Attribute {
+                        name: "x".to_string(),
+                        attr_type: AttributeType::Number,
+                    },
+                ],
+                role: RelationRole::Input,
+            }],
+            rules: vec![],
+        };
+
+        let mut formatter = super::IRFormatter::default();
+        let plain = formatter.format(&program);
+        
+        formatter.set_highlighting(true);
+        let highlighted = formatter.format(&program);
+
+        // Highlighted output should contain ANSI escape codes
+        assert!(highlighted.contains("\x1b["));
+        // Plain output should not contain ANSI escape codes
+        assert!(!plain.contains("\x1b["));
+    }
 
     #[test]
     fn test_format_simple_program() {

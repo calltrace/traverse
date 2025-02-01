@@ -1,17 +1,18 @@
+
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub enum TokenType {
-    Keyword,   // emit, capture, when, do
-    Function,  // Built-in functions
-    Variable,  // @variables
-    String,    // "string literals"
-    Number,    // numeric literals
-    Operator,  // and, or, not
-    Delimiter, // (), {}, []
-    Attribute, // attribute keys in emit/capture
-    Comment,   // /* comments */
-    Text,      // Other text
+    Keyword,      // emit, capture, when, do
+    Function,     // Built-in functions
+    Variable,     // @variables
+    String,       // "string literals"
+    Number,       // numeric literals
+    Operator,     // and, or, not
+    Delimiter,    // (), {}, []
+    Attribute,    // attribute keys in emit/capture
+    Comment,      // /* comments */
+    Text,         // Other text
 }
 
 #[derive(Debug, Clone)]
@@ -22,26 +23,23 @@ pub struct SyntaxTheme {
 impl Default for SyntaxTheme {
     fn default() -> Self {
         let mut colors = HashMap::new();
-        colors.insert(TokenType::Keyword, "#569CD6".to_string()); // Blue
-        colors.insert(TokenType::Function, "#DCDCAA".to_string()); // Yellow
-        colors.insert(TokenType::Variable, "#9CDCFE".to_string()); // Light blue
-        colors.insert(TokenType::String, "#CE9178".to_string()); // Orange
-        colors.insert(TokenType::Number, "#B5CEA8".to_string()); // Green
-        colors.insert(TokenType::Operator, "#C586C0".to_string()); // Purple
-        colors.insert(TokenType::Delimiter, "#808080".to_string()); // Gray
-        colors.insert(TokenType::Attribute, "#9CDCFE".to_string()); // Light blue
-        colors.insert(TokenType::Comment, "#6A9955".to_string()); // Dark green
-        colors.insert(TokenType::Text, "#D4D4D4".to_string()); // Light gray
+        colors.insert(TokenType::Keyword, "#569CD6".to_string());    // Blue
+        colors.insert(TokenType::Function, "#DCDCAA".to_string());   // Yellow
+        colors.insert(TokenType::Variable, "#9CDCFE".to_string());   // Light blue
+        colors.insert(TokenType::String, "#CE9178".to_string());     // Orange
+        colors.insert(TokenType::Number, "#B5CEA8".to_string());     // Green
+        colors.insert(TokenType::Operator, "#C586C0".to_string());   // Purple
+        colors.insert(TokenType::Delimiter, "#808080".to_string());  // Gray
+        colors.insert(TokenType::Attribute, "#9CDCFE".to_string());  // Light blue
+        colors.insert(TokenType::Comment, "#6A9955".to_string());    // Dark green
+        colors.insert(TokenType::Text, "#D4D4D4".to_string());       // Light gray
         Self { colors }
     }
 }
 
 impl SyntaxTheme {
     pub fn get_color(&self, token_type: &TokenType) -> &str {
-        self.colors
-            .get(token_type)
-            .map(|s| s.as_str())
-            .unwrap_or("#FFFFFF")
+        self.colors.get(token_type).map(|s| s.as_str()).unwrap_or("#FFFFFF")
     }
 
     pub fn set_color(&mut self, token_type: TokenType, color: String) {
@@ -84,7 +82,7 @@ impl SyntaxHighlighter {
     pub fn tokenize(&self, input: &str) -> Vec<Token> {
         let mut tokens = Vec::new();
         let mut chars = input.char_indices().peekable();
-
+        
         while let Some((i, c)) = chars.next() {
             match c {
                 // Handle comments
@@ -212,7 +210,7 @@ impl SyntaxHighlighter {
         tokens
     }
 
-    pub fn highlight(&self, input: &str) -> String {
+   pub fn highlight(&self, input: &str) -> String {
         let tokens = self.tokenize(input);
         let mut result = String::new();
         let mut last_end = 0;
@@ -226,18 +224,18 @@ impl SyntaxHighlighter {
             // Add the colored token using ANSI escape codes
             let color = self.theme.get_color(&token.token_type);
             let ansi_color = match token.token_type {
-                TokenType::Keyword => "\x1b[34m",   // Blue
-                TokenType::Function => "\x1b[33m",  // Yellow
-                TokenType::Variable => "\x1b[36m",  // Cyan
-                TokenType::String => "\x1b[31m",    // Red
-                TokenType::Number => "\x1b[32m",    // Green
-                TokenType::Operator => "\x1b[35m",  // Magenta
-                TokenType::Delimiter => "\x1b[90m", // Bright black
-                TokenType::Comment => "\x1b[32m",   // Green
+                TokenType::Keyword => "\x1b[34m",    // Blue
+                TokenType::Function => "\x1b[33m",   // Yellow
+                TokenType::Variable => "\x1b[36m",   // Cyan
+                TokenType::String => "\x1b[31m",     // Red
+                TokenType::Number => "\x1b[32m",     // Green
+                TokenType::Operator => "\x1b[35m",   // Magenta
+                TokenType::Delimiter => "\x1b[90m",  // Bright black
+                TokenType::Comment => "\x1b[32m",    // Green
                 _ => "\x1b[37m",                    // White (default)
             };
             result.push_str(&format!("{}{}\x1b[0m", ansi_color, token.text));
-
+            
             last_end = token.end;
         }
 
@@ -248,6 +246,8 @@ impl SyntaxHighlighter {
 
         result
     }
+
+
 }
 
 #[cfg(test)]
@@ -259,10 +259,10 @@ mod tests {
         let highlighter = SyntaxHighlighter::default();
         let input = "(emit TestNode (key1 @var1))";
         let highlighted = highlighter.highlight(input);
-
-        assert!(highlighted.contains("color: #569CD6")); // emit keyword
-        assert!(highlighted.contains("color: #9CDCFE")); // @var1 variable
-        assert!(highlighted.contains("color: #808080")); // delimiters
+        
+        assert!(highlighted.contains("color: #569CD6"));  // emit keyword
+        assert!(highlighted.contains("color: #9CDCFE"));  // @var1 variable
+        assert!(highlighted.contains("color: #808080"));  // delimiters
     }
 
     #[test]
@@ -270,9 +270,9 @@ mod tests {
         let highlighter = SyntaxHighlighter::default();
         let input = "/* This is a comment */ (emit TestNode)";
         let highlighted = highlighter.highlight(input);
-
-        assert!(highlighted.contains("color: #6A9955")); // comment
-        assert!(highlighted.contains("color: #569CD6")); // emit keyword
+        
+        assert!(highlighted.contains("color: #6A9955"));  // comment
+        assert!(highlighted.contains("color: #569CD6"));  // emit keyword
     }
 
     #[test]
@@ -280,7 +280,7 @@ mod tests {
         let highlighter = SyntaxHighlighter::default();
         let input = r#"(emit TestNode (key1 "string value"))"#;
         let highlighted = highlighter.highlight(input);
-
-        assert!(highlighted.contains("color: #CE9178")); // string
+        
+        assert!(highlighted.contains("color: #CE9178"));  // string
     }
 }

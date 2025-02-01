@@ -8,10 +8,12 @@ pub struct Formatter {
     syntax_highlighter: Option<SyntaxHighlighter>,
 }
 
+
 impl Default for Formatter {
     fn default() -> Self {
         Self {
             indent_level: 0,
+
             indent_size: 2,
             syntax_highlighter: None,
         }
@@ -44,7 +46,7 @@ impl Formatter {
     fn indent(&self) -> String {
         " ".repeat(self.indent_level * self.indent_size)
     }
-
+ 
     pub fn format(&mut self, expr: &Lval) -> String {
         match expr {
             Lval::Query(cells) => {

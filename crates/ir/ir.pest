@@ -1,8 +1,11 @@
 // Defines acceptable whitespace characters, which are ignored in most parts of the grammar.
 WHITESPACE = _{ " " | "\t" | "\n" | "\r" }
 
+// Define block comments. The `_` prefix ensures comments are skipped. This rule matches any content between `/*` and `*/`.
+COMMENT = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+
 // The root of the grammar, which consists of relations and an optional rules section.
-ir = { SOI ~ WHITESPACE* ~ relations_section ~ WHITESPACE* ~ datalog_rules_section* ~ WHITESPACE* ~ EOI }
+ir = { SOI ~ ( (relations_section ~ WHITESPACE* ~ datalog_rules_section*) | COMMENT | WHITESPACE) ~ EOI }
 
 // Defines the relations section, which declares all input, output, and intermediate relations.
 relations_section = { "relations" ~ WHITESPACE* ~ "{" ~ WHITESPACE* ~ relation* ~ WHITESPACE* ~ "}" }
@@ -20,7 +23,7 @@ attribute = { identifier ~ WHITESPACE* ~ ":" ~ WHITESPACE* ~ attribute_type }
 attribute_type = { "String" | "Number" | "Boolean" | "Date" | "Float" }
 
 // Defines the role of a relation, such as Input, Intermediate, or Output.
-role = { "Input" | "Intermediate" }
+role = { "Input" | "Intermediate" | "Output" }
 
 // Defines the section containing Datalog rules.
 datalog_rules_section = { "rules" ~ WHITESPACE* ~ "{" ~ WHITESPACE* ~ datalog_rule* ~ WHITESPACE* ~ "}" }
@@ -55,8 +58,18 @@ ssa_assignment = { identifier ~ WHITESPACE* ~ "=" ~ WHITESPACE* ~ (ssa_operation
 // Defines an SSA operation, including its type and operands.
 ssa_operation = { operation ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ operands ~ WHITESPACE* ~ ")" }
 
+// Defines a string literal enclosed in double quotes, with support for escaped characters
+string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
+
 // Defines a list of operands for an SSA operation, separated by commas.
-operands = { identifier ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ identifier)* }
+// Operands can be either identifiers or string literals
+operands = { operand ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ operand)* }
+
+// Defines a reference operand starting with '$' followed by an identifier
+reference = @{ "$" ~ (ASCII_ALPHANUMERIC | "_")+ }
+
+// Defines a single operand which can be an identifier, string literal, or reference
+operand = { identifier | string_literal | reference }
 
 // Defines the types of operations supported in SSA (e.g., arithmetic, logical, and data operations).
 operation = {

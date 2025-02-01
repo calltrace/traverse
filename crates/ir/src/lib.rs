@@ -65,7 +65,12 @@ rules {
 ```
 */
 
-pub mod formatter;
+mod formatter;
+mod syntax;
+
+use formatter::IRFormatter;
+use pest::{iterators::Pair, Parser};
+use pest_derive::Parser;
 
 use std::fmt;
 use std::{
@@ -76,6 +81,25 @@ use std::{
 use log::debug;
 
 
+pub fn format_program(
+    input: &str,
+    highlight: bool,
+    indent_size: usize,
+    use_tabs: bool,
+) -> Result<String, String> {
+
+    // Create program AST
+    let program = parse(input).map_err(|e| e.to_string())?;
+
+    // Create formatter with specified options
+    let indent_char = if use_tabs { '\t' } else { ' ' };
+    let mut formatter = IRFormatter::new(indent_size, indent_char);
+    formatter.set_highlighting(highlight);
+
+    // Format program
+    Ok(formatter.format(&program))
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct IRProgram {
     pub rules: Vec<IRRule>,
@@ -84,7 +108,10 @@ pub struct IRProgram {
 
 impl IRProgram {
     pub fn new() -> Self {
-        Self { rules: vec![], relations: vec![] }
+        Self {
+            rules: vec![],
+            relations: vec![],
+        }
     }
 }
 
@@ -332,16 +359,16 @@ impl fmt::Display for SSAInstruction {
                 variable,
                 operation,
             } => {
-                write!(f, "{} = {}", variable, operation)
+                write!(f, "{} = {};", variable, operation)
             }
-            SSAInstruction::Goto(label) => write!(f, "goto {}", label),
+            SSAInstruction::Goto(label) => write!(f, "goto {};", label),
             SSAInstruction::Branch {
                 condition,
                 true_label,
                 false_label,
             } => write!(
                 f,
-                "if {} goto {} else goto {}",
+                "if {} goto {} else goto {};",
                 condition, true_label, false_label
             ),
         }
@@ -386,22 +413,49 @@ impl fmt::Display for OperationType {
                 OperationType::Within => "within",
                 OperationType::Exists => "exists",
                 OperationType::StartsWith => "starts_with",
-                OperationType::EndsWith => "ends_with"
+                OperationType::EndsWith => "ends_with",
             }
         )
     }
 }
 
+#[derive(Debug)]
+pub enum IRError {
+    ParseError(String),
+}
+
+pub type IRResult<T> = Result<T, IRError>;
+
+impl std::fmt::Display for IRError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IRError::ParseError(msg) => write!(f, "Parse error: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for IRError {}
+
+impl From<pest::error::Error<parser::Rule>> for IRError {
+    fn from(err: pest::error::Error<parser::Rule>) -> Self {
+        IRError::ParseError(err.to_string())
+    }
+}
+
+pub fn parse(input: &str) -> IRResult<IRProgram> {
+    use parser::IRParser;
+    let parsed = IRParser::parse(parser::Rule::ir, input)?.next().unwrap();
+    Ok(parser::parse_ir_program(parsed))
+}
+
 mod parser {
     use super::*;
-    use pest::{iterators::Pair, Parser};
-    use pest_derive::Parser;
 
     #[derive(Parser)]
     #[grammar = "./ir.pest"]
-    pub struct IRParser;
+    pub(crate) struct IRParser;
 
-    pub fn parse_ir_program(parsed: Pair<Rule>) -> IRProgram {
+    pub(crate) fn parse_ir_program(parsed: Pair<Rule>) -> IRProgram {
         match parsed.as_rule() {
             Rule::ir => {
                 let mut relations = vec![];

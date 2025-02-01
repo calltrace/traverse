@@ -153,14 +153,17 @@ impl Repl {
             .with_syntax_highlighting(Some(SyntaxTheme::default()))
             .format_with_highlighting(&lval);
 
-        println!("Formatted and Highlighted DSL:\n\n{}\n", formatted);
+        println!("DSL:\n\n{}\n", formatted);
 
         let dl_ir = IrGenerator::new()
             .with_input_relations(true)
             .lval_to_ir(&lval)
             .map_err(|e| ReplError::IrGeneration(format!("{:?}", e)))?;
 
-        println!("Datalog IR:\n\n{}", dl_ir);
+        let formatted_ir = ir::format_program(&dl_ir.to_string(), true, 2, false)
+            .map_err(|e| ReplError::IrGeneration(format!("{:?}", e)))?;
+
+        println!("Datalog IR:\n\n{}", formatted_ir);
 
         let ddlog = backend::gen_ddlog::DDlogGenerator::new()
             .with_input_relations(true)
@@ -176,7 +179,8 @@ impl Repl {
             .filter(|line| !re.is_match(line.trim()))
             .collect::<Vec<_>>()
             .join("\n");
-        println!("\nGenerated DDLog:\n\n{}", filtered_ddlog.trim());
+
+        println!("\nGenerated DDLog (no relations for brevity):{}", filtered_ddlog);
         validate(&ddlog.to_string()).map_err(|e| ReplError::DdlogValidation(e.to_string()))?;
 
         println!("\nDDLog Validation succeeded");

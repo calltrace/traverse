@@ -26,6 +26,6 @@ ctor = "0.1.26"
 cc = "1.2.4"
 
 [[bin]]
-name = "dsl-fmt"
-path = "src/bin/fmt.rs"
+name = "irfmt"
+path = "src/bin/irfmt.rs"
 
