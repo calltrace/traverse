@@ -1,9 +1,6 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use crate::{
-    dsl::Lval,
-    parser::parse
-};
+use crate::{dsl::Lval, parser::parse};
 
 use ir::{
     Attribute, AttributeType, IRProgram, IRRule, LHSNode, OperationType, RHSNode, RHSVal,
@@ -118,7 +115,7 @@ impl IrGenerator {
         fn collect_outbound_attributes_from_descendants(lval: &Lval) -> Vec<Attribute> {
             let mut attrs = Vec::new();
 
-            if let Lval::CaptureForm(_, attrs_map, desc, _) = lval {
+            if let Lval::CaptureForm(_, attrs_map, capture_refs, desc, _) = lval {
                 attrs_map.iter().for_each(|(_, lval_box)| {
                     if let Lval::Capture(capture_name) = lval_box.as_ref() {
                         attrs.push(Attribute {
@@ -194,7 +191,7 @@ impl IrGenerator {
              * - Transformation rules must correctly map all LHS and RHS attributes to
              *   preserve semantic consistency.
              */
-            Lval::CaptureForm(rel_name, attrs_map, descendant, do_block) => {
+            Lval::CaptureForm(rel_name, attrs_map, capture_refs, descendant, do_block) => {
                 let descendant_outbound_attrs = if let Some(desc) = descendant {
                     // TODO: avoid double traversal
                     self.process_lval(desc, ir_program, context);
@@ -218,16 +215,17 @@ impl IrGenerator {
                     });
                 });
 
-                let mut outbound_attributes = Vec::new();
+                let mut outbound_attrs = Vec::new();
                 for lval_box in attrs_map.values() {
                     if let Lval::Capture(capture_name) = lval_box.as_ref() {
-                        outbound_attributes.push(Attribute {
+                        outbound_attrs.push(Attribute {
                             name: capture_name[1..].to_string(),
                             attr_type: AttributeType::String,
                         });
                     }
                 }
 
+                /*
                 let mut all_outbound_attrs = outbound_attributes.clone();
                 for (_, attr_name) in descendant_output_rels.iter() {
                     all_outbound_attrs.push(Attribute {
@@ -235,15 +233,32 @@ impl IrGenerator {
                         attr_type: AttributeType::String,
                     });
                 }
+                */
+
+                let intermediate_relation_name = {
+                    let combined_attrs = outbound_attrs
+                        .iter()
+                        .map(|attr| attr.name.clone())
+                        .collect::<Vec<_>>()
+                        .join("_");
+
+                    // Create a unique hash based on relation name and attributes
+                    let hash_input = format!("{}_{}", rel_name, combined_attrs);
+                    let hash = {
+                        use std::hash::{Hash, Hasher};
+                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                        hash_input.hash(&mut hasher);
+                        format!("{:x}", hasher.finish())
+                    };
+
+                    // Take first 8 chars of hash
+                    let short_hash = &hash[0..8];
+                    format!("{}__{}", to_pascal_case(&combined_attrs), short_hash)
+                };
 
                 ir_program.relations.push(IRRelationType {
-                    name: to_pascal_case(
-                        &outbound_attributes
-                            .first()
-                            .map(|attr| attr.name.clone())
-                            .unwrap(),
-                    ),
-                    attributes: all_outbound_attrs.clone(),
+                    name: intermediate_relation_name.clone(),
+                    attributes: outbound_attrs.clone(),
                     role: IRRelationRole::Intermediate,
                 });
 
@@ -256,18 +271,15 @@ impl IrGenerator {
                 }
 
                 let lhs_node = LHSNode {
-                    relation_name: to_pascal_case(
-                        &outbound_attributes
-                            .first()
-                            .map(|attr| attr.name.clone())
-                            .unwrap(),
-                    ),
-                    output_attributes: outbound_attributes
+                    relation_name: intermediate_relation_name,
+                    output_attributes: outbound_attrs
                         .iter()
                         .map(|attr| format!("lhs_{}", attr.name.clone()))
                         .collect(),
                 };
 
+                // compute RHS values
+                // Input relations
                 let mut rhs_vals = vec![RHSVal::RHSNode(RHSNode {
                     relation_name: to_pascal_case(rel_name),
                     attributes: inbound_attributes
@@ -275,6 +287,44 @@ impl IrGenerator {
                         .map(|attr| format!("rhs_{}", attr.name.clone()))
                         .collect(),
                 })];
+
+                // Intermediate relations for any captures in the attributes map
+                // extract captures from the attribute map
+                let intermediate_rhs_vals = capture_refs
+                    .iter()
+                    .filter_map(|capture_ref_name| {
+                        // find the relation within the IR Program that corresponds to the capture
+                        ir_program
+                            .relations
+                            .iter()
+                            .filter(|rel| rel.role == IRRelationRole::Intermediate)
+                            .find(|relation| {
+                                relation
+                                    .attributes
+                                    .iter()
+                                    .any(|attr| attr.name == &capture_ref_name[1..])
+                            })
+                            .map(|relation| {
+                                (relation.name.clone(), format!("rhs_{}", &capture_ref_name[1..]))
+                            })
+                    })
+                    .fold(
+                        HashMap::<String, HashSet<String>>::new(),
+                        |mut acc: HashMap<String, HashSet<String>>, (rel_name, attr)| {
+                            acc.entry(rel_name)
+                                .or_insert_with(HashSet::new)
+                                .insert(attr);
+                            acc
+                        },
+                    )
+                    .into_iter()
+                    .map(|(relation_name, attributes)| {
+                        RHSVal::RHSNode(RHSNode {
+                            relation_name,
+                            attributes,
+                        })
+                    })
+                    .collect::<Vec<_>>();
 
                 let descendant_rhs_vals = descendant_output_rels
                     .iter()
@@ -286,7 +336,7 @@ impl IrGenerator {
                     })
                     .collect::<Vec<_>>();
 
-                rhs_vals.extend(descendant_rhs_vals);
+                rhs_vals.extend(intermediate_rhs_vals /*descendant_rhs_vals*/);
 
                 let mut instructions: Vec<SSAInstruction> = vec![];
                 if let Some(do_block) = do_block {

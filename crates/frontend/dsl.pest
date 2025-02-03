@@ -81,7 +81,7 @@ capture_form = {
     "(" ~ WHITESPACE* ~ "capture" ~ WHITESPACE*    // Start with '(' followed by 'capture' keyword and optional whitespace
     ~ symbol                                        // Input node type symbol
     ~ WHITESPACE*                                   // Optional whitespace
-    ~ key_value*                                    // Zero or more key-value pairs we want to capture from the current match
+    ~ (key_value | capture)*                        // Zero or more key-value pairs or capture references we want to capture from the current match
     ~ WHITESPACE*                                   // Optional whitespace
     ~ capture_form?                                 // Optional nested `capture` form to capture from nested nodes
     ~ WHITESPACE*                                   // Optional whitespace
@@ -173,6 +173,7 @@ expr = {
   | qexpr                                           // Q-expression
   | num                                             // Number
   | symbol                                          // Symbol
+  | string_literal                                  // String literal
 }
 
 // Define the top-level parsing rule, `program`. 

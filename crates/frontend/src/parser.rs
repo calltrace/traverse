@@ -12,7 +12,6 @@ use std::{
     string::ToString,
 };
 
-
 #[derive(Parser)]
 #[grammar = "./dsl.pest"]
 pub struct Dsl;
@@ -128,6 +127,7 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
             let node_type = inner.next().unwrap().as_str().to_string();
 
             let mut attributes = HashMap::new();
+            let mut capture_refs = vec![];
             let mut nested_captures: Vec<Box<Lval>> = vec![];
             let mut q_exprs: Vec<Box<Lval>> = vec![];
             for child in inner {
@@ -139,7 +139,9 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
                             attributes.insert(key_str.clone(), value.clone());
                         }
                     }
-                } else if let Lval::CaptureForm(_, _, _, _) = *lval_child {
+                } else if let Lval::Capture(capture_ref_name) = *lval_child {
+                    capture_refs.push(capture_ref_name);
+                } else if let Lval::CaptureForm(_, _, _, _, _) = *lval_child {
                     nested_captures.push(lval_child);
                 } else if let Lval::DoForm(children) = *lval_read(child)? {
                     q_exprs = children;
@@ -148,6 +150,7 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
             Ok(Box::new(Lval::CaptureForm(
                 node_type,
                 attributes,
+                capture_refs, 
                 nested_captures.first().cloned(),
                 q_exprs
                     .first()
@@ -181,7 +184,6 @@ pub fn parse(s: &str) -> DslResult {
     let parsed = Dsl::parse(Rule::program, s)?.next().unwrap();
     lval_read(parsed)
 }
-
 
 #[derive(Debug)]
 pub enum Error {
@@ -288,20 +290,19 @@ mod tests {
                 "output_type".to_string(),
                 attrs(&[("key1", capture("var1"))]),
                 None,
-                None
+                None,
             )),
             // Capture node
             Box::new(Lval::CaptureForm(
                 "input_type".to_string(),
                 attrs(&[("key2", sym("value2"))]),
                 None,
-                None
-            ))
+                None,
+            )),
         ]));
 
         assert_eq!(result, expected);
     }
-
 
     #[test]
     fn test_parse_simple_emit() {

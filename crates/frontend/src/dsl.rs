@@ -30,6 +30,7 @@ pub enum Lval {
     CaptureForm(
         String,
         HashMap<String, Box<Lval>>,
+        Vec<String>,
         Option<Box<Lval>>,
         Option<Box<Lval>>,
     ),
@@ -105,12 +106,14 @@ impl Lval {
     pub fn capture_form(
         node_type: &str,
         attributes: HashMap<String, Box<Lval>>,
+        capture_refs: Vec<String>,
         nested_captures: Option<Box<Lval>>,
         q_expr: Option<Box<Lval>>,
     ) -> Box<Lval> {
         Box::new(Lval::CaptureForm(
             node_type.to_string(),
             attributes,
+            capture_refs,
             nested_captures,
             q_expr,
         ))
@@ -249,7 +252,7 @@ impl fmt::Display for Lval {
             Lval::WhenForm(condition, body) => {
                 write!(f, "(when {} {})", condition, format_children(body))
             }
-            Lval::CaptureForm(node_type, attributes, nested_captures, do_block) => {
+            Lval::CaptureForm(node_type, attributes, capture_refs, nested_captures, do_block) => {
                 let formatted_attrs = attributes
                     .iter()
                     .map(|(key, value)| format!("({} {})", key, value))

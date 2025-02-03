@@ -8,7 +8,6 @@ pub struct Formatter {
     syntax_highlighter: Option<SyntaxHighlighter>,
 }
 
-
 impl Default for Formatter {
     fn default() -> Self {
         Self {
@@ -46,7 +45,7 @@ impl Formatter {
     fn indent(&self) -> String {
         " ".repeat(self.indent_level * self.indent_size)
     }
- 
+
     pub fn format(&mut self, expr: &Lval) -> String {
         match expr {
             Lval::Query(cells) => {
@@ -124,7 +123,7 @@ impl Formatter {
                 result.push(')');
                 result
             }
-            Lval::CaptureForm(node_type, attributes, nested_captures, q_expr) => {
+            Lval::CaptureForm(node_type, attributes, capture_refs, nested_captures, q_expr) => {
                 let mut result = format!("(capture {}", node_type);
 
                 // Format attributes
@@ -133,6 +132,22 @@ impl Formatter {
                     result.push('\n');
                     let attrs = format_attributes(attributes, self.indent());
                     result.push_str(&attrs);
+                    self.indent_level -= 1;
+                }
+
+                result.push('\n');
+                //
+                // Format capture refs
+                if !capture_refs.is_empty() {
+                    self.indent_level += 1;
+                    result.push_str(
+                        &capture_refs
+                            .iter()
+                            .map(|ref_name| format!("{}{}", self.indent(), ref_name))
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                    );
+
                     self.indent_level -= 1;
                 }
 
@@ -156,6 +171,7 @@ impl Formatter {
                     result.push('\n');
                     result.push_str(&self.indent());
                 }
+
                 result.push(')');
                 result
             }
@@ -223,6 +239,27 @@ fn format_attributes(attributes: &HashMap<String, Box<Lval>>, indent: String) ->
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_capture_refs_formatting() {
+        let mut formatter = Formatter::default();
+
+        let mut attributes = HashMap::new();
+        attributes.insert(
+            "attr1".to_string(),
+            Box::new(Lval::string_literal("value1")),
+        );
+
+        let capture_refs = vec!["ref1".to_string(), "ref2".to_string()];
+
+        let capture =
+            Lval::CaptureForm("NodeType".to_string(), attributes, capture_refs, None, None);
+
+        let formatted = formatter.format(&capture);
+        assert_eq!(
+            formatted,
+            "(capture NodeType @ref1 @ref2\n  (attr1 \"value1\")\n)"
+        );
+    }
     use super::*;
     use std::collections::HashMap;
 
