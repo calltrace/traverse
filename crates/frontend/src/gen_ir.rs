@@ -263,12 +263,23 @@ impl IrGenerator {
              * - Transformation rules must correctly map all LHS and RHS attributes to
              *   preserve semantic consistency.
              */
-            Lval::CaptureForm(rel_name, attrs_map, capture_refs, descendant, do_block) => {
+            Lval::CaptureForm(
+                rel_name,
+                attrs_map,
+                capture_refs,
+                descendant,
+                when_block,
+                do_block,
+            ) => {
+                //
+                // 1. Collect all capture rules in the current capture form and register
+                //    the corresponding intermediary and internal relations.
+                //
                 let mut capture_rules = VecDeque::new();
                 collect_capture_rules(lval, context, ir_program, &mut capture_rules);
                 // the first rule in the queue is the topmost capture rule.
                 // We promote it from an internal relation to an intermediate one.
-                if let Some(top_most_capture_rule) = capture_rules.pop_front() {
+                if let Some(mut top_most_capture_rule) = capture_rules.pop_front() {
                     // fetch the internal relation associated with the top most capture rule
                     // and promote it to intermediate
                     if let Some(internal_relation) = ir_program.relations.iter_mut().find(|rel| {
@@ -278,11 +289,39 @@ impl IrGenerator {
                         internal_relation.role = IRRelationRole::Intermediate;
                     }
 
+                    //
+                    // 2. Make sure to satisfy the constraints expressed as predicates in the when block
+                    //
+                    let mut instructions: Vec<SSAInstruction> = vec![];
+                    if let Some(logical) = when_block {
+                        if let Lval::Logical(po, operands) = &**logical {
+                            // Generate SSA instructions for logical operations
+                            let ssa_instructions = logical_to_ssa(po, operands, context);
+                            instructions.extend(ssa_instructions.clone());
+                            instructions.push(SSAInstruction::Label(context.generate_label()));
+                        }
+                    }
+
+                    if let Some(do_block) = do_block {
+                        process_do_block(do_block, context, &mut instructions);
+                    }
+
+                    // attach the instructions emitted for the constraints and qexprs to the top most capture rule
+                    let ssa_block = if instructions.is_empty() {
+                        None
+                    } else {
+                        Some(SSAInstructionBlock {
+                            instructions: instructions.clone(),
+                        })
+                    };
+
+                    top_most_capture_rule.ssa_block = ssa_block;
+
                     // Adding top most rule.
                     ir_program.rules.push(top_most_capture_rule);
                 }
 
-                /* TODO: Remove - We're leaving here for now. 
+                /* TODO: Remove - We're leaving here for now.
                 let descendant_outbound_attrs = if let Some(desc) = descendant {
                     // TODO: avoid double traversal
                     self.process_lval(desc, ir_program, context);
@@ -634,7 +673,14 @@ impl IrGenerator {
             ir_program: &mut IRProgram,
             capture_rules: &mut VecDeque<IRRule>,
         ) {
-            if let Lval::CaptureForm(rel_name, attrs_map, capture_refs, descendant, do_block) = lval
+            if let Lval::CaptureForm(
+                rel_name,
+                attrs_map,
+                capture_refs,
+                descendant,
+                when,
+                do_block,
+            ) = lval
             {
                 let mut outbound_attrs = VecDeque::new();
                 if let Some(desc) = descendant {
@@ -739,13 +785,13 @@ impl IrGenerator {
                     attributes: rhs_attrs,
                 });
 
-                // 
-                // 5.1 Combine all RHS values into a single NestedRHS value. 
+                //
+                // 5.1 Combine all RHS values into a single NestedRHS value.
                 //     This will be the RHS value of our rule.
                 //     Note: for some yet unknown reason when the RHS includes the input relation
-                //     more than one, we get a duplicated RHS. 
+                //     more than one, we get a duplicated RHS.
                 //     This is the workaround for this however the root cause would need to be
-                //     addressed. 
+                //     addressed.
                 let rhs_vals_with_lineage = {
                     let mut unique_rhs_vals = Vec::new();
                     unique_rhs_vals.push(parent_rhs_val);
@@ -1114,6 +1160,15 @@ impl IrGenerator {
                             operation: SSAOperation {
                                 op_type: OperationType::Load,
                                 operands: vec![sym.clone()],
+                            },
+                        });
+                    }
+                    Lval::Capture(capture) => {
+                        instructions.push(SSAInstruction::Assignment {
+                            variable: temp_var.clone(),
+                            operation: SSAOperation {
+                                op_type: OperationType::Load,
+                                operands: vec![format!("rhs_{}", capture[1..].to_string())],
                             },
                         });
                     }

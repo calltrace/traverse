@@ -95,7 +95,13 @@ impl DDlogGenerator {
                                     .attributes
                                     .iter()
                                     .cloned()
-                                    .map(|s| s.to_lowercase())
+                                    .map(|s| {
+                                        if s.starts_with("unused_") {
+                                            "_".to_string()
+                                        } else {
+                                            s.to_lowercase()
+                                        }
+                                    })
                                     .collect::<Vec<_>>()
                                     .join(", "),
                             }),
@@ -248,7 +254,7 @@ impl DDlogGenerator {
                             rtype: DType::TStruct {
                                 pos: Pos::nopos(),
                                 name: relation.name.clone(),
-                                fields: sanitized_fields
+                                fields: sanitized_fields,
                             }, // Assuming attributes are strings
                             primary_key: None,
                         });
@@ -355,42 +361,54 @@ impl DDlogGenerator {
                     });
                 } else {
                     // Capture form
-                    if rule.ssa_block.is_some() {
-                        let mapping_expr = self.generate_ddlog_interpolation(
-                            &format!("lhs_{}", lhs_relation.attributes[0].name),
-                            rule.ssa_block
-                                .as_ref()
-                                .map(|block| block.instructions.clone())
-                                .unwrap_or_default(),
-                        );
+                    if let Some(ssa_block) = &rule.ssa_block {
+                        // First process any labeled blocks for predicates
+                        let condition_exprs =
+                            Self::process_labeled_blocks_to_mapping_expr(ssa_block);
 
-                        conditions.push(RuleRHS::RHSCondition {
-                            pos: Pos::nopos(),
-                            expr: Expr::new(ExprNode::EVar {
-                                pos: Pos::nopos(),
-                                name: mapping_expr,
-                            }),
-                        });
-                    } else {
-                        println!("No SSA block found for rule: {:?}", rule);
+                        // Create a set to track processed attributes and conditions
+                        let mut processed_attrs = HashSet::new();
+                        let mut unique_conditions = HashSet::new();
 
-                        println!("rhs_attrs: {:?}", rhs_attributes);
-
-                        // Create conditions for each LHS attribute that maps to an RHS attribute
-                        for lhs_attr in lhs_attributes.iter() {
-                            if let Some(rhs_attr) = rhs_attributes
-                                .iter()
-                                .find(|r| r.starts_with("rhs_") && r[4..] == *lhs_attr)
+                        // Add predicate conditions first
+                        for condition_expr in condition_exprs {
+                            // Extract attribute name from condition if it's a mapping
+                            if let Some(attr_name) =
+                                condition_expr.split('=').next().map(|s| s.trim())
                             {
-                                let mapping_expr = format!("var lhs_{} = {}", lhs_attr, rhs_attr);
+                                if attr_name.starts_with("var lhs_") {
+                                    let attr = attr_name.trim_start_matches("var lhs_");
+                                    processed_attrs.insert(attr.to_string());
+                                }
+                            }
+
+                            // Only add condition if we haven't seen it before
+                            if unique_conditions.insert(condition_expr.clone()) {
                                 conditions.push(RuleRHS::RHSCondition {
                                     pos: Pos::nopos(),
                                     expr: Expr::new(ExprNode::EVar {
                                         pos: Pos::nopos(),
-                                        name: mapping_expr,
+                                        name: condition_expr,
                                     }),
                                 });
                             }
+                        }
+                    }
+
+                    // Default behavior - create direct mappings for each LHS attribute
+                    for lhs_attr in lhs_attributes.iter() {
+                        if let Some(rhs_attr) = rhs_attributes
+                            .iter()
+                            .find(|r| r.starts_with("rhs_") && r[4..] == *lhs_attr)
+                        {
+                            let mapping_expr = format!("var lhs_{} = {}", lhs_attr, rhs_attr);
+                            conditions.push(RuleRHS::RHSCondition {
+                                pos: Pos::nopos(),
+                                expr: Expr::new(ExprNode::EVar {
+                                    pos: Pos::nopos(),
+                                    name: mapping_expr,
+                                }),
+                            });
                         }
                     }
                 }
@@ -450,7 +468,7 @@ impl DDlogGenerator {
         for instruction in &ssa_block.instructions {
             match instruction {
                 SSAInstruction::Label(label) => {
-                    // If there is a current block being processed, check if it ends with a predicate
+                    // Process previous block if it exists
                     if let Some(curr_label) = &current_label {
                         if let Some(expr) =
                             Self::process_block_for_predicate(curr_label, &current_instructions)
@@ -458,18 +476,49 @@ impl DDlogGenerator {
                             mapping_expressions.push(expr);
                         }
                     }
-                    // Start a new labeled block
+                    // Start new block
                     current_label = Some(label.clone());
                     current_instructions.clear();
                 }
+                SSAInstruction::Assignment {
+                    variable: _,
+                    operation,
+                } => {
+                    // Add instruction to current block
+                    current_instructions.push(instruction.clone());
+
+                    // If this is a predicate operation, process it immediately
+                    if matches!(
+                        operation.op_type,
+                        OperationType::Eq
+                            | OperationType::Neq
+                            | OperationType::Lt
+                            | OperationType::Leq
+                            | OperationType::Gt
+                            | OperationType::Geq
+                            | OperationType::Contains
+                            | OperationType::StartsWith
+                            | OperationType::EndsWith
+                            | OperationType::In
+                            | OperationType::Within
+                            | OperationType::Exists
+                    ) {
+                        if let Some(curr_label) = &current_label {
+                            if let Some(expr) =
+                                Self::process_block_for_predicate(curr_label, &current_instructions)
+                            {
+                                mapping_expressions.push(expr);
+                            }
+                        }
+                    }
+                }
                 _ => {
-                    // Collect instructions for the current block
                     current_instructions.push(instruction.clone());
                 }
             }
         }
 
-        // Process the last block after the loop
+        // Process final block
         if let Some(curr_label) = &current_label {
             if let Some(expr) = Self::process_block_for_predicate(curr_label, &current_instructions)
             {
@@ -480,79 +529,112 @@ impl DDlogGenerator {
         mapping_expressions
     }
 
-    /// Checks if a block ends with a predicate operator and converts it to a mapping expression.
     fn process_block_for_predicate(
         label: &String,
         instructions: &[SSAInstruction],
     ) -> Option<String> {
         let mut operand_mapping: HashMap<String, String> = HashMap::new();
-        let mut operator_mapping: HashMap<OperationType, String> = HashMap::new();
-        operator_mapping.insert(OperationType::Eq, "==".to_string());
+        let operator_mapping: HashMap<OperationType, String> = HashMap::from([
+            (OperationType::Eq, "==".to_string()),
+            (OperationType::Neq, "!=".to_string()),
+            (OperationType::Lt, "<".to_string()),
+            (OperationType::Leq, "<=".to_string()),
+            (OperationType::Gt, ">".to_string()),
+            (OperationType::Geq, ">=".to_string()),
+            (OperationType::And, "&&".to_string()),
+            (OperationType::Or, "||".to_string()),
+            (OperationType::Not, "!".to_string()),
+            (OperationType::Contains, "string_contains".to_string()),
+            (OperationType::StartsWith, "string_starts_with".to_string()),
+            (OperationType::EndsWith, "string_ends_with".to_string()),
+            (OperationType::In, "contains".to_string()),
+            (OperationType::Within, "within".to_string()),
+            (OperationType::Exists, "exists".to_string()),
+        ]);
 
-        // iterate over the instructions and create variables for each variable assignment and operand
+        // First pass: collect all operand mappings
         for instr in instructions {
-            match instr {
-                SSAInstruction::Assignment {
-                    variable,
-                    operation,
-                } if operation.op_type == OperationType::Load => {
+            if let SSAInstruction::Assignment {
+                variable,
+                operation,
+            } = instr
+            {
+                if operation.op_type == OperationType::Load {
                     operand_mapping.insert(variable.clone(), operation.operands[0].clone());
-                }
-                _ => {
-                    // Ignore other types of instructions
                 }
             }
         }
 
-        if let Some(SSAInstruction::Assignment {
-            variable: _,
-            operation,
-            ..
-        }) = instructions.last()
-        {
-            // Infix
-            if matches!(
-                operation.op_type,
-                OperationType::Eq
-                    | OperationType::Neq
-                    | OperationType::Lt
-                    | OperationType::Leq
-                    | OperationType::Gt
-                    | OperationType::Geq
-                    | OperationType::And
-                    | OperationType::Or
-                    | OperationType::Not
-            ) {
-                // Generate the mapping expression
-                // create infix operator (e.g. a == b)
-                return Some(format!(
-                    "{} {} {}",
-                    operand_mapping.get(&operation.operands[0]).unwrap(),
-                    operator_mapping.get(&operation.op_type).unwrap(),
-                    operand_mapping.get(&operation.operands[1]).unwrap()
-                ));
+        // Second pass: find predicate operation and generate expression
+        for instr in instructions {
+            if let SSAInstruction::Assignment {
+                variable: _,
+                operation,
+            } = instr
+            {
+                let op_type = &operation.op_type;
+                if let Some(operator) = operator_mapping.get(op_type) {
+                    match op_type {
+                        // Infix operators
+                        OperationType::Eq
+                        | OperationType::Neq
+                        | OperationType::Lt
+                        | OperationType::Leq
+                        | OperationType::Gt
+                        | OperationType::Geq
+                        | OperationType::And
+                        | OperationType::Or => {
+                            if operation.operands.len() == 2 {
+                                return Some(format!(
+                                    "{} {} {}",
+                                    operand_mapping
+                                        .get(&operation.operands[0])
+                                        .unwrap_or(&operation.operands[0]),
+                                    operator,
+                                    operand_mapping
+                                        .get(&operation.operands[1])
+                                        .unwrap_or(&operation.operands[1])
+                                ));
+                            }
+                        }
 
-                /*
-                 */
-            }
+                        // Prefix operators
+                        OperationType::Not => {
+                            if operation.operands.len() == 1 {
+                                return Some(format!(
+                                    "{}{}",
+                                    operator,
+                                    operand_mapping
+                                        .get(&operation.operands[0])
+                                        .unwrap_or(&operation.operands[0])
+                                ));
+                            }
+                        }
 
-            // prefix operator (e.g. string_contains())
-            if matches!(operation.op_type, OperationType::Contains) {
-                let operands_str = operation
-                    .operands
-                    .iter()
-                    .map(|op| operand_mapping.get(op).cloned().unwrap())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                return Some(format!(
-                    "{}({})",
-                    operator_mapping.get(&operation.op_type).unwrap(),
-                    operands_str
-                ));
+                        // Function-style operators
+                        OperationType::Contains
+                        | OperationType::StartsWith
+                        | OperationType::EndsWith
+                        | OperationType::In
+                        | OperationType::Within
+                        | OperationType::Exists => {
+                            let operands_str = operation
+                                .operands
+                                .iter()
+                                .map(|op| operand_mapping.get(op).unwrap_or(op).clone())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            return Some(format!("{}({})", operator, operands_str));
+                        }
+
+                        _ => {}
+                    }
+                }
             }
         }
         None
     }
+
     /// Generate a DDLog-style string interpolation statement
     fn generate_ddlog_interpolation(
         &self,

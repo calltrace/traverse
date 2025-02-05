@@ -34,6 +34,7 @@ pub enum Lval {
         Vec<String>,
         Option<Box<Lval>>,
         Option<Box<Lval>>,
+        Option<Box<Lval>>,
     ),
     WhenForm(Box<Lval>, LvalChildren),
     KeyVal(LvalChildren),
@@ -109,6 +110,7 @@ impl Lval {
         attributes: IndexMap<String, Box<Lval>>,
         capture_refs: Vec<String>,
         nested_captures: Option<Box<Lval>>,
+        when: Option<Box<Lval>>,
         q_expr: Option<Box<Lval>>,
     ) -> Box<Lval> {
         Box::new(Lval::CaptureForm(
@@ -116,6 +118,7 @@ impl Lval {
             attributes,
             capture_refs,
             nested_captures,
+            when,
             q_expr,
         ))
     }
@@ -253,7 +256,7 @@ impl fmt::Display for Lval {
             Lval::WhenForm(condition, body) => {
                 write!(f, "(when {} {})", condition, format_children(body))
             }
-            Lval::CaptureForm(node_type, attributes, capture_refs, nested_captures, do_block) => {
+            Lval::CaptureForm(node_type, attributes, capture_refs, nested_captures, when, do_block) => {
                 let formatted_attrs = attributes
                     .iter()
                     .map(|(key, value)| format!("({} {})", key, value))

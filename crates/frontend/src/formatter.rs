@@ -124,7 +124,7 @@ impl Formatter {
                 result.push(')');
                 result
             }
-            Lval::CaptureForm(node_type, attributes, capture_refs, nested_captures, q_expr) => {
+            Lval::CaptureForm(node_type, attributes, capture_refs, nested_captures, when, q_expr) => {
                 let mut result = format!("(capture {}", node_type);
 
                 // Format attributes
@@ -157,6 +157,14 @@ impl Formatter {
                     self.indent_level += 1;
                     result.push('\n');
                     result.push_str(&format!("{}{}", self.indent(), self.format(nested)));
+                    self.indent_level -= 1;
+                }
+
+                // Format when form if present
+                if let Some(when) = when {
+                    self.indent_level += 1;
+                    result.push('\n');
+                    result.push_str(&format!("{}{}", self.indent(), self.format(when)));
                     self.indent_level -= 1;
                 }
 

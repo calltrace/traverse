@@ -128,6 +128,7 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
             let mut attributes = IndexMap::new();
             let mut capture_refs = vec![];
             let mut nested_captures: Vec<Box<Lval>> = vec![];
+            let mut when: Option<Box<Lval>> = None;
             let mut q_exprs: Vec<Box<Lval>> = vec![];
             for child in inner {
                 let lval_child = lval_read(child.clone())?;
@@ -140,8 +141,10 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
                     }
                 } else if let Lval::Capture(capture_ref_name) = *lval_child {
                     capture_refs.push(capture_ref_name);
-                } else if let Lval::CaptureForm(_, _, _, _, _) = *lval_child {
+                } else if let Lval::CaptureForm(_, _, _, _, _, _) = *lval_child {
                     nested_captures.push(lval_child);
+                } else if let Lval::WhenForm(condition, _) = *lval_child {
+                    when = Some(condition);
                 } else if let Lval::DoForm(children) = *lval_read(child)? {
                     q_exprs = children;
                 }
@@ -149,8 +152,9 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
             Ok(Box::new(Lval::CaptureForm(
                 node_type,
                 attributes,
-                capture_refs, 
+                capture_refs,
                 nested_captures.first().cloned(),
+                when,
                 q_exprs
                     .first()
                     .cloned()
