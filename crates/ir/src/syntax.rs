@@ -349,8 +349,7 @@ impl Highlight for LHSNode {
             color: HighlightColor::Delimiter,
         });
 
-        let mut attrs: Vec<_> = self.output_attributes.iter().collect();
-        attrs.sort();
+        let attrs: Vec<_> = self.output_attributes.iter().collect();
         for (i, attr) in attrs.iter().enumerate() {
             if i > 0 {
                 result.push(Highlighted {
@@ -387,8 +386,7 @@ impl Highlight for RHSNode {
             color: HighlightColor::Delimiter,
         });
 
-        let mut attrs: Vec<_> = self.attributes.iter().collect();
-        attrs.sort();
+        let attrs: Vec<_> = self.attributes.iter().collect();
         for (i, attr) in attrs.iter().enumerate() {
             if i > 0 {
                 result.push(Highlighted {

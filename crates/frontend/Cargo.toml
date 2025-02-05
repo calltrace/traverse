@@ -5,9 +5,10 @@ edition = "2021"
 
 [dependencies]
 ir = { path = "../ir" }
+language = { path = "../language" }
 clap = { version = "4.5.23", features = ["derive"] }
 from-pest = "0.3.2"
-indexmap = { version= "2.7.0", features = ["serde"] }
+indexmap = { version = "2.7.0", features = ["serde"] }
 lazy_static = "1.5.0"
 log = "0.4.22"
 pest = "2.7.15"

@@ -156,9 +156,14 @@ impl Repl {
         println!("DSL:\n\n{}\n", formatted);
 
         let dl_ir = IrGenerator::new()
-            .with_input_relations(true)
+            //.with_input_relations(true)
+            .with_input_relations(false)
+            .with_input_treesitter_grammars(self.input_ts_grammars.clone())
+            //.with_intermediate_treesitter_grammars(self.intermediate_ts_grammars.clone())
             .lval_to_ir(&lval)
             .map_err(|e| ReplError::IrGeneration(format!("{:?}", e)))?;
+
+        println!("IR:\n\n{}", dl_ir);
 
         let formatted_ir = ir::format_program(&dl_ir.to_string(), true, 2, false)
             .map_err(|e| ReplError::IrGeneration(format!("{:?}", e)))?;
@@ -166,9 +171,10 @@ impl Repl {
         println!("Datalog IR:\n\n{}", formatted_ir);
 
         let ddlog = backend::gen_ddlog::DDlogGenerator::new()
-            .with_input_relations(true)
+            //.with_input_relations(true)
+            .with_input_relations(false)
             .with_input_treesitter_grammars(self.input_ts_grammars.clone())
-            .with_intermediate_treesitter_grammars(self.intermediate_ts_grammars.clone())
+            //.with_intermediate_treesitter_grammars(self.intermediate_ts_grammars.clone())
             .generate(*dl_ir)
             .map_err(|e| ReplError::DdlogGeneration(format!("{:?}", e)))?;
 
@@ -176,7 +182,7 @@ impl Repl {
         let filtered_ddlog = ddlog
             .to_string()
             .lines()
-            .filter(|line| !re.is_match(line.trim()))
+            //.filter(|line| !re.is_match(line.trim()))
             .collect::<Vec<_>>()
             .join("\n");
 

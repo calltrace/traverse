@@ -1,6 +1,7 @@
+use indexmap::IndexSet;
 use language::node_types::{ContextFreeNodeType, NodeTypeKind};
-use std::collections::{BTreeMap, BTreeSet};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
 
 use crate::ddlog_lang::{
@@ -55,11 +56,14 @@ impl DDlogGenerator {
         self
     }
 
-    pub fn with_intermediate_treesitter_grammar(mut self, intermediate_ts_grammar: PathBuf) -> Self {
+    pub fn with_intermediate_treesitter_grammar(
+        mut self,
+        intermediate_ts_grammar: PathBuf,
+    ) -> Self {
         self.intermediate_ts_grammars.push(intermediate_ts_grammar);
         self
     }
-    
+
     /// Add multiple tree-sitter grammars to generate from
     pub fn with_intermediate_treesitter_grammars(
         mut self,
@@ -197,6 +201,10 @@ impl DDlogGenerator {
 
         let mut program = DatalogProgram::new();
 
+        /* Note: This code was commented out as it has to be removed or refactored. We want relations to be defined in the DSL
+        ONLY, not allow the IR to receive arbitrary relations from the DDlog generator.
+
+
         for input_ts_ir in self.generate_ddlog_relations(&input_node_types, RelationType::Input) {
             program.add_relation(input_ts_ir);
         }
@@ -205,7 +213,7 @@ impl DDlogGenerator {
             self.generate_ddlog_relations(&intermediate_node_types, RelationType::Intermediate)
         {
             program.add_relation(intermediate_ts_ir);
-        }
+        }*/
 
         for relation in &ir.relations {
             if let Some(lhs_relation) = self.lookup_relation(&ir, &relation.name, None) {
@@ -219,7 +227,18 @@ impl DDlogGenerator {
                     })
                     .collect::<Vec<_>>();
 
+                let sanitized_fields = relation_fields
+                    .iter()
+                    .cloned()
+                    .map(|f| Field {
+                        pos: f.pos.clone(),
+                        name: Self::sanitize_reserved(&f.name),
+                        ftype: f.ftype.clone(),
+                    })
+                    .collect::<Vec<Field>>();
+
                 match relation.role {
+                    // sanitize relation fields
                     IRRelationRole::Output => {
                         program.add_relation(Relation {
                             pos: Pos::nopos(),
@@ -229,27 +248,24 @@ impl DDlogGenerator {
                             rtype: DType::TStruct {
                                 pos: Pos::nopos(),
                                 name: relation.name.clone(),
-                                fields: relation_fields,
+                                fields: sanitized_fields
                             }, // Assuming attributes are strings
                             primary_key: None,
                         });
                     }
                     IRRelationRole::Input => {
-                        // Optionally add input relations based on the role
-                        if self.generate_input_relations {
-                            program.add_relation(Relation {
+                        program.add_relation(Relation {
+                            pos: Pos::nopos(),
+                            role: RelationRole::RelInput,
+                            semantics: RelationSemantics::RelSet,
+                            name: relation.name.clone(),
+                            rtype: DType::TStruct {
                                 pos: Pos::nopos(),
-                                role: RelationRole::RelInput,
-                                semantics: RelationSemantics::RelSet,
                                 name: relation.name.clone(),
-                                rtype: DType::TStruct {
-                                    pos: Pos::nopos(),
-                                    name: relation.name.clone(),
-                                    fields: relation_fields,
-                                }, // Assuming attributes are strings
-                                primary_key: None,
-                            });
-                        }
+                                fields: sanitized_fields,
+                            }, // Assuming attributes are strings
+                            primary_key: None,
+                        });
                     }
                     IRRelationRole::Intermediate => {
                         program.add_relation(Relation {
@@ -260,25 +276,26 @@ impl DDlogGenerator {
                             rtype: DType::TStruct {
                                 pos: Pos::nopos(),
                                 name: relation.name.clone(),
-                                fields: relation_fields,
+                                fields: sanitized_fields,
                             }, // Assuming attributes are strings
                             primary_key: None,
                         });
+                    }
+                    IRRelationRole::Internal => {
+                        // Internal relations don't have visibility behind the IR level
                     }
                 }
             }
         }
 
         for rule in &ir.rules {
-            if let Some(lhs_relation) =
-                self.lookup_relation(&ir, &rule.lhs.relation_name, None)
-            {
+            if let Some(lhs_relation) = self.lookup_relation(&ir, &rule.lhs.relation_name, None) {
                 let lhs_attributes = lhs_relation
                     .attributes
                     .iter()
                     .cloned()
                     .map(|s| s.name)
-                    .collect::<HashSet<_>>();
+                    .collect::<IndexSet<_>>();
 
                 let lhs = RuleLHS {
                     pos: Pos::nopos(),
@@ -338,9 +355,6 @@ impl DDlogGenerator {
                     });
                 } else {
                     // Capture form
-                    let lhs_rhs_pairs = lhs_attributes.iter().zip(rhs_attributes);
-
-                    // actions override automatic RHS to LHS assignments
                     if rule.ssa_block.is_some() {
                         let mapping_expr = self.generate_ddlog_interpolation(
                             &format!("lhs_{}", lhs_relation.attributes[0].name),
@@ -358,15 +372,25 @@ impl DDlogGenerator {
                             }),
                         });
                     } else {
-                        for (lhs_attr, rhs_attr) in lhs_rhs_pairs {
-                            let mapping_expr = format!("var lhs_{} = {}", lhs_attr, rhs_attr);
-                            conditions.push(RuleRHS::RHSCondition {
-                                pos: Pos::nopos(),
-                                expr: Expr::new(ExprNode::EVar {
+                        println!("No SSA block found for rule: {:?}", rule);
+
+                        println!("rhs_attrs: {:?}", rhs_attributes);
+
+                        // Create conditions for each LHS attribute that maps to an RHS attribute
+                        for lhs_attr in lhs_attributes.iter() {
+                            if let Some(rhs_attr) = rhs_attributes
+                                .iter()
+                                .find(|r| r.starts_with("rhs_") && r[4..] == *lhs_attr)
+                            {
+                                let mapping_expr = format!("var lhs_{} = {}", lhs_attr, rhs_attr);
+                                conditions.push(RuleRHS::RHSCondition {
                                     pos: Pos::nopos(),
-                                    name: mapping_expr,
-                                }),
-                            });
+                                    expr: Expr::new(ExprNode::EVar {
+                                        pos: Pos::nopos(),
+                                        name: mapping_expr,
+                                    }),
+                                });
+                            }
                         }
                     }
                 }
@@ -385,7 +409,7 @@ impl DDlogGenerator {
         Ok(program.into())
     }
 
-    fn collect_all_rhs_attributes(&self, ir: &IRProgram, val: &RHSVal) -> HashSet<String> {
+    fn collect_all_rhs_attributes(&self, ir: &IRProgram, val: &RHSVal) -> IndexSet<String> {
         match val {
             RHSVal::RHSNode(node) => {
                 if self
@@ -394,11 +418,11 @@ impl DDlogGenerator {
                 {
                     node.attributes.clone()
                 } else {
-                    HashSet::new()
+                    IndexSet::new()
                 }
             }
             RHSVal::NestedRHS(vals) => {
-                let mut collected_attributes = HashSet::new();
+                let mut collected_attributes = IndexSet::new();
                 for val in vals {
                     collected_attributes.extend(self.collect_all_rhs_attributes(ir, val));
                 }
@@ -685,6 +709,16 @@ impl DDlogGenerator {
         // Process all nodes to build relation schemas
         // Create main relations
         for (rel_name, fields) in &main_relation_schemas {
+            let sanitized_fields = fields
+                .iter()
+                .cloned()
+                .map(|f| Field {
+                    pos: f.pos.clone(),
+                    name: Self::sanitize_reserved(&f.name),
+                    ftype: f.ftype.clone(),
+                })
+                .collect::<Vec<Field>>();
+            println!("Sanitized fields: {:?}", sanitized_fields);
             match rel_type {
                 RelationType::Input => {
                     relations.push(Relation {
@@ -695,7 +729,7 @@ impl DDlogGenerator {
                         rtype: DType::TStruct {
                             pos: Pos::nopos(),
                             name: rel_name.clone(),
-                            fields: fields.clone(),
+                            fields: sanitized_fields,
                         },
                         primary_key: None,
                     });
@@ -709,10 +743,11 @@ impl DDlogGenerator {
                         rtype: DType::TStruct {
                             pos: Pos::nopos(),
                             name: rel_name.clone(),
-                            fields: fields.clone(),
+                            fields: sanitized_fields,
                         },
                         primary_key: None,
                     });
+                    // Internal doesn't have repreentatio in DDLog so are discarded.
                 }
             }
         }

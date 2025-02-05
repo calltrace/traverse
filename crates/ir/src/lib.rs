@@ -69,6 +69,7 @@ mod formatter;
 mod syntax;
 
 use formatter::IRFormatter;
+use indexmap::IndexSet;
 use pest::{iterators::Pair, Parser};
 use pest_derive::Parser;
 
@@ -122,7 +123,7 @@ pub struct IRRule {
     pub ssa_block: Option<SSAInstructionBlock>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AttributeType {
     String,
     Number,
@@ -131,7 +132,7 @@ pub enum AttributeType {
     Float,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Attribute {
     pub name: String,
     pub attr_type: AttributeType,
@@ -142,6 +143,7 @@ pub enum RelationRole {
     Input,
     Output,
     Intermediate,
+    Internal
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -154,7 +156,7 @@ pub struct RelationType {
 #[derive(Clone, Debug, PartialEq)]
 pub struct LHSNode {
     pub relation_name: String,
-    pub output_attributes: HashSet<String>,
+    pub output_attributes: IndexSet<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -166,7 +168,7 @@ pub enum RHSVal {
 #[derive(Clone, Debug)]
 pub struct RHSNode {
     pub relation_name: String,
-    pub attributes: HashSet<String>,
+    pub attributes: IndexSet<String>,
 }
 
 /// Represents a block of SSA instructions.
@@ -281,6 +283,7 @@ impl fmt::Display for RelationType {
                 RelationRole::Input => "Input",
                 RelationRole::Output => "Output",
                 RelationRole::Intermediate => "Intermediate",
+                RelationRole::Internal => "Internal",
             }
         )
     }
@@ -537,6 +540,7 @@ mod parser {
             "Input" => RelationRole::Input,
             "Output" => RelationRole::Output,
             "Intermediate" => RelationRole::Intermediate,
+            "Internal" => RelationRole::Internal,
             _ => panic!("Unsupported relation role: {}", role),
         }
     }
@@ -589,7 +593,7 @@ mod parser {
                     .unwrap()
                     .into_inner()
                     .map(|a| a.as_str().to_string())
-                    .collect::<HashSet<_>>();
+                    .collect::<IndexSet<_>>();
 
                 LHSNode {
                     relation_name,
@@ -627,7 +631,7 @@ mod parser {
                     .unwrap()
                     .into_inner()
                     .map(|a| a.as_str().to_string())
-                    .collect::<HashSet<_>>();
+                    .collect::<IndexSet<_>>();
 
                 RHSNode {
                     relation_name,
@@ -927,16 +931,16 @@ mod parser {
             rules: vec![IRRule {
                 lhs: LHSNode {
                     relation_name: "output_relation".to_string(),
-                    output_attributes: HashSet::from(["x".to_string()]),
+                    output_attributes: IndexSet::from(["x".to_string()]),
                 },
                 rhs: RHSVal::NestedRHS(vec![
                     RHSVal::RHSNode(RHSNode {
                         relation_name: "input_relation".to_string(),
-                        attributes: HashSet::from(["b".to_string(), "a".to_string()]),
+                        attributes: IndexSet::from(["b".to_string(), "a".to_string()]),
                     }),
                     RHSVal::RHSNode(RHSNode {
                         relation_name: "temp_relation".to_string(),
-                        attributes: HashSet::from(["c".to_string()]),
+                        attributes: IndexSet::from(["c".to_string()]),
                     }),
                 ]),
                 ssa_block: Some(SSAInstructionBlock {

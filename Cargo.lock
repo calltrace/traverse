@@ -412,6 +412,7 @@ dependencies = [
  "from-pest",
  "indexmap",
  "ir",
+ "language",
  "lazy_static",
  "log",
  "pest",

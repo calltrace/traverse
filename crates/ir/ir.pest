@@ -23,7 +23,7 @@ attribute = { identifier ~ WHITESPACE* ~ ":" ~ WHITESPACE* ~ attribute_type }
 attribute_type = { "String" | "Number" | "Boolean" | "Date" | "Float" }
 
 // Defines the role of a relation, such as Input, Intermediate, or Output.
-role = { "Input" | "Intermediate" | "Output" }
+role = { "Input" | "Intermediate" | "Output" | "Internal" }
 
 // Defines the section containing Datalog rules.
 datalog_rules_section = { "rules" ~ WHITESPACE* ~ "{" ~ WHITESPACE* ~ datalog_rule* ~ WHITESPACE* ~ "}" }
@@ -38,7 +38,7 @@ lhs_node = { identifier ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ output_attributes ~ 
 output_attributes = { identifier ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ identifier)* }
 
 // Defines the RHS of a rule, which consists of one or more input relations (clauses).
-rhs_nodes = { rhs_node ~ (WHITESPACE* ~ "," ~ rhs_node ~ WHITESPACE*)* }
+rhs_nodes = { rhs_node ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ rhs_node ~ WHITESPACE*)* }
 
 // Defines a single RHS clause, which includes the relation name and its attributes.
 rhs_node = { identifier ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ input_attributes ~ WHITESPACE* ~ ")" }

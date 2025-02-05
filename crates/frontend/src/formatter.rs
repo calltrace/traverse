@@ -1,6 +1,7 @@
+use indexmap::IndexMap;
+
 use crate::dsl::Lval;
 use crate::syntax::{SyntaxHighlighter, SyntaxTheme};
-use std::collections::HashMap;
 
 pub struct Formatter {
     indent_level: usize,
@@ -226,9 +227,8 @@ impl Formatter {
     }
 }
 
-fn format_attributes(attributes: &HashMap<String, Box<Lval>>, indent: String) -> String {
-    let mut attrs: Vec<_> = attributes.iter().collect();
-    attrs.sort_by(|(a, _), (b, _)| a.cmp(b));
+fn format_attributes(attributes: &IndexMap<String, Box<Lval>>, indent: String) -> String {
+    let attrs: Vec<_> = attributes.iter().collect();
 
     attrs
         .into_iter()
@@ -243,7 +243,7 @@ mod tests {
     fn test_capture_refs_formatting() {
         let mut formatter = Formatter::default();
 
-        let mut attributes = HashMap::new();
+        let mut attributes = IndexMap::new();
         attributes.insert(
             "attr1".to_string(),
             Box::new(Lval::string_literal("value1")),
@@ -268,9 +268,9 @@ mod tests {
         let mut formatter = Formatter::default();
 
         // Test emit formatting
-        let mut attributes = HashMap::new();
-        attributes.insert("key1".to_string(), Lval::string_literal("value1"));
-        attributes.insert("key2".to_string(), Lval::capture("var"));
+        let mut attributes = IndexMap::new();
+        attributes.insert("key1".to_string(), Box::new(Lval::string_literal("value1")));
+        attributes.insert("key2".to_string(), Box::new(Lval::capture("var")));
 
         let emit = Lval::Emit("TestNode".to_string(), attributes, None, None);
 
@@ -311,10 +311,10 @@ mod tests {
             vec![Lval::capture("var1"), Lval::capture("var2")],
         );
 
-        let mut inner_attrs = HashMap::new();
-        inner_attrs.insert("inner".to_string(), Lval::capture("var1"));
+        let mut inner_attrs = IndexMap::new();
+        inner_attrs.insert("inner".to_string(), Box::new(Lval::capture("var1")));
 
-        let when_body = vec![Lval::emit("InnerNode", inner_attrs, None, None)];
+        let when_body = vec![Box::new(Lval::Emit("InnerNode".to_string(), inner_attrs, None, None))];
 
         let when_form = Lval::WhenForm(Box::new(*condition), when_body);
 

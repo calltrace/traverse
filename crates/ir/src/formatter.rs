@@ -130,6 +130,7 @@ impl IRFormatter {
             RelationRole::Input => "Input",
             RelationRole::Output => "Output",
             RelationRole::Intermediate => "Intermediate",
+            RelationRole::Internal => "Internal",
         }
     }
 
@@ -155,7 +156,6 @@ impl IRFormatter {
 
     fn format_lhs(&self, lhs: &LHSNode) -> String {
         let mut attrs: Vec<_> = lhs.output_attributes.iter().map(|s| s.as_str()).collect();
-        attrs.sort(); // Sort for consistent output
         format!("{}({})", lhs.relation_name, attrs.join(", "))
     }
 
@@ -172,7 +172,6 @@ impl IRFormatter {
 
     fn format_rhs_node(&self, node: &RHSNode) -> String {
         let mut attrs: Vec<_> = node.attributes.iter().map(|s| s.as_str()).collect();
-        attrs.sort(); // Sort for consistent output
         format!("{}({})", node.relation_name, attrs.join(", "))
     }
 

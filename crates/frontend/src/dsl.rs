@@ -2,7 +2,8 @@
 use crate::parser::{DslResult, Result};
 use crate::parser::Error;
 
-use std::{collections::HashMap, fmt};
+use indexmap::IndexMap;
+use std::fmt;
 
 type LvalChildren = Vec<Box<Lval>>;
 pub type LBuiltin = fn(&mut Lval) -> DslResult;
@@ -10,7 +11,7 @@ pub type LBuiltin = fn(&mut Lval) -> DslResult;
 #[derive(Clone)]
 pub enum Func {
     Builtin(String, LBuiltin),
-    Lambda(HashMap<String, Box<Lval>>, Box<Lval>, Box<Lval>), // (environment(?), formals, body), both should be Qexpr // TODO these should both be Rc<T>
+    Lambda(IndexMap<String, Box<Lval>>, Box<Lval>, Box<Lval>), // (environment(?), formals, body), both should be Qexpr // TODO these should both be Rc<T>
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -25,11 +26,11 @@ pub enum Lval {
     DoForm(LvalChildren),
     Logical(Box<Lval>, LvalChildren),
     PredicateOperator(String),
-    Emit(String, HashMap<String, Box<Lval>>, Option<Box<Lval>>, Option<Box<Lval>>),
+    Emit(String, IndexMap<String, Box<Lval>>, Option<Box<Lval>>, Option<Box<Lval>>),
     Capture(String),
     CaptureForm(
         String,
-        HashMap<String, Box<Lval>>,
+        IndexMap<String, Box<Lval>>,
         Vec<String>,
         Option<Box<Lval>>,
         Option<Box<Lval>>,
@@ -59,7 +60,7 @@ impl Lval {
     }
 
     pub fn lambda(
-        env: HashMap<String, Box<Lval>>,
+        env: IndexMap<String, Box<Lval>>,
         formals: Box<Lval>,
         body: Box<Lval>,
     ) -> Box<Lval> {
@@ -96,7 +97,7 @@ impl Lval {
 
     pub fn emit(
         node_type: &str,
-        attributes: HashMap<String, Box<Lval>>,
+        attributes: IndexMap<String, Box<Lval>>,
         when_form: Option<Box<Lval>>,
         do_form: Option<Box<Lval>>,
     ) -> Box<Lval> {
@@ -105,7 +106,7 @@ impl Lval {
 
     pub fn capture_form(
         node_type: &str,
-        attributes: HashMap<String, Box<Lval>>,
+        attributes: IndexMap<String, Box<Lval>>,
         capture_refs: Vec<String>,
         nested_captures: Option<Box<Lval>>,
         q_expr: Option<Box<Lval>>,

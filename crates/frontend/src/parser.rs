@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-
 use crate::dsl::Lval;
+use indexmap::IndexMap;
 use pest::{iterators::Pair, Parser};
 use pest_derive::Parser;
 
@@ -70,7 +69,7 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
             let mut inner = parsed.into_inner();
 
             let node_type = inner.next().unwrap().as_str().to_string();
-            let mut attributes = HashMap::new();
+            let mut attributes = IndexMap::new();
             let mut when: Option<Box<Lval>> = None;
             let mut do_q_exprs: Vec<Box<Lval>> = vec![];
             for child in inner {
@@ -126,7 +125,7 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
             let mut inner = parsed.into_inner();
             let node_type = inner.next().unwrap().as_str().to_string();
 
-            let mut attributes = HashMap::new();
+            let mut attributes = IndexMap::new();
             let mut capture_refs = vec![];
             let mut nested_captures: Vec<Box<Lval>> = vec![];
             let mut q_exprs: Vec<Box<Lval>> = vec![];
