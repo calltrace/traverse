@@ -121,18 +121,17 @@ impl DDlogGenerator {
             }
         }
 
-        let ddlog_home = std::env::var_os("DDLOG_HOME").ok_or_else(|| {
-            Error::GenerationError("DDLOG_HOME environment variable is not set".to_string())
-        })?;
+        let ddlog_home = std::env::var_os("DDLOG_HOME")
+            .ok_or_else(|| Error::MissingEnvironmentVar("DDLOG_HOME".to_string()))?;
         let ddlog_path = std::path::Path::new(&ddlog_home);
         if !ddlog_path.exists() {
-            return Err(Error::GenerationError(format!(
+            return Err(Error::InvalidPath(format!(
                 "DDLOG_HOME path does not exist: {}",
                 ddlog_path.display()
             )));
         }
         if !ddlog_path.is_dir() {
-            return Err(Error::GenerationError(format!(
+            return Err(Error::InvalidPath(format!(
                 "DDLOG_HOME is not a directory: {}",
                 ddlog_path.display()
             )));
@@ -149,21 +148,16 @@ impl DDlogGenerator {
             let node_types_path = format!("{}/src/node-types.json", parser_home.to_string_lossy());
 
             if !std::path::Path::new(&node_types_path).exists() {
-                return Err(Error::GenerationError(format!(
+                return Err(Error::InvalidPath(format!(
                     "node-types.json not found at {}",
                     node_types_path
                 )));
             }
 
-            let node_types: Vec<ContextFreeNodeType> = std::fs::read_to_string(&node_types_path)
-                .map_err(|e| {
-                    Error::GenerationError(format!("Failed to read node-types.json: {}", e))
-                })
-                .and_then(|content| {
-                    serde_json::from_str(&content).map_err(|e| {
-                        Error::GenerationError(format!("Failed to parse node-types.json: {}", e))
-                    })
-                })?;
+            let content = std::fs::read_to_string(&node_types_path)
+                .map_err(|e| Error::IoError(e))?;
+            let node_types: Vec<ContextFreeNodeType> = serde_json::from_str(&content)
+                .map_err(|e| Error::JsonParseError(e.to_string()))?;
 
             input_node_types.extend(node_types);
         }
@@ -841,6 +835,45 @@ impl DDlogGenerator {
 #[derive(Debug)]
 pub enum Error {
     GenerationError(String),
+    IoError(std::io::Error),
+    JsonParseError(String),
+    MissingEnvironmentVar(String),
+    InvalidPath(String),
+    UnsupportedOperation(String),
+    ValidationError(String),
+    RelationNotFound(String),
+    InvalidOperator(String),
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::GenerationError(msg) => write!(f, "Generation error: {}", msg),
+            Error::IoError(err) => write!(f, "IO error: {}", err),
+            Error::JsonParseError(msg) => write!(f, "JSON parse error: {}", msg),
+            Error::MissingEnvironmentVar(var) => write!(f, "Missing environment variable: {}", var),
+            Error::InvalidPath(path) => write!(f, "Invalid path: {}", path),
+            Error::UnsupportedOperation(op) => write!(f, "Unsupported operation: {}", op),
+            Error::ValidationError(msg) => write!(f, "Validation error: {}", msg),
+            Error::RelationNotFound(name) => write!(f, "Relation not found: {}", name),
+            Error::InvalidOperator(op) => write!(f, "Invalid operator: {}", op),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Error::IoError(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::IoError(err)
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
