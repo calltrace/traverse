@@ -59,14 +59,14 @@ impl Formatter {
                 self.indent_level -= 1;
                 formatted
             }
-            Lval::Emit(node_type, attributes, when_form, do_form) => {
+            Lval::Emit(node_type, captures, when_form, do_form) => {
                 let mut result = format!("(emit {}", node_type);
 
                 // Format attributes
-                if !attributes.is_empty() {
+                if !captures.is_empty() {
                     self.indent_level += 1;
                     result.push('\n');
-                    let attrs = format_attributes(attributes, self.indent());
+                    let attrs = format_captures(captures, self.indent());
                     result.push_str(&attrs);
                     self.indent_level -= 1;
                 }
@@ -87,7 +87,7 @@ impl Formatter {
                     self.indent_level -= 1;
                 }
 
-                if !attributes.is_empty() || when_form.is_some() || do_form.is_some() {
+                if !captures.is_empty() || when_form.is_some() || do_form.is_some() {
                     result.push('\n');
                     result.push_str(&self.indent());
                 }
@@ -241,6 +241,14 @@ fn format_attributes(attributes: &IndexMap<String, Box<Lval>>, indent: String) -
     attrs
         .into_iter()
         .map(|(key, value)| format!("{}({} {})", indent, key, value))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn format_captures(captures: &[String], indent: String) -> String {
+    captures
+        .iter()
+        .map(|capture| format!("{}{}", indent, capture))
         .collect::<Vec<_>>()
         .join("\n")
 }

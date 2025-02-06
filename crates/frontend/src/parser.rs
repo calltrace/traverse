@@ -69,23 +69,15 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
             let mut inner = parsed.into_inner();
 
             let node_type = inner.next().unwrap().as_str().to_string();
-            let mut attributes = IndexMap::new();
+            let mut capture_refs = vec![];
             let mut when: Option<Box<Lval>> = None;
             let mut do_q_exprs: Vec<Box<Lval>> = vec![];
             for child in inner {
                 let child = lval_read(child.clone())?;
-
-                if let Lval::KeyVal(kv) = *child {
-                    if let (Some(key), Some(value)) = (kv.first(), kv.get(1)) {
-                        if let Lval::Sym(key_str) = &**key {
-                            // Dereference twice: first for Box, second for Lval
-                            attributes.insert(key_str.clone(), value.clone());
-                        }
-                    }
+                if let Lval::Capture(capture_ref_name) = *child {
+                    capture_refs.push(capture_ref_name);
                 } else if let Lval::WhenForm(condition, _) = *child {
                     when = Some(condition);
-                } else if let Lval::Emit(_, _, _, _) = *child {
-                    attributes.insert("nested_emit".to_string(), child);
                 } else if let Lval::DoForm(children) = *child {
                     do_q_exprs = children;
                 }
@@ -93,7 +85,7 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
 
             Ok(Box::new(Lval::Emit(
                 node_type,
-                attributes,
+                capture_refs,
                 when,
                 do_q_exprs
                     .first()

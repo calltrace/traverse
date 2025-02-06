@@ -26,7 +26,7 @@ pub enum Lval {
     DoForm(LvalChildren),
     Logical(Box<Lval>, LvalChildren),
     PredicateOperator(String),
-    Emit(String, IndexMap<String, Box<Lval>>, Option<Box<Lval>>, Option<Box<Lval>>),
+    Emit(String, Vec<String>, Option<Box<Lval>>, Option<Box<Lval>>),
     Capture(String),
     CaptureForm(
         String,
@@ -98,11 +98,11 @@ impl Lval {
 
     pub fn emit(
         node_type: &str,
-        attributes: IndexMap<String, Box<Lval>>,
+        captures: Vec<String>,
         when_form: Option<Box<Lval>>,
         do_form: Option<Box<Lval>>,
     ) -> Box<Lval> {
-        Box::new(Lval::Emit(node_type.to_string(), attributes, when_form, do_form))
+        Box::new(Lval::Emit(node_type.to_string(), captures, when_form, do_form))
     }
 
     pub fn capture_form(
@@ -127,11 +127,6 @@ impl Lval {
         Box::new(Lval::DoForm(exprs))
     }
 
-    pub fn add_to_emit(emit: &mut Lval, key: &str, value: Box<Lval>) {
-        if let Lval::Emit(_, ref mut attributes, _, _) = emit {
-            attributes.insert(key.to_string(), value);
-        }
-    }
     pub fn keyvalue() -> Box<Lval> {
         Box::new(Lval::KeyVal(Vec::new()))
     }
@@ -238,17 +233,17 @@ impl fmt::Display for Lval {
                 write!(f, "({} {})", operator, format_children(operands))
             }
             Lval::PredicateOperator(operator) => write!(f, "{}", operator),
-            Lval::Emit(node_type, attributes, when_block, do_block) => {
-                let formatted_attrs = attributes
+            Lval::Emit(node_type, captures, when_block, do_block) => {
+                let formatted_captures = captures
                     .iter()
-                    .map(|(key, value)| format!("({} {})", key, value))
+                    .map(|capture| capture.to_string())
                     .collect::<Vec<_>>()
                     .join(" ");
                 write!(
                     f,
                     "(emit {} {} {} {})",
                     node_type,
-                    formatted_attrs,
+                    formatted_captures,
                     when_block.as_ref().map(|b| b.to_string()).unwrap_or_default(),
                     do_block.as_ref().map(|b| b.to_string()).unwrap_or_default()
                 )

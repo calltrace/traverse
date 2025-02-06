@@ -1,18 +1,115 @@
-use indexmap::IndexMap;
-use indexmap::IndexSet;
-use language::node_types::{ContextFreeNodeType, NodeTypeKind};
-use std::collections::VecDeque;
-use std::path::PathBuf;
-
 use crate::{dsl::Lval, parser::parse};
 
+use ir::RelationRef;
 use ir::{
     Attribute, AttributeType, IRProgram, IRRule, LHSNode, OperationType, RHSNode, RHSVal,
     RelationRole as IRRelationRole, RelationType as IRRelationType, SSAInstruction,
     SSAInstructionBlock, SSAOperation,
 };
 
+use indexmap::IndexMap;
+use indexmap::IndexSet;
+use language::node_types::{ContextFreeNodeType, NodeTypeKind};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::PathBuf;
+
 const RESERVED_WORDS: &[&str] = &["else", "function", "type", "match", "var"];
+
+#[derive(Debug, Clone)]
+pub struct CaptureSymbol {
+    name: String,
+    relationref: RelationRef,
+}
+
+#[derive(Debug, Default)]
+pub struct SymbolTable {
+    // Maps capture name to its full symbol info
+    captures: HashMap<String, CaptureSymbol>,
+    // Maps relation names to sets of capture names for that relation
+    relation_captures: HashMap<String, HashSet<String>>,
+}
+
+impl SymbolTable {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Attempts to insert a new capture symbol.
+    /// Returns Ok(()) if successful, or Err with description if the capture name is already taken.
+    pub fn insert_capture(&mut self, capture_name: &str, relationref: RelationRef) -> Result<()> {
+        // Check if capture name is already used in the same relation
+        if let Some(existing_symbol) = self.captures.get(capture_name) {
+            if existing_symbol.relationref.name == relationref.name {
+                return Err(Error::ResolveError(format!(
+                    "Capture name '{}' is already used in relation '{}'",
+                    capture_name, relationref.name
+                )));
+            }
+        }
+
+        // Create new capture symbol
+        let symbol = CaptureSymbol {
+            name: capture_name.to_string(),
+            relationref: relationref.clone(),
+        };
+
+        // Insert into global captures map
+        self.captures.insert(capture_name.to_string(), symbol);
+
+        // Add to relation-specific set
+        self.relation_captures
+            .entry(relationref.name.clone())
+            .or_default()
+            .insert(capture_name.to_string());
+
+        Ok(())
+    }
+
+    /// Looks up a capture by name, returning its full symbol info if found
+    pub fn lookup_capture(&self, capture_name: &str) -> Option<&CaptureSymbol> {
+        self.captures.get(capture_name)
+    }
+
+    pub fn lookup_capture_for_relation(&self, relation_name: &str) -> Option<&CaptureSymbol> {
+        self.relation_captures
+            .get(relation_name)
+            .and_then(|captures| captures.iter().next())
+            .and_then(|capture_name| self.captures.get(capture_name))
+    }
+
+    /// Gets all captures for a specific relation
+    pub fn get_relation_captures(&self, relation_name: &str) -> Vec<&CaptureSymbol> {
+        self.relation_captures
+            .get(relation_name)
+            .map(|names| {
+                names
+                    .iter()
+                    .filter_map(|name| self.captures.get(name))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Gets all captures for a specific relation role
+    pub fn get_captures_by_role(&self, role: IRRelationRole) -> Vec<&CaptureSymbol> {
+        self.captures
+            .values()
+            .filter(|symbol| symbol.relationref.role == role)
+            .collect()
+    }
+
+    /// Gets all captures across all relations
+    pub fn get_all_captures(&self) -> Vec<&CaptureSymbol> {
+        self.captures.values().collect()
+    }
+
+    /// Gets the relation type for a given capture
+    pub fn get_capture_relation(&self, capture_name: &str) -> Option<&RelationRef> {
+        self.captures
+            .get(capture_name)
+            .map(|symbol| &symbol.relationref)
+    }
+}
 
 pub(crate) fn to_pascal_case(s: &str) -> String {
     s.split('_')
@@ -75,6 +172,7 @@ pub struct IrGenerator {
     generate_input_relations: bool, // Option to control input relation generation
     input_ts_grammars: Vec<PathBuf>, // Paths to input tree-sitter grammars
     intermediate_ts_grammars: Vec<PathBuf>, // Paths to intermediate/internal tree-sitter grammars
+    symbol_table: SymbolTable,      // Track captures across relations
 }
 
 impl IrGenerator {
@@ -85,6 +183,7 @@ impl IrGenerator {
             generate_input_relations: false, // Default to not generating input relations
             input_ts_grammars: Vec::new(),
             intermediate_ts_grammars: Vec::new(),
+            symbol_table: SymbolTable::new(),
         }
     }
 
@@ -133,7 +232,7 @@ impl IrGenerator {
     }
 
     /// Converts an Lval AST into an IRProgram.
-    pub fn lval_to_ir(&self, lval: &Lval) -> DslToIrResult {
+    pub fn lval_to_ir(&mut self, lval: &Lval) -> DslToIrResult {
         let mut ir_program = IRProgram {
             rules: Vec::new(),
             relations: Vec::new(),
@@ -198,18 +297,23 @@ impl IrGenerator {
 
         let mut context = SSAContext::new();
 
-        self.process_lval(lval, &mut ir_program, &mut context);
+        self.process_lval(lval, &mut ir_program, &mut context)?;
 
         Ok(Box::new(ir_program))
     }
 
     /// Recursively processes an Lval and populates the IRProgram.
-    fn process_lval(&self, lval: &Lval, ir_program: &mut IRProgram, context: &mut SSAContext) {
+    fn process_lval(
+        &mut self,
+        lval: &Lval,
+        ir_program: &mut IRProgram,
+        context: &mut SSAContext,
+    ) -> Result<()> {
         //let mut descendant_output_rels = Vec::new();
         match lval {
             Lval::Query(items) => {
                 for item in items {
-                    self.process_lval(item, ir_program, context);
+                    self.process_lval(item, ir_program, context)?;
                 }
             }
             /*
@@ -276,7 +380,14 @@ impl IrGenerator {
                 //    the corresponding intermediary and internal relations.
                 //
                 let mut capture_rules = VecDeque::new();
-                collect_capture_rules(lval, context, ir_program, &mut capture_rules);
+                collect_capture_rules(
+                    lval,
+                    context,
+                    ir_program,
+                    &mut capture_rules,
+                    &mut self.symbol_table,
+                )?;
+
                 // the first rule in the queue is the topmost capture rule.
                 // We promote it from an internal relation to an intermediate one.
                 if let Some(mut top_most_capture_rule) = capture_rules.pop_front() {
@@ -287,6 +398,37 @@ impl IrGenerator {
                             && rel.role == IRRelationRole::Internal
                     }) {
                         internal_relation.role = IRRelationRole::Intermediate;
+
+                        // create a symbol table entry for the intermediate relation
+                        // as this is may be used by emit forms (and optionally capture forms) to refer
+                        // to captures for intermediate relations. As intermediate relation are not
+                        // explicit (in order to build the body of the rule), we need a way to
+                        // obtain the relation name for the intermediate relation so that we can
+                        // place it in the RHS of the referring capture or emit form.
+                        // iterate over captures of the symbol table
+                        // extract all capture from the symbol table, making sure to clone the
+                        // symbol
+                        let captures = self
+                            .symbol_table
+                            .get_all_captures()
+                            .into_iter()
+                            .map(|s| s.name.clone())
+                            .collect::<Vec<String>>();
+
+                        for capture in captures {
+                            if let Err(e) = self.symbol_table.insert_capture(
+                                &capture,
+                                RelationRef::new(
+                                    internal_relation.name.clone(),
+                                    IRRelationRole::Intermediate,
+                                ),
+                            ) {
+                                return Err(Error::SymbolTableError(format!(
+                                    "Failed to insert capture {} for intermediate relation {}: {}",
+                                    capture, internal_relation.name, e
+                                )));
+                            }
+                        }
                     }
 
                     //
@@ -320,217 +462,6 @@ impl IrGenerator {
                     // Adding top most rule.
                     ir_program.rules.push(top_most_capture_rule);
                 }
-
-                /* TODO: Remove - We're leaving here for now.
-                let descendant_outbound_attrs = if let Some(desc) = descendant {
-                    // TODO: avoid double traversal
-                    self.process_lval(desc, ir_program, context);
-                    collect_outbound_attributes_from_descendants(desc)
-                } else {
-                    vec![]
-                };
-
-                for descendant_output_attr in descendant_outbound_attrs {
-                    descendant_output_rels.push((
-                        to_pascal_case(&descendant_output_attr.name),
-                        descendant_output_attr.name.to_lowercase(),
-                    ))
-                }
-
-                let mut inbound_attributes = Vec::new();
-                attrs_map.iter().for_each(|(attr_name, _)| {
-                    inbound_attributes.push(Attribute {
-                        name: attr_name.clone(),
-                        attr_type: AttributeType::String,
-                    });
-                });
-
-                let mut outbound_attrs = Vec::new();
-                for lval_box in attrs_map.values() {
-                    if let Lval::Capture(capture_name) = lval_box.as_ref() {
-                        outbound_attrs.push(Attribute {
-                            name: capture_name[1..].to_string(),
-                            attr_type: AttributeType::String,
-                        });
-                    }
-                }
-
-                /*
-                let mut all_outbound_attrs = outbound_attributes.clone();
-                for (_, attr_name) in descendant_output_rels.iter() {
-                    all_outbound_attrs.push(Attribute {
-                        name: attr_name.clone(),
-                        attr_type: AttributeType::String,
-                    });
-                }
-                */
-
-                let intermediate_relation_name = {
-                    // combine outbound attrs with capture refs
-                    let combined_attrs = outbound_attrs
-                        .iter()
-                        .map(|attr| attr.name.clone())
-                        .chain(capture_refs.iter().map(|cr| cr[1..].to_string().clone()))
-                        .collect::<Vec<_>>()
-                        .join("_");
-
-                    // Create a unique hash based on relation name and attributes
-                    let hash_input = format!("{}_{}", rel_name, combined_attrs);
-                    let hash = {
-                        use std::hash::{Hash, Hasher};
-                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                        hash_input.hash(&mut hasher);
-                        format!("{:x}", hasher.finish())
-                    };
-
-                    // Take first 8 chars of hash
-                    let short_hash = &hash[0..8];
-                    format!("{}__{}", to_pascal_case(&combined_attrs), short_hash)
-                };
-
-                if self.generate_input_relations {
-                    ir_program.relations.push(IRRelationType {
-                        name: to_pascal_case(rel_name),
-                        attributes: inbound_attributes.clone(),
-                        role: IRRelationRole::Input,
-                    });
-                }
-
-                let lhs_attrs_names = outbound_attrs
-                    .iter()
-                    .map(|a| a.name.clone())
-                    .chain(capture_refs.iter().map(|cr| cr[1..].to_string().clone()));
-
-                ir_program.relations.push(IRRelationType {
-                    name: intermediate_relation_name.clone(),
-                    attributes: lhs_attrs_names
-                        .clone()
-                        .map(|an| Attribute {
-                            name: an,
-                            attr_type: AttributeType::String,
-                        })
-                        .collect(),
-                    role: IRRelationRole::Intermediate,
-                });
-
-                let lhs_node = LHSNode {
-                    relation_name: intermediate_relation_name,
-                    output_attributes: lhs_attrs_names
-                        .map(|attr| format!("lhs_{}", attr.clone()))
-                        .collect(),
-                };
-
-                // compute RHS values
-                // Input relations
-                let mut rhs_vals = vec![RHSVal::RHSNode(RHSNode {
-                    relation_name: to_pascal_case(rel_name),
-                    attributes: if let Some(input_relation) = Self::lookup_relation(
-                        ir_program,
-                        &to_pascal_case(rel_name),
-                        Some(IRRelationRole::Input),
-                    ) {
-                        input_relation
-                            .attributes
-                            .iter()
-                            .map(|rel_attr| {
-                                // Try to find matching inbound attribute
-                                if inbound_attributes.iter().any(|a| a.name == rel_attr.name) {
-                                    format!("rhs_{}", rel_attr.name)
-                                } else {
-                                    // This attribute exists in input relation but is not referenced
-                                    format!("unused_{}", rel_attr.name)
-                                }
-                            })
-                            .collect()
-                    } else {
-                        // Fallback if input relation not found
-                        inbound_attributes
-                            .iter()
-                            .enumerate()
-                            .map(|(idx, _)| format!("attr_{}", idx))
-                            .collect()
-                    },
-                })];
-
-                // Intermediate relations for any captures in the attributes map
-                // extract captures from the attribute map
-                let intermediate_rhs_vals = capture_refs
-                    .iter()
-                    .filter_map(|capture_ref_name| {
-                        // find the relation within the IR Program that corresponds to the capture
-                        ir_program
-                            .relations
-                            .iter()
-                            .filter(|rel| rel.role == IRRelationRole::Intermediate)
-                            .find(|relation| {
-                                relation
-                                    .attributes
-                                    .iter()
-                                    .any(|attr| attr.name == &capture_ref_name[1..])
-                            })
-                            .map(|relation| {
-                                // Include all attributes from the relation
-                                let all_attrs = relation
-                                    .attributes
-                                    .iter()
-                                    .map(|attr| format!("rhs_{}", attr.name))
-                                    .collect::<IndexSet<String>>();
-                                (relation.name.clone(), all_attrs)
-                            })
-                    })
-                    .fold(
-                        IndexMap::<String, IndexSet<String>>::new(),
-                        |mut acc: IndexMap<String, IndexSet<String>>, (rel_name, attrs)| {
-                            acc.entry(rel_name)
-                                .and_modify(|existing| existing.extend(attrs.clone()))
-                                .or_insert(attrs);
-                            acc
-                        },
-                    )
-                    .into_iter()
-                    .map(|(relation_name, attributes)| {
-                        RHSVal::RHSNode(RHSNode {
-                            relation_name,
-                            attributes,
-                        })
-                    })
-                    .collect::<Vec<_>>();
-
-                println!("Intermediate RHS Vals: {:?}", intermediate_rhs_vals);
-
-                let descendant_rhs_vals = descendant_output_rels
-                    .iter()
-                    .map(|(rel_name, attr_name)| {
-                        RHSVal::RHSNode(RHSNode {
-                            relation_name: rel_name.clone(),
-                            attributes: IndexSet::from([format!("rhs_{}", attr_name.clone())]),
-                        })
-                    })
-                    .collect::<Vec<_>>();
-
-                rhs_vals.extend(intermediate_rhs_vals /*descendant_rhs_vals*/);
-
-                let mut instructions: Vec<SSAInstruction> = vec![];
-                if let Some(do_block) = do_block {
-                    process_do_block(do_block, context, &mut instructions);
-                }
-
-                let ssa_block = if instructions.is_empty() {
-                    None
-                } else {
-                    Some(SSAInstructionBlock {
-                        instructions: instructions.clone(),
-                    })
-                };
-
-                let ir_rule = IRRule {
-                    lhs: lhs_node,
-                    rhs: RHSVal::NestedRHS(rhs_vals),
-                    ssa_block,
-                };
-
-                ir_program.rules.push(ir_rule);
-                */
             }
             /*
              * Emit Form Semantics
@@ -594,7 +525,7 @@ impl IrGenerator {
              *   transformation errors) must be detected and handled to maintain system
              *   integrity.
              */
-            Lval::Emit(rel_name, attrs_map, when_block, do_block) => {
+            Lval::Emit(rel_name, captures, when_block, do_block) => {
                 let output_relation_name = format!("Emit{}", to_pascal_case(rel_name));
                 ir_program.relations.push(IRRelationType {
                     name: output_relation_name.clone(),
@@ -624,40 +555,73 @@ impl IrGenerator {
                     process_do_block(do_block, context, &mut instructions);
                 }
 
-                for capture in attrs_map.values() {
-                    if let Lval::Capture(capture_name) = &**capture {
-                        let referenced_rel = to_pascal_case(&capture_name[1..]);
+                let mut rhs_nodes = Vec::new();
+
+                for capture_ref in captures {
+                    let capture_name = &capture_ref[1..];
+
+                    // Look up the capture's relation
+                    let symbol =
+                        self.symbol_table
+                            .lookup_capture(capture_name)
+                            .ok_or_else(|| {
+                                Error::ResolveError(format!(
+                                    "Referenced capture '{}' not found",
+                                    capture_name
+                                ))
+                            })?;
+                    let referenced_rel = &symbol.relationref.name;
+                    // if we've already "hidrated" the intermediate relation, we can use it directly
+                    let exists = rhs_nodes.iter().any(|rhs_node| {
+                        if let RHSVal::RHSNode(rhs_node) = rhs_node {
+                            rhs_node.relation_name == *referenced_rel
+                        } else {
+                            false
+                        }
+                    });
+                    // if not, we need to look it up and add it to the body of the rule.
+                    // Note: we're hydrating all the attributes of the intermediary relation, not
+                    // only the captureref's ones.
+                    if !exists {
                         if let Some(relation) = Self::lookup_relation(
                             ir_program,
-                            &referenced_rel,
+                            referenced_rel,
                             Some(IRRelationRole::Intermediate),
                         ) {
-                            let ssa_block = if instructions.is_empty() {
-                                None
-                            } else {
-                                Some(SSAInstructionBlock {
-                                    instructions: instructions.clone(),
-                                })
+                            let rhs_node = RHSNode {
+                                relation_name: referenced_rel.clone(),
+                                attributes: relation
+                                    .attributes
+                                    .iter()
+                                    .cloned()
+                                    .map(|s| format!("rhs_{}", s.name.to_lowercase()))
+                                    .collect::<IndexSet<String>>(),
                             };
-
-                            let ir_rule = IRRule {
-                                lhs: lhs_node.clone(),
-                                rhs: RHSVal::RHSNode(RHSNode {
-                                    relation_name: to_pascal_case(&referenced_rel),
-                                    attributes: relation
-                                        .attributes
-                                        .iter()
-                                        .cloned()
-                                        .map(|s| s.name.to_lowercase())
-                                        .collect::<IndexSet<String>>(),
-                                }),
-                                ssa_block,
-                            };
-
-                            ir_program.rules.push(ir_rule);
+                            rhs_nodes.push(RHSVal::RHSNode(rhs_node));
+                        } else {
+                            return Err(Error::ResolveError(format!(
+                                "Referenced relation '{}' not found",
+                                referenced_rel
+                            )));
                         }
                     }
                 }
+
+                let ssa_block = if instructions.is_empty() {
+                    None
+                } else {
+                    Some(SSAInstructionBlock {
+                        instructions: instructions.clone(),
+                    })
+                };
+
+                let ir_rule = IRRule {
+                    lhs: lhs_node,
+                    rhs: RHSVal::NestedRHS(rhs_nodes),
+                    ssa_block,
+                };
+
+                ir_program.rules.push(ir_rule);
             }
             _ => {
                 // Handle other Lval variants as needed
@@ -672,7 +636,8 @@ impl IrGenerator {
             context: &mut SSAContext,
             ir_program: &mut IRProgram,
             capture_rules: &mut VecDeque<IRRule>,
-        ) {
+            symbol_table: &mut SymbolTable,
+        ) -> Result<()> {
             if let Lval::CaptureForm(
                 rel_name,
                 attrs_map,
@@ -687,7 +652,7 @@ impl IrGenerator {
                     // Fetch the rules emitted by out descendants. We'll use the LHS side of there
                     // rules to grab the attributes of our descendants that need to be exposed on
                     // our LHS side (in addition to our own ones)
-                    collect_capture_rules(desc, context, ir_program, capture_rules);
+                    collect_capture_rules(desc, context, ir_program, capture_rules, symbol_table)?;
 
                     // get the upmost capture rule.
                     if let Some(last_capture_rule) = capture_rules
@@ -723,20 +688,40 @@ impl IrGenerator {
                 }
                 // 1. there are no more descendants. Process current capture form.
                 // collect the attributes that need to be exposed by the rule
-                for lval_box in attrs_map.values() {
+                for (attr_name, lval_box) in attrs_map {
                     if let Lval::Capture(capture_name) = lval_box.as_ref() {
+                        let capture_name = &capture_name[1..]; // Remove $ prefix
+
+                        // Register the capture in the symbol table
+                        if let Err(e) = symbol_table.insert_capture(
+                            capture_name,
+                            RelationRef::new(rel_name.clone(), IRRelationRole::Input),
+                        ) {
+                            panic!("Failed to insert capture: {}", e);
+                        }
+
                         outbound_attrs.push_front(Attribute {
-                            name: capture_name[1..].to_string(),
+                            name: capture_name.to_string(),
                             attr_type: AttributeType::String,
                         });
                     }
                 }
                 // 2. Merge any capture refs which also need to be exposed
                 for capture_ref in capture_refs {
-                    outbound_attrs.push_front(Attribute {
-                        name: capture_ref[1..].to_string(),
-                        attr_type: AttributeType::String,
-                    });
+                    let capture_name = &capture_ref[1..]; // Remove $ prefix
+
+                    // Verify the capture reference exists
+                    if let Some(symbol) = symbol_table.lookup_capture(capture_name) {
+                        outbound_attrs.push_front(Attribute {
+                            name: capture_name.to_string(),
+                            attr_type: AttributeType::String,
+                        });
+                    } else {
+                        return Err(Error::ResolveError(format!(
+                            "Referenced capture '{}' not found",
+                            capture_name
+                        )));
+                    }
                 }
 
                 // 3. Obtain the referenced input relation's attribute for the rule
@@ -863,6 +848,17 @@ impl IrGenerator {
                 //
                 // 6. Create the LHS node of our rule bound to the Internal Relation
                 //
+                // Validate all capture references before creating the LHS node
+                for capture_ref in capture_refs {
+                    let capture_name = &capture_ref[1..]; // Remove $ prefix
+                    if symbol_table.lookup_capture(capture_name).is_none() {
+                        return Err(Error::ResolveError(format!(
+                            "Referenced capture '{}' not found",
+                            capture_name
+                        )));
+                    }
+                }
+
                 let lhs_node = LHSNode {
                     relation_name: internal_relation_name,
                     output_attributes: outbound_attrs
@@ -886,107 +882,7 @@ impl IrGenerator {
 
                 capture_rules.push_front(ir_rule);
             }
-        }
-
-        fn compute_rhs_values(
-            rel_name: &str,
-            inbound_attributes: &[Attribute],
-            capture_refs: &[String],
-            ir_program: &IRProgram,
-            descendant_output_rels: &[(String, String)],
-        ) -> Vec<RHSVal> {
-            // Start with input relations
-            // find the input relation within the IR Program
-            let relation = ir_program.relations.iter().find(|rel| {
-                rel.name == to_pascal_case(rel_name) && rel.role == IRRelationRole::Input
-            });
-
-            let mut rhs_vals = vec![RHSVal::RHSNode(RHSNode {
-                relation_name: to_pascal_case(rel_name),
-                attributes: if let Some(input_relation) = relation {
-                    input_relation
-                        .attributes
-                        .iter()
-                        .map(|rel_attr| {
-                            // Try to find matching inbound attribute
-                            if inbound_attributes.iter().any(|a| a.name == rel_attr.name) {
-                                format!("rhs_{}", rel_attr.name)
-                            } else {
-                                // This attribute exists in input relation but is not referenced
-                                format!("unused_{}", rel_attr.name)
-                            }
-                        })
-                        .collect()
-                } else {
-                    // Fallback if input relation not found
-                    inbound_attributes
-                        .iter()
-                        .enumerate()
-                        .map(|(idx, _)| format!("attr_{}", idx))
-                        .collect()
-                },
-            })];
-
-            // Add intermediate relations from captures
-            let intermediate_rhs_vals = capture_refs
-                .iter()
-                .filter_map(|capture_ref_name| {
-                    // find the relation within the IR Program that corresponds to the capture
-                    ir_program
-                        .relations
-                        .iter()
-                        .filter(|rel| rel.role == IRRelationRole::Intermediate)
-                        .find(|relation| {
-                            relation
-                                .attributes
-                                .iter()
-                                .any(|attr| attr.name == &capture_ref_name[1..])
-                        })
-                        .map(|relation| {
-                            // Include all attributes from the relation
-                            let all_attrs = relation
-                                .attributes
-                                .iter()
-                                .map(|attr| format!("rhs_{}", attr.name))
-                                .collect::<IndexSet<String>>();
-                            (relation.name.clone(), all_attrs)
-                        })
-                })
-                .fold(
-                    IndexMap::<String, IndexSet<String>>::new(),
-                    |mut acc: IndexMap<String, IndexSet<String>>, (rel_name, attrs)| {
-                        acc.entry(rel_name)
-                            .and_modify(|existing| existing.extend(attrs.clone()))
-                            .or_insert(attrs);
-                        acc
-                    },
-                )
-                .into_iter()
-                .map(|(relation_name, attributes)| {
-                    RHSVal::RHSNode(RHSNode {
-                        relation_name,
-                        attributes,
-                    })
-                })
-                .collect::<Vec<_>>();
-
-            // Add descendant relations
-            let descendant_rhs_vals = descendant_output_rels
-                .iter()
-                .map(|(rel_name, attr_name)| {
-                    RHSVal::RHSNode(RHSNode {
-                        relation_name: rel_name.clone(),
-                        attributes: IndexSet::from([format!("rhs_{}", attr_name.clone())]),
-                    })
-                })
-                .collect::<Vec<_>>();
-
-            // Combine all RHS values
-            rhs_vals.extend(intermediate_rhs_vals);
-            // Uncomment to include descendant values if needed
-            // rhs_vals.extend(descendant_rhs_vals);
-
-            rhs_vals
+            Ok(())
         }
 
         fn process_do_block(
@@ -1024,6 +920,12 @@ impl IrGenerator {
                                                             } else {
                                                                 StringPart::Static("".to_string())
                                                             }
+                                                        }
+                                                        Lval::Capture(capture) => {
+                                                            StringPart::Dynamic(format!(
+                                                                "rhs_{}",
+                                                                &capture[1..]
+                                                            ))
                                                         }
                                                         _ => StringPart::Static("".to_string()),
                                                     })
@@ -1143,7 +1045,7 @@ impl IrGenerator {
                     "endswith" => OperationType::EndsWith,
                     _ => panic!("Unknown logical operator: {}", op),
                 },
-                _ => panic!("Expected a logical operator."),
+                o => panic!("Expected a logical operator {:?}", o),
             };
 
             let mut instructions = Vec::new();
@@ -1190,6 +1092,11 @@ impl IrGenerator {
                             },
                         });
                     }
+                    Lval::Logical(predicate, operands) => {
+                        let ssa_instructions = logical_to_ssa(predicate, operands, context);
+                        instructions.extend(ssa_instructions.clone());
+                        instructions.push(SSAInstruction::Label(context.generate_label()));
+                    }
                     _ => {
                         panic!(
                             "Unsupported operand type for logical operator: {:?}",
@@ -1212,9 +1119,11 @@ impl IrGenerator {
             });
             instructions
         }
+
+        Ok(())
     }
 
-    pub fn generate(&self, dsl_program: &str) -> DslToIrResult {
+    pub fn generate(&mut self, dsl_program: &str) -> DslToIrResult {
         parse(dsl_program)
             .map_err(Error::ParserError)
             .and_then(|lval| self.lval_to_ir(&lval))
@@ -1248,6 +1157,8 @@ pub enum Error {
     UnknownFunction(String),
     IoError(std::io::Error),
     GenerationError(String),
+    ResolveError(String),
+    SymbolTableError(String),
 }
 
 impl From<std::io::Error> for Error {
@@ -1289,6 +1200,8 @@ impl std::fmt::Display for Error {
             Error::UnknownFunction(name) => write!(f, "Unknown function: {}", name),
             Error::IoError(e) => write!(f, "IO error: {}", e),
             Error::GenerationError(e) => write!(f, "Generation error: {}", e),
+            Error::ResolveError(e) => write!(f, "Resolve error: {}", e),
+            Error::SymbolTableError(e) => write!(f, "Symbol table error: {}", e),
         }
     }
 }
@@ -1298,6 +1211,33 @@ pub type DslToIrResult = Result<Box<IRProgram>>;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_symbol_table() {
+        let mut table = SymbolTable::new();
+
+        // Test successful insertions
+        assert!(table.insert_capture("var1", "relation1").is_ok());
+        assert!(table.insert_capture("var2", "relation1").is_ok());
+        assert!(table.insert_capture("var3", "relation2").is_ok());
+
+        // Test duplicate capture name
+        assert!(table.insert_capture("var1", "relation2").is_err());
+
+        // Test lookups
+        let symbol = table.lookup_capture("var1").unwrap();
+        assert_eq!(symbol.name, "var1");
+        assert_eq!(symbol.relation_name, "relation1");
+
+        // Test relation-specific lookups
+        let rel1_captures = table.get_relation_captures("relation1");
+        assert_eq!(rel1_captures.len(), 2);
+        assert!(rel1_captures.iter().any(|s| s.name == "var1"));
+        assert!(rel1_captures.iter().any(|s| s.name == "var2"));
+
+        // Test all captures
+        let all_captures = table.get_all_captures();
+        assert_eq!(all_captures.len(), 3);
+    }
     use super::*;
 
     #[test]

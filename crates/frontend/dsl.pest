@@ -59,7 +59,7 @@ emit = {
     "(" ~ WHITESPACE* ~ "emit" ~ WHITESPACE*      // Start with '(' followed by 'emit' keyword and optional whitespace
     ~ symbol                                      // Output node type symbol
     ~ WHITESPACE*                                 // Optional whitespace
-    ~ key_value+                                  // One or more key-value pairs
+    ~ capture+                                  // One or more key-value pairs
     ~ WHITESPACE*                                 // Optional whitespace
     ~ emit?                                       // Zero or more nested `emit` forms
     ~ WHITESPACE*                                 // Optional whitespace
@@ -176,6 +176,7 @@ expr = {
   | num                                             // Number
   | symbol                                          // Symbol
   | string_literal                                  // String literal
+  | capture                                         // Capture
 }
 
 // Define the top-level parsing rule, `program`. 

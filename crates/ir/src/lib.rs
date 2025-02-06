@@ -153,6 +153,12 @@ pub struct RelationType {
     pub role: RelationRole,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RelationRef {
+    pub name: String,
+    pub role: RelationRole,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct LHSNode {
     pub relation_name: String,
@@ -229,6 +235,13 @@ pub enum OperationType {
     Len,
     Load,
     Store,
+}
+
+
+impl RelationRef { 
+    pub fn new(name: String, role: RelationRole) -> Self {
+        Self { name, role }
+    }
 }
 
 impl PartialEq for RHSVal {
