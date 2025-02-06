@@ -741,7 +741,7 @@ mod parser {
         }
     }
 
-    fn parse_operation_type(op_type: &str) -> OperationType {
+   fn parse_operation_type(op_type: &str) -> OperationType {
         match op_type {
             "add" => OperationType::Add,
             "sub" => OperationType::Sub,

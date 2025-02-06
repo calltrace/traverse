@@ -10,7 +10,9 @@ use ir::{
 use indexmap::IndexMap;
 use indexmap::IndexSet;
 use language::node_types::{ContextFreeNodeType, NodeTypeKind};
+use core::fmt;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt::Display;
 use std::path::PathBuf;
 
 const RESERVED_WORDS: &[&str] = &["else", "function", "type", "match", "var"];
@@ -398,37 +400,6 @@ impl IrGenerator {
                             && rel.role == IRRelationRole::Internal
                     }) {
                         internal_relation.role = IRRelationRole::Intermediate;
-
-                        // create a symbol table entry for the intermediate relation
-                        // as this is may be used by emit forms (and optionally capture forms) to refer
-                        // to captures for intermediate relations. As intermediate relation are not
-                        // explicit (in order to build the body of the rule), we need a way to
-                        // obtain the relation name for the intermediate relation so that we can
-                        // place it in the RHS of the referring capture or emit form.
-                        // iterate over captures of the symbol table
-                        // extract all capture from the symbol table, making sure to clone the
-                        // symbol
-                        let captures = self
-                            .symbol_table
-                            .get_all_captures()
-                            .into_iter()
-                            .map(|s| s.name.clone())
-                            .collect::<Vec<String>>();
-
-                        for capture in captures {
-                            if let Err(e) = self.symbol_table.insert_capture(
-                                &capture,
-                                RelationRef::new(
-                                    internal_relation.name.clone(),
-                                    IRRelationRole::Intermediate,
-                                ),
-                            ) {
-                                return Err(Error::SymbolTableError(format!(
-                                    "Failed to insert capture {} for intermediate relation {}: {}",
-                                    capture, internal_relation.name, e
-                                )));
-                            }
-                        }
                     }
 
                     //
@@ -839,11 +810,27 @@ impl IrGenerator {
 
                 let internal_relation = IRRelationType {
                     name: internal_relation_name.clone(),
-                    attributes: unique_relation_attrs.into_iter().collect(),
+                    attributes: unique_relation_attrs.iter().cloned().collect(),
                     role: IRRelationRole::Internal,
                 };
 
                 ir_program.relations.push(internal_relation);
+
+                // create a symbol table entry for each capture in the outbound attributes
+                // of the internal relation. This is necessary to be able to refer to these
+                // captures in the emit forms.
+                for attr in unique_relation_attrs.iter() {
+                    if let Err(e) = symbol_table.insert_capture(
+                        &attr.name,
+                        RelationRef::new(internal_relation_name.clone(), IRRelationRole::Intermediate),
+                    ) {
+                        return Err(Error::SymbolTableError(format!(
+                            "Failed to insert capture {} for internal relation {}: {}",
+                            attr.name, internal_relation_name, e
+                        )));
+                    }
+                }
+
 
                 //
                 // 6. Create the LHS node of our rule bound to the Internal Relation
@@ -927,7 +914,12 @@ impl IrGenerator {
                                                                 &capture[1..]
                                                             ))
                                                         }
-                                                        _ => StringPart::Static("".to_string()),
+                                                        Lval::String(s) => {
+                                                            // strip quotes 
+                                                            let s = &s[1..s.len() - 1];
+                                                            StringPart::Static(s.to_string())
+                                                        }
+                                                        e => unimplemented!("Unknown operand: {:?}", e),
                                                     })
                                                     .collect::<Vec<_>>();
 
@@ -1140,6 +1132,15 @@ impl Default for IrGenerator {
 enum StringPart {
     Static(String),  // Static text
     Dynamic(String), // Placeholder (e.g., $var)
+}
+
+impl Display for StringPart {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StringPart::Static(s) => write!(f, "{}", s),
+            StringPart::Dynamic(s) => write!(f, "{}", s),
+        }
+    }
 }
 
 #[derive(Debug)]
