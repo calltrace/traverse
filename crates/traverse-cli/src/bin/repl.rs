@@ -210,6 +210,14 @@ impl Repl {
                 self.project_name, base_dir
             );
 
+
+            // dump cmds 
+            println!("Commands to execute:");
+            for cmd in &cmds {
+                println!("{}", cmd);
+            }
+            println!("Finished");
+
             backend::ddlog_rt::run_ddlog_crate(&base_dir, &self.project_name, &cmds).map_err(
                 |e| ReplError::DdlogExecution(format!("Failed to run DDlog project: {}", e)),
             )?;

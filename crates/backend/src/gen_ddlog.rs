@@ -154,10 +154,10 @@ impl DDlogGenerator {
                 )));
             }
 
-            let content = std::fs::read_to_string(&node_types_path)
-                .map_err(|e| Error::IoError(e))?;
-            let node_types: Vec<ContextFreeNodeType> = serde_json::from_str(&content)
-                .map_err(|e| Error::JsonParseError(e.to_string()))?;
+            let content =
+                std::fs::read_to_string(&node_types_path).map_err(|e| Error::IoError(e))?;
+            let node_types: Vec<ContextFreeNodeType> =
+                serde_json::from_str(&content).map_err(|e| Error::JsonParseError(e.to_string()))?;
 
             input_node_types.extend(node_types);
         }
@@ -220,10 +220,19 @@ impl DDlogGenerator {
                 let relation_fields = lhs_relation
                     .attributes
                     .iter()
-                    .map(|attr| Field {
-                        pos: Pos::nopos(),
-                        name: attr.name.clone(),
-                        ftype: DType::TString { pos: Pos::nopos() },
+                    .map(|attr| {
+                        let ftype = match &attr.attr_type {
+                            AttributeType::String => DType::TString { pos: Pos::nopos() },
+                            AttributeType::Number => DType::TInt { pos: Pos::nopos() },
+                            AttributeType::Boolean => DType::TBool { pos: Pos::nopos() },
+                            e => unimplemented!("Unsupported attribute type: {:?}", e),
+                        };
+
+                        Field {
+                            pos: Pos::nopos(),
+                            name: attr.name.clone(),
+                            ftype
+                        }
                     })
                     .collect::<Vec<_>>();
 

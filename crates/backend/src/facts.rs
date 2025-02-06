@@ -16,6 +16,7 @@ pub enum DDLogCommand {
     Insert(Rule),
     Commit,
     Dump,
+    CommitDumpChanges
 }
 
 impl DDLogCommand {
@@ -181,8 +182,7 @@ impl<'a, T: language::Language> TreeSitterToDDLog<'a, T> {
             &self.excluded_relations,
         );
 
-        commands.push(DDLogCommand::Commit);
-        commands.push(DDLogCommand::Dump);
+        commands.push(DDLogCommand::CommitDumpChanges);
         commands
     }
 
@@ -216,6 +216,7 @@ impl Display for DDLogCommand {
             }
             DDLogCommand::Commit => write!(f, "commit;"),
             DDLogCommand::Dump => write!(f, "dump;"),
+            DDLogCommand::CommitDumpChanges => write!(f, "commit dump_changes;"),
         }
     }
 }

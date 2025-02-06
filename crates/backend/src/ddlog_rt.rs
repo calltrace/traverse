@@ -167,28 +167,47 @@ pub fn build_ddlog_crate(base_dir: &Path, project_name: &str) -> Result<(), Stri
 pub fn run_ddlog_crate(
     base_dir: &Path,
     project_name: &str,
-    cmds: &[DDLogCommand] 
+    cmds: &[DDLogCommand],
 ) -> Result<String, String> {
     let project_dir = format!(
         "{}/{}_ddlog",
         base_dir.to_str().unwrap_or_default(),
         project_name
     );
-    let dat_content = cmds.iter().map(|cmd| cmd.to_string()).collect::<Vec<String>>().join("\n");
+    let dat_content = cmds
+        .iter()
+        .map(|cmd| cmd.to_string())
+        .collect::<Vec<String>>()
+        .join("\n");
 
     let exec_path = format!("target/debug/{}_cli", project_name);
-    
-    println!("Running generated DDLog application: {}/{}", project_dir, exec_path);
+
+    println!(
+        "Running generated DDLog application: {}/{}",
+        project_dir, exec_path
+    );
     let mut ddlog_app_run = Command::new(&exec_path)
         .current_dir(project_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
-        .map_err(|e| format!("Failed to launch generated DDLog application: {} ({})", e, exec_path))?;
+        .map_err(|e| {
+            format!(
+                "Failed to launch generated DDLog application: {} ({})",
+                e, exec_path
+            )
+        })?;
 
-    // print just first 80 lines of the facts 
-    println!("Facts:\n{}", dat_content.lines().take(80).collect::<Vec<&str>>().join("\n"));
+    // print just first 80 lines of the facts
+    println!(
+        "Facts:\n{}",
+        dat_content
+            .lines()
+            .take(80)
+            .collect::<Vec<&str>>()
+            .join("\n")
+    );
     write!(ddlog_app_run.stdin.as_ref().unwrap(), "{}", dat_content).unwrap();
 
     if ddlog_app_run.wait().is_ok() {

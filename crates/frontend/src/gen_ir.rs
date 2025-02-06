@@ -15,7 +15,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Display;
 use std::path::PathBuf;
 
-const RESERVED_WORDS: &[&str] = &["else", "function", "type", "match", "var"];
+const RESERVED_WORDS: &[&str] = &[
+    "String",
+];
 
 #[derive(Debug, Clone)]
 pub struct CaptureSymbol {
@@ -263,15 +265,25 @@ impl IrGenerator {
                         continue;
                     }
 
-                    let relation_name = to_pascal_case(&node_type.name.sexp_name);
+                    // Skip node types with reserved keyword identifiers
+                    let pascal_name = to_pascal_case(&node_type.name.sexp_name);
+                    if RESERVED_WORDS.iter().any(|word| *word == pascal_name) {
+                        println!(
+                            "Skipping reserved word: {} (from {})",
+                            pascal_name, node_type.name.sexp_name
+                        );
+                        continue;
+                    }
+
+                    let relation_name = pascal_name;
                     let mut attributes = IndexSet::from([
                         Attribute {
                             name: "node_id".to_string(),
-                            attr_type: AttributeType::String,
+                            attr_type: AttributeType::Number,
                         },
                         Attribute {
                             name: "parent_id".to_string(),
-                            attr_type: AttributeType::String,
+                            attr_type: AttributeType::Number,
                         },
                         Attribute {
                             name: "value".to_string(),
@@ -280,12 +292,20 @@ impl IrGenerator {
                     ]);
 
                     if let NodeTypeKind::Regular { fields, children } = &node_type.kind {
+                        // Comment out the following line as the nodes on the TS AST 
+                        // do not include the extra fields specified in their node-types
+                        // definition. Therefore, the AST node we get from TS will not have the
+                        // expected shape and the insertion will fail.
+                        //
+                        // We're adopting for now a uniform shape for TS types - see above - namely :
+                        // node_id: Number, parent_id: Number, value: String
+                        /*
                         for field_name in fields.keys() {
                             attributes.insert(Attribute {
                                 name: field_name.clone(),
                                 attr_type: AttributeType::String,
                             });
-                        }
+                        }*/
                     }
 
                     ir_program.relations.push(IRRelationType {
@@ -649,9 +669,15 @@ impl IrGenerator {
                                 .any(|cr| cr[1..].to_string() == clean_name);
 
                             if is_in_captures || is_in_capture_refs {
+                                // HACK: We're assuming all the _id attributes are bigint
+                                let attr_type = if clean_name.ends_with("_id") {
+                                    AttributeType::Number
+                                } else {
+                                    AttributeType::String
+                                };
                                 outbound_attrs.push_front(Attribute {
                                     name: clean_name,
-                                    attr_type: AttributeType::String,
+                                    attr_type
                                 });
                             }
                         }
@@ -671,9 +697,15 @@ impl IrGenerator {
                             panic!("Failed to insert capture: {}", e);
                         }
 
+                        // HACK: We're assuming all the _id attributes are bigint
+                        let attr_type = if attr_name.ends_with("_id") {
+                            AttributeType::Number
+                        } else {
+                            AttributeType::String
+                        };
                         outbound_attrs.push_front(Attribute {
                             name: capture_name.to_string(),
-                            attr_type: AttributeType::String,
+                            attr_type
                         });
                     }
                 }
@@ -683,9 +715,14 @@ impl IrGenerator {
 
                     // Verify the capture reference exists
                     if let Some(symbol) = symbol_table.lookup_capture(capture_name) {
+                        let attr_type = if capture_name.ends_with("_id") {
+                            AttributeType::Number
+                        } else {
+                            AttributeType::String
+                        };
                         outbound_attrs.push_front(Attribute {
                             name: capture_name.to_string(),
-                            attr_type: AttributeType::String,
+                            attr_type
                         });
                     } else {
                         return Err(Error::ResolveError(format!(
@@ -804,7 +841,7 @@ impl IrGenerator {
                 for attr in outbound_attrs.iter() {
                     unique_relation_attrs.insert(Attribute {
                         name: attr.name.clone(),
-                        attr_type: AttributeType::String,
+                        attr_type: attr.attr_type.clone(),
                     });
                 }
 
