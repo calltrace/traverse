@@ -46,6 +46,38 @@ key_value = {
     "(" ~ symbol ~ WHITESPACE* ~ (capture | symbol | key_value) ~ WHITESPACE* ~ ")"
 }
 
+// Our own representation of a Datalog rule:
+// a. Conjunction (logical and)  of predicates is expressed using parameter lists in the relation.
+// b. Disjunction (logical or) of paths is expressed using inference paths, defined using the `via` keyword.
+// This allows us to represent complex inference paths in a more readable and compact way as there is no need to repeat the rule 
+// for each case and we keep the syntax Lispy. 
+
+inference = {
+   "(" ~ WHITESPACE* ~ "infer" ~ WHITESPACE* ~ relation ~ WHITESPACE* ~ parameters ~ WHITESPACE* ~ inference_path* ~ WHITESPACE* ~ ")"
+}
+
+// Rule header
+relation = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+parameters = { "(" ~ parameter_list ~ ")" }
+parameter_list = { variable ~ ("," ~ variable)* }
+
+// Inference paths
+inference_path = { "via" ~ path_definition }
+path_definition = { "(" ~ path_body ~ ")" }
+path_body = { predicate+ ~ WHITESPACE* ~ computation? }
+
+// Core elements
+predicate = { "(" ~ identifier ~ argument_list ~ ")" }
+computation = { "(" ~ "compute" ~ variable ~ qexpr ~ ")" }
+argument_list = { argument ~ ("," ~ argument)* }
+argument = _{ variable | constant }
+
+// Basic elements
+variable = @{ "?" ~ identifier }
+constant = @{ identifier | number }
+identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+number = @{ ASCII_DIGIT+ }
+
 // Define the `emit` special form, used for output nodes. 
 // It allows key-value pairs and nested `emit` forms.
 // Structure example:
@@ -179,13 +211,17 @@ expr = {
   | capture                                         // Capture
 }
 
-// Define the top-level parsing rule, `program`. 
+rules_block = {
+    "(" ~ WHITESPACE* ~ "rules" ~ WHITESPACE* ~ inference* ~ WHITESPACE* ~ capture_form* ~ WHITESPACE* ~ emit* ~ WHITESPACE* ~ ")" 
+}
+
+// Define the top-level parsing rule, `rulebook`. 
 // It expects the entire input (from Start of Input `SOI` to End of Input `EOI`) to consist of zero or more
-// `emit`, `when_form`, `capture_form`, and `do_form` constructs, interleaved with comments or whitespace.
-program = { 
+// `inference`, `emit`, `when_form`, `capture_form`, and `do_form` constructs, interleaved with comments or whitespace.
+rulebook = { 
     SOI ~ (
         (
-            capture_form* ~ WHITESPACE* ~ emit 
+          rules_block
         ) 
         | COMMENT 
         | WHITESPACE

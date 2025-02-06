@@ -49,14 +49,12 @@ impl Formatter {
 
     pub fn format(&mut self, expr: &Lval) -> String {
         match expr {
-            Lval::Query(cells) => {
-                self.indent_level += 1;
+            Lval::Rulebook(cells) => {
                 let formatted = cells
                     .iter()
                     .map(|cell| format!("{}{}", self.indent(), self.format(cell)))
                     .collect::<Vec<_>>()
                     .join("\n");
-                self.indent_level -= 1;
                 formatted
             }
             Lval::Emit(node_type, captures, when_form, do_form) => {
@@ -124,7 +122,14 @@ impl Formatter {
                 result.push(')');
                 result
             }
-            Lval::CaptureForm(node_type, attributes, capture_refs, nested_captures, when, q_expr) => {
+            Lval::CaptureForm(
+                node_type,
+                attributes,
+                capture_refs,
+                nested_captures,
+                when,
+                q_expr,
+            ) => {
                 let mut result = format!("(capture {}", node_type);
 
                 // Format attributes
@@ -230,6 +235,67 @@ impl Formatter {
             Lval::String(s) => s.to_string(),
             Lval::Sym(s) => s.clone(),
             Lval::Num(n) => n.to_string(),
+            Lval::RulesBlock(rules) => {
+                let mut result = String::from("(rules");
+                self.indent_level += 1;
+                result.push_str(&format!("{}", self.indent()));
+
+                if !rules.is_empty() {
+                    for rule in rules {
+                        result.push('\n');
+                        result.push_str(&format!("{}{}", self.indent(), self.format(rule)));
+                    }
+                }
+                self.indent_level -= 1;
+                result.push('\n');
+                result.push_str(&self.indent());
+                result.push(')');
+                result
+            }
+            Lval::Inference(relation, params, paths) => {
+                let mut result = String::from("(infer");
+                result.push_str(&format!(
+                    " {} ({})",
+                    relation,
+                    params.join(" ")
+                ));
+
+                self.indent_level += 1;
+                if !paths.is_empty() {
+                    result.push_str(" via");
+                    for path in paths {
+                        result.push('\n');
+                        result.push_str(&format!("{}", self.format(path)));
+                    }
+                }
+                self.indent_level -= 1;
+                result.push_str(&self.indent());
+                result.push(')');
+                result
+            }
+            Lval::InferencePath(predicates, computation) => {
+                let mut result = String::new();
+
+                if !predicates.is_empty() {
+                    for pred in predicates {
+                        result.push_str(&format!("{}{}", self.indent(), self.format(pred)));
+                        result.push('\n');
+                    }
+                }
+
+                if let Some(comp) = computation {
+                    result.push_str(&format!("{}{}", self.indent(), self.format(comp)));
+                    result.push('\n');
+                }
+
+                result
+            }
+            Lval::Predicate(identifier, arguments) => {
+                format!("({} {})", identifier, arguments.join(" "))
+            }
+            Lval::Computation(variable, qexpr) => {
+                format!("(compute {} {})", variable, self.format(qexpr))
+            }
             _ => expr.to_string(),
         }
     }
@@ -255,6 +321,31 @@ fn format_captures(captures: &[String], indent: String) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_rules_inference_formatting() {
+        let mut formatter = Formatter::default();
+
+        let rules_block = Lval::rules_block(
+            "MyRelation",
+            vec![Box::new(Lval::inference(
+                "rule1",
+                vec!["?x".to_string(), "?y".to_string()],
+                vec![Box::new(Lval::inference_path(
+                    vec![
+                        Box::new(Lval::predicate("pred1", vec!["?z".to_string()])),
+                        Box::new(Lval::computation("?result", Box::new(Lval::Qexpr(vec![])))),
+                    ],
+                    None,
+                ))],
+            ))],
+        );
+
+        let formatted = formatter.format(&rules_block);
+        assert_eq!(
+            formatted,
+            "(rules\n  MyRelation\n  (infer\n    rule1 (?x ?y)\n      (via\n        (pred1 ?z)\n        (compute ?result {})\n      )\n  )\n)"
+        );
+    }
     #[test]
     fn test_capture_refs_formatting() {
         let mut formatter = Formatter::default();
@@ -330,7 +421,12 @@ mod tests {
         let mut inner_attrs = IndexMap::new();
         inner_attrs.insert("inner".to_string(), Box::new(Lval::capture("var1")));
 
-        let when_body = vec![Box::new(Lval::Emit("InnerNode".to_string(), inner_attrs, None, None))];
+        let when_body = vec![Box::new(Lval::Emit(
+            "InnerNode".to_string(),
+            inner_attrs,
+            None,
+            None,
+        ))];
 
         let when_form = Lval::WhenForm(Box::new(*condition), when_body);
 

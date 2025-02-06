@@ -65,7 +65,10 @@ impl Default for SyntaxHighlighter {
     fn default() -> Self {
         Self {
             theme: SyntaxTheme::default(),
-            keywords: vec!["emit", "capture", "when", "do"],
+            keywords: vec![
+                "emit", "capture", "when", "do",
+                "rules", "infer", "via", "compute" // Add new keywords
+            ],
             operators: vec!["and", "or", "not"],
         }
     }
@@ -82,6 +85,10 @@ impl SyntaxHighlighter {
     pub fn tokenize(&self, input: &str) -> Vec<Token> {
         let mut tokens = Vec::new();
         let mut chars = input.char_indices().peekable();
+
+        fn is_variable_char(c: char) -> bool {
+            c.is_alphanumeric() || c == '_' || c == '?' // Add support for ?-prefixed variables
+        }
         
         while let Some((i, c)) = chars.next() {
             match c {
@@ -120,11 +127,11 @@ impl SyntaxHighlighter {
                     });
                 }
 
-                // Handle variables starting with @
-                '@' => {
+                // Handle variables starting with @ or ?
+                '@' | '?' => {
                     let mut end = i + 1;
                     while let Some(&(j, c)) = chars.peek() {
-                        if !c.is_alphanumeric() && c != '_' {
+                        if !is_variable_char(c) {
                             break;
                         }
                         end = j + 1;
@@ -252,6 +259,35 @@ impl SyntaxHighlighter {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_rules_block_highlighting() {
+        let highlighter = SyntaxHighlighter::default();
+        let input = "(rules MyRelation\n  (infer rule1 (?x ?y)))";
+        let highlighted = highlighter.highlight(input);
+        
+        // Check keywords are highlighted
+        assert!(highlighted.contains("color: #569CD6"));  // rules keyword
+        assert!(highlighted.contains("color: #569CD6"));  // infer keyword
+        // Check variables are highlighted
+        assert!(highlighted.contains("color: #9CDCFE"));  // ?x and ?y variables
+        // Check delimiters
+        assert!(highlighted.contains("color: #808080"));  // parentheses
+    }
+
+    #[test]
+    fn test_inference_path_highlighting() {
+        let highlighter = SyntaxHighlighter::default();
+        let input = "(via (pred1 ?x) (compute ?result {+ 1 2}))";
+        let highlighted = highlighter.highlight(input);
+        
+        // Check keywords
+        assert!(highlighted.contains("color: #569CD6"));  // via keyword
+        assert!(highlighted.contains("color: #569CD6"));  // compute keyword
+        // Check variables
+        assert!(highlighted.contains("color: #9CDCFE"));  // ?x and ?result variables
+        // Check numbers
+        assert!(highlighted.contains("color: #B5CEA8"));  // numeric literals
+    }
     use super::*;
 
     #[test]

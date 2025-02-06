@@ -1,6 +1,6 @@
 // Lisp AST types and primitives heavily inspired by https://github.com/deciduously/blispr/blob/master/src/lval.rs
-use crate::parser::{DslResult, Result};
 use crate::parser::Error;
+use crate::parser::{DslResult, Result};
 
 use indexmap::IndexMap;
 use std::fmt;
@@ -16,7 +16,7 @@ pub enum Func {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Lval {
-    Query(LvalChildren),
+    Rulebook(LvalChildren),
     Fun(Func),
     Num(i64),
     String(String),
@@ -38,9 +38,33 @@ pub enum Lval {
     ),
     WhenForm(Box<Lval>, LvalChildren),
     KeyVal(LvalChildren),
+    // New variants for inference rules
+    Inference(String, Vec<String>, Vec<Box<Lval>>), // (relation_name, parameters, inference_paths)
+    InferencePath(Vec<Box<Lval>>, Option<Box<Lval>>), // (predicates, optional_computation)
+    Predicate(String, Vec<String>),                 // (identifier, arguments)
+    Computation(String, Box<Lval>),                 // (variable, qexpr)
+    RulesBlock(Vec<Box<Lval>>),             // (relation_name, rules)
 }
-
 impl Lval {
+    pub fn rules_block(rules: Vec<Box<Lval>>) -> Box<Lval> {
+        Box::new(Lval::RulesBlock(rules))
+    }
+    pub fn inference(relation: &str, params: Vec<String>, paths: Vec<Box<Lval>>) -> Box<Lval> {
+        Box::new(Lval::Inference(relation.to_string(), params, paths))
+    }
+
+    pub fn inference_path(predicates: Vec<Box<Lval>>, computation: Option<Box<Lval>>) -> Box<Lval> {
+        Box::new(Lval::InferencePath(predicates, computation))
+    }
+
+    pub fn predicate(identifier: &str, arguments: Vec<String>) -> Box<Lval> {
+        Box::new(Lval::Predicate(identifier.to_string(), arguments))
+    }
+
+    pub fn computation(variable: &str, qexpr: Box<Lval>) -> Box<Lval> {
+        Box::new(Lval::Computation(variable.to_string(), qexpr))
+    }
+
     fn lval_expr_print(cell: &[Box<Lval>]) -> String {
         let mut ret = String::new();
         for i in 0..cell.len() {
@@ -53,7 +77,7 @@ impl Lval {
     }
 
     pub fn query() -> Box<Lval> {
-        Box::new(Lval::Query(Vec::new()))
+        Box::new(Lval::Rulebook(Vec::new()))
     }
 
     pub fn builtin(f: LBuiltin, name: &str) -> Box<Lval> {
@@ -102,7 +126,12 @@ impl Lval {
         when_form: Option<Box<Lval>>,
         do_form: Option<Box<Lval>>,
     ) -> Box<Lval> {
-        Box::new(Lval::Emit(node_type.to_string(), captures, when_form, do_form))
+        Box::new(Lval::Emit(
+            node_type.to_string(),
+            captures,
+            when_form,
+            do_form,
+        ))
     }
 
     pub fn capture_form(
@@ -139,7 +168,7 @@ impl Lval {
         match *v {
             Lval::Sexpr(ref mut children)
             | Lval::Qexpr(ref mut children)
-            | Lval::Query(ref mut children)
+            | Lval::Rulebook(ref mut children)
             | Lval::KeyVal(ref mut children) => {
                 children.push(Box::new(x.clone()));
             }
@@ -152,7 +181,7 @@ impl Lval {
         match *v {
             Lval::Sexpr(ref mut children)
             | Lval::Qexpr(ref mut children)
-            | Lval::Query(ref mut children)
+            | Lval::Rulebook(ref mut children)
             | Lval::KeyVal(ref mut children) => {
                 let ret = children[i].clone();
                 children.remove(i);
@@ -182,7 +211,7 @@ impl Lval {
     }
     pub fn len(&self) -> Result<usize> {
         match *self {
-            Lval::Sexpr(ref children) | Lval::Qexpr(ref children) | Lval::Query(ref children) => {
+            Lval::Sexpr(ref children) | Lval::Qexpr(ref children) | Lval::Rulebook(ref children) => {
                 Ok(children.len())
             }
             _ => Err(Error::NoChildren),
@@ -221,14 +250,59 @@ impl PartialEq for Func {
 impl fmt::Display for Lval {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Lval::Query(_cells) => write!(f, "<toplevel>"),
+            Lval::RulesBlock(rules) => {
+                write!(
+                    f,
+                    "(rules {})",
+                    rules
+                        .iter()
+                        .map(|r| r.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )
+            }
+            Lval::Inference(relation, params, paths) => {
+                write!(
+                    f,
+                    "(infer {} ({}) via ({}))",
+                    relation,
+                    params.join(", "),
+                    paths
+                        .iter()
+                        .map(|p| p.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )
+            }
+            Lval::InferencePath(predicates, computation) => {
+                write!(
+                    f,
+                    "{}{}",
+                    predicates
+                        .iter()
+                        .map(|p| p.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                    computation
+                        .as_ref()
+                        .map(|c| format!(" {}", c))
+                        .unwrap_or_default()
+                )
+            }
+            Lval::Predicate(identifier, arguments) => {
+                write!(f, "({} {})", identifier, arguments.join(", "))
+            }
+            Lval::Computation(variable, qexpr) => {
+                write!(f, "(compute {} {})", variable, qexpr)
+            }
+            Lval::Rulebook(_cells) => write!(f, "<toplevel>"),
             Lval::Fun(lf) => match lf {
                 Func::Builtin(name, _) => write!(f, "<builtin: {name}>"),
                 Func::Lambda(_, formals, body) => write!(f, "(\\ {formals} {body})"),
             },
             Lval::Num(n) => write!(f, "{n}"),
             Lval::Sym(s) => write!(f, "{s}"),
-            Lval::String(s) => write!(f , "\"{s}\""),
+            Lval::String(s) => write!(f, "\"{s}\""),
             Lval::Logical(operator, operands) => {
                 write!(f, "({} {})", operator, format_children(operands))
             }
@@ -244,14 +318,24 @@ impl fmt::Display for Lval {
                     "(emit {} {} {} {})",
                     node_type,
                     formatted_captures,
-                    when_block.as_ref().map(|b| b.to_string()).unwrap_or_default(),
+                    when_block
+                        .as_ref()
+                        .map(|b| b.to_string())
+                        .unwrap_or_default(),
                     do_block.as_ref().map(|b| b.to_string()).unwrap_or_default()
                 )
             }
             Lval::WhenForm(condition, body) => {
                 write!(f, "(when {} {})", condition, format_children(body))
             }
-            Lval::CaptureForm(node_type, attributes, capture_refs, nested_captures, when, do_block) => {
+            Lval::CaptureForm(
+                node_type,
+                attributes,
+                capture_refs,
+                nested_captures,
+                when,
+                do_block,
+            ) => {
                 let formatted_attrs = attributes
                     .iter()
                     .map(|(key, value)| format!("({} {})", key, value))

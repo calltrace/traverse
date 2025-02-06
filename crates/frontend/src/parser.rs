@@ -35,10 +35,84 @@ fn read_to_lval(v: &mut Lval, parsed: Pair<Rule>) -> Result<()> {
 
 fn lval_read(parsed: Pair<Rule>) -> DslResult {
     match parsed.as_rule() {
-        Rule::program => {
+        Rule::rulebook => {
             let mut ret = Lval::query();
             read_to_lval(&mut ret, parsed)?;
             Ok(ret)
+        }
+        Rule::rules_block => {
+            let inner = parsed.into_inner();
+            let mut rules = vec![];
+
+            for rule in inner {
+                if !is_bracket_or_eoi(&rule) {
+                    rules.push(lval_read(rule)?);
+                }
+            }
+            
+            Ok(Lval::rules_block(rules))
+        }
+        Rule::inference => {
+            let mut inner = parsed.into_inner();
+            let relation = inner.next().unwrap().as_str();
+
+            // Parse parameters
+            let parameters = inner.next().unwrap();
+            let parameter_list = parameters.into_inner().next().unwrap();
+            let params_pair = parameter_list.into_inner();
+
+            let params: Vec<String> = params_pair
+                .filter(|p| p.as_rule() == Rule::variable)
+                .map(|p| p.as_str().to_string())
+                .collect();
+
+            // Parse inference paths
+            let mut paths = vec![];
+            for path in inner {
+                if path.as_rule() == Rule::inference_path {
+                    paths.push(lval_read(path)?);
+                }
+            }
+            
+            Ok(Lval::inference(relation, params, paths))
+        }
+        Rule::inference_path => {
+            let mut inner = parsed.into_inner().next().unwrap().into_inner().next().unwrap().into_inner();
+            let mut predicates = vec![];
+            let mut computation = None;
+            
+            while let Some(element) = inner.next() {
+                match element.as_rule() {
+                    Rule::predicate => {
+                        predicates.push(lval_read(element)?);
+                    }
+                    Rule::computation => {
+                        computation = Some(lval_read(element)?);
+                    }
+                    _ => {}
+                }
+            }
+            
+            Ok(Lval::inference_path(predicates, computation))
+        }
+        Rule::predicate => {
+            let mut inner = parsed.into_inner();
+            let identifier = inner.next().unwrap().as_str();
+            let arguments: Vec<String> = inner
+                .next()
+                .unwrap()
+                .into_inner()
+                .map(|arg| arg.as_str().to_string())
+                .collect();
+            
+            Ok(Lval::predicate(identifier, arguments))
+        }
+        Rule::computation => {
+            let mut inner = parsed.into_inner();
+            let variable = inner.next().unwrap().as_str();
+            let qexpr = lval_read(inner.next().unwrap())?;
+            
+            Ok(Lval::computation(variable, qexpr))
         }
         Rule::logical => {
             let mut children = parsed.into_inner();
@@ -176,7 +250,7 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
 }
 
 pub fn parse(s: &str) -> DslResult {
-    let parsed = Dsl::parse(Rule::program, s)?.next().unwrap();
+    let parsed = Dsl::parse(Rule::rulebook, s)?.next().unwrap();
     lval_read(parsed)
 }
 
@@ -279,7 +353,7 @@ mod tests {
         let result = lval_read(parsed).expect("Lval construction failed");
 
         // Then: Verify the structure matches expectations
-        let expected = Box::new(Lval::Query(vec![
+        let expected = Box::new(Lval::Rulebook(vec![
             // Emit node
             Box::new(Lval::Emit(
                 "output_type".to_string(),
@@ -327,7 +401,7 @@ mod tests {
             Box::new(Lval::Sym("some_variable".to_string())),
         );
 
-        let expected = Box::new(Lval::Query(vec![
+        let expected = Box::new(Lval::Rulebook(vec![
             Box::new(Lval::Emit(
                 "output_node_type".to_string(),
                 emit_attributes,
@@ -384,7 +458,7 @@ mod tests {
         );
 
         // Expected query instantiation
-        let expected = Box::new(Lval::Query(vec![
+        let expected = Box::new(Lval::Rulebook(vec![
             Box::new(Lval::Emit(
                 "output_node_type".to_string(),
                 emit_attributes,
@@ -441,7 +515,7 @@ mod tests {
         );
 
         // Expected query instantiation
-        let expected = Box::new(Lval::Query(vec![
+        let expected = Box::new(Lval::Rulebook(vec![
             Box::new(Lval::Emit(
                 "output_node_type".to_string(),
                 nested_emit_attributes,
@@ -506,7 +580,7 @@ mod tests {
             Box::new(Lval::Capture("@second_capture_variable".to_string())),
         );
 
-        let expected = Box::new(Lval::Query(vec![
+        let expected = Box::new(Lval::Rulebook(vec![
             Box::new(Lval::Emit(
                 "output_node_type".to_string(),
                 emit_attributes,
@@ -600,7 +674,7 @@ mod tests {
             None,
         ));
 
-        let expected = Box::new(Lval::Query(vec![outer_emit, capture_block]));
+        let expected = Box::new(Lval::Rulebook(vec![outer_emit, capture_block]));
 
         let parsed_lval =
             lval_read(parsed.into_iter().next().unwrap()).expect("Failed to build Lval");
@@ -638,7 +712,7 @@ mod tests {
             Box::new(Lval::Capture("@some_other_variable".to_string())),
         );
 
-        let expected = Box::new(Lval::Query(vec![Box::new(Lval::Emit(
+        let expected = Box::new(Lval::Rulebook(vec![Box::new(Lval::Emit(
             "output_node_type".to_string(),
             attributes,
             None,
@@ -677,7 +751,7 @@ mod tests {
             Box::new(Lval::Sym("some_constant_value".to_string())),
         );
 
-        let expected = Box::new(Lval::Query(vec![Box::new(Lval::Emit(
+        let expected = Box::new(Lval::Rulebook(vec![Box::new(Lval::Emit(
             "output_node_type".to_string(),
             attributes,
             None,
@@ -747,7 +821,7 @@ mod tests {
         ));
 
         // Expected Lval structure
-        let expected = Box::new(Lval::Query(vec![emit, capture_form]));
+        let expected = Box::new(Lval::Rulebook(vec![emit, capture_form]));
 
         let parsed_lval =
             lval_read(parsed.into_iter().next().unwrap()).expect("Failed to build Lval");
@@ -850,7 +924,7 @@ mod tests {
         let when_form = Box::new(Lval::WhenForm(logical_condition, vec![emit2, emit3]));
 
         // 11. Construct the expected top-level `Query` Lval containing the `emit1`, `capture_form`, and `when_form`.
-        let expected = Box::new(Lval::Query(vec![emit1, capture_form, when_form]));
+        let expected = Box::new(Lval::Rulebook(vec![emit1, capture_form, when_form]));
 
         let parsed_lval =
             lval_read(parsed.into_iter().next().unwrap()).expect("Failed to build Lval");
@@ -955,7 +1029,7 @@ mod tests {
 
         let when_form = Box::new(Lval::WhenForm(logical_condition, vec![emit2, emit3]));
 
-        let expected = Box::new(Lval::Query(vec![emit1, capture_form, when_form]));
+        let expected = Box::new(Lval::Rulebook(vec![emit1, capture_form, when_form]));
 
         let parsed_lval =
             lval_read(parsed.into_iter().next().unwrap()).expect("Failed to build Lval");
@@ -1017,7 +1091,7 @@ mod tests {
             None,
         );
 
-        let expected_lval = Box::new(Lval::Query(vec![
+        let expected_lval = Box::new(Lval::Rulebook(vec![
             Box::new(emit_root),
             Box::new(child_capture),
         ]));
@@ -1093,7 +1167,7 @@ mod tests {
             None,
         );
 
-        let expected_lval = Box::new(Lval::Query(vec![
+        let expected_lval = Box::new(Lval::Rulebook(vec![
             Box::new(emit_root),
             Box::new(child_capture),
         ]));

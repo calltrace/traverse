@@ -333,7 +333,7 @@ impl IrGenerator {
     ) -> Result<()> {
         //let mut descendant_output_rels = Vec::new();
         match lval {
-            Lval::Query(items) => {
+            Lval::Rulebook(items) => {
                 for item in items {
                     self.process_lval(item, ir_program, context)?;
                 }
