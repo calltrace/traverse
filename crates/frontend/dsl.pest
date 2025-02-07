@@ -53,7 +53,7 @@ key_value = {
 // for each case and we keep the syntax Lispy. 
 
 inference = {
-   "(" ~ WHITESPACE* ~ "infer" ~ WHITESPACE* ~ relation ~ WHITESPACE* ~ parameters ~ WHITESPACE* ~ inference_path* ~ WHITESPACE* ~ ")"
+   "(" ~ WHITESPACE* ~ "infer" ~ WHITESPACE* ~ relation ~ WHITESPACE* ~ parameters ~ WHITESPACE* ~ inference_paths+ ~ WHITESPACE* ~ ")"
 }
 
 // Rule header
@@ -62,7 +62,8 @@ parameters = { "(" ~ parameter_list ~ ")" }
 parameter_list = { variable ~ ("," ~ variable)* }
 
 // Inference paths
-inference_path = { "via" ~ path_definition }
+inference_paths = { "via" ~ WHITESPACE* ~ inference_path_list ~ WHITESPACE* }
+inference_path_list = { path_definition ~ ("," ~ WHITESPACE* ~ path_definition ~ WHITESPACE* )* }
 path_definition = { "(" ~ path_body ~ ")" }
 path_body = { predicate+ ~ WHITESPACE* ~ computation? }
 

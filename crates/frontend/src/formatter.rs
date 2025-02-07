@@ -255,17 +255,15 @@ impl Formatter {
             Lval::Inference(relation, params, paths) => {
                 let mut result = String::from("(infer");
                 result.push_str(&format!(
-                    " {} ({})",
+                    " {} ({})\n",
                     relation,
-                    params.join(" ")
+                    params.join(", ")
                 ));
 
                 self.indent_level += 1;
                 if !paths.is_empty() {
-                    result.push_str(" via");
                     for path in paths {
-                        result.push('\n');
-                        result.push_str(&format!("{}", self.format(path)));
+                        result.push_str(&format!("{}\n", self.format(path)));
                     }
                 }
                 self.indent_level -= 1;
@@ -276,9 +274,12 @@ impl Formatter {
             Lval::InferencePath(predicates, computation) => {
                 let mut result = String::new();
 
+                result.push_str(&format!("{}via (", self.indent()));
+
+                self.indent_level += 1;
                 if !predicates.is_empty() {
                     for pred in predicates {
-                        result.push_str(&format!("{}{}", self.indent(), self.format(pred)));
+                        result.push_str(&format!("{}", self.format(pred)));
                         result.push('\n');
                     }
                 }
@@ -287,11 +288,13 @@ impl Formatter {
                     result.push_str(&format!("{}{}", self.indent(), self.format(comp)));
                     result.push('\n');
                 }
-
+                self.indent_level -= 1;
+                result.push_str(&self.indent());
+                result.push(')');
                 result
             }
             Lval::Predicate(identifier, arguments) => {
-                format!("({} {})", identifier, arguments.join(" "))
+                format!("({} {})", identifier, arguments.join(", "))
             }
             Lval::Computation(variable, qexpr) => {
                 format!("(compute {} {})", variable, self.format(qexpr))

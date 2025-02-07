@@ -49,7 +49,7 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
                     rules.push(lval_read(rule)?);
                 }
             }
-            
+
             Ok(Lval::rules_block(rules))
         }
         Rule::inference => {
@@ -69,18 +69,30 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
             // Parse inference paths
             let mut paths = vec![];
             for path in inner {
-                if path.as_rule() == Rule::inference_path {
+                if path.as_rule() == Rule::inference_paths {
                     paths.push(lval_read(path)?);
                 }
             }
-            
+
             Ok(Lval::inference(relation, params, paths))
         }
-        Rule::inference_path => {
-            let mut inner = parsed.into_inner().next().unwrap().into_inner().next().unwrap().into_inner();
+        Rule::inference_paths => {
+            let mut inner = parsed
+                .into_inner()
+                .next()
+                .unwrap()
+                .into_inner()
+                .next()
+                .unwrap()
+                .into_inner()
+                .next()
+                .unwrap()
+                .into_inner();
+
+            println!("{:?}", inner);
             let mut predicates = vec![];
             let mut computation = None;
-            
+
             while let Some(element) = inner.next() {
                 match element.as_rule() {
                     Rule::predicate => {
@@ -92,7 +104,7 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
                     _ => {}
                 }
             }
-            
+
             Ok(Lval::inference_path(predicates, computation))
         }
         Rule::predicate => {
@@ -104,14 +116,14 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
                 .into_inner()
                 .map(|arg| arg.as_str().to_string())
                 .collect();
-            
+
             Ok(Lval::predicate(identifier, arguments))
         }
         Rule::computation => {
             let mut inner = parsed.into_inner();
             let variable = inner.next().unwrap().as_str();
             let qexpr = lval_read(inner.next().unwrap())?;
-            
+
             Ok(Lval::computation(variable, qexpr))
         }
         Rule::logical => {
