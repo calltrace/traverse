@@ -235,8 +235,30 @@ pub enum OperationType {
     Len,
     Load,
     Store,
+    Noop,
 }
 
+impl From<&str> for OperationType {
+    fn from(op: &str) -> Self {
+        match op {
+            "+" => OperationType::Add,
+            "-" => OperationType::Sub,
+            "*" => OperationType::Mul,
+            "/" => OperationType::Div,
+            "concat" => OperationType::Concat,
+            "and" => OperationType::And,
+            "or" => OperationType::Or,
+            "not" => OperationType::Not,
+            "eq" => OperationType::Eq,
+            "neq" => OperationType::Neq,
+            "lt" => OperationType::Lt,
+            "leq" => OperationType::Leq,
+            "gt" => OperationType::Gt,
+            "geq" => OperationType::Geq,
+            _ => OperationType::Noop,
+        }
+    }
+}
 
 impl RelationRef { 
     pub fn new(name: String, role: RelationRole) -> Self {
@@ -430,6 +452,7 @@ impl fmt::Display for OperationType {
                 OperationType::Exists => "exists",
                 OperationType::StartsWith => "starts_with",
                 OperationType::EndsWith => "ends_with",
+                OperationType::Noop => "noop",
             }
         )
     }

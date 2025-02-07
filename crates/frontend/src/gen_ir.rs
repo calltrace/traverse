@@ -7,17 +7,15 @@ use ir::{
     SSAInstructionBlock, SSAOperation,
 };
 
+use core::fmt;
 use indexmap::IndexMap;
 use indexmap::IndexSet;
 use language::node_types::{ContextFreeNodeType, NodeTypeKind};
-use core::fmt;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Display;
 use std::path::PathBuf;
 
-const RESERVED_WORDS: &[&str] = &[
-    "String",
-];
+const RESERVED_WORDS: &[&str] = &["String"];
 
 #[derive(Debug, Clone)]
 pub struct CaptureSymbol {
@@ -292,7 +290,7 @@ impl IrGenerator {
                     ]);
 
                     if let NodeTypeKind::Regular { fields, children } = &node_type.kind {
-                        // Comment out the following line as the nodes on the TS AST 
+                        // Comment out the following line as the nodes on the TS AST
                         // do not include the extra fields specified in their node-types
                         // definition. Therefore, the AST node we get from TS will not have the
                         // expected shape and the insertion will fail.
@@ -336,6 +334,44 @@ impl IrGenerator {
             Lval::Rulebook(items) => {
                 for item in items {
                     self.process_lval(item, ir_program, context)?;
+                }
+            }
+
+            Lval::RulesBlock(rules) => {
+                for rule in rules {
+                    self.process_lval(rule, ir_program, context)?;
+                }
+            }
+
+            /*
+             *
+             * Inference rules semantics
+             *
+             * The inference rule handling process manages the transformation of inference rules
+             * into the intermediate representation (IR). The following rules and conventions
+             * govern its behavior:
+             *
+             * 1. Relation Registration
+             * ------------------------
+             * - Creates an input relation for the inference rule if it doesn't exist
+             * - Registers attributes based on the inference parameters
+             *
+             * 2. Rule Processing
+             * -----------------
+             * - Processes each inference path into IR rules
+             * - Handles predicates and their arguments
+             * - Manages computation blocks and their SSA transformations
+             *
+             */
+            Lval::Inference(rel_name, params, inference_paths) => {
+                println!("Processing inference rule: {}", rel_name);
+                let mut infer_rules = VecDeque::new();
+                collect_rules_from_inference(lval, context, ir_program, &mut infer_rules)?;
+
+                // iterate over the produced rules and register those in the IR program
+                // TODO: predicate and computation handling
+                for rule in infer_rules.iter() {
+                    ir_program.rules.push(rule.clone());
                 }
             }
             /*
@@ -402,7 +438,7 @@ impl IrGenerator {
                 //    the corresponding intermediary and internal relations.
                 //
                 let mut capture_rules = VecDeque::new();
-                collect_capture_rules(
+                collect_rules_from_capture(
                     lval,
                     context,
                     ir_program,
@@ -622,7 +658,7 @@ impl IrGenerator {
         ///
         /// Walks through an Lval and collects all captures, generating corresponding IRRules
         /// that reference only input relations.
-        fn collect_capture_rules(
+        fn collect_rules_from_capture(
             lval: &Lval,
             context: &mut SSAContext,
             ir_program: &mut IRProgram,
@@ -643,7 +679,13 @@ impl IrGenerator {
                     // Fetch the rules emitted by out descendants. We'll use the LHS side of there
                     // rules to grab the attributes of our descendants that need to be exposed on
                     // our LHS side (in addition to our own ones)
-                    collect_capture_rules(desc, context, ir_program, capture_rules, symbol_table)?;
+                    collect_rules_from_capture(
+                        desc,
+                        context,
+                        ir_program,
+                        capture_rules,
+                        symbol_table,
+                    )?;
 
                     // get the upmost capture rule.
                     if let Some(last_capture_rule) = capture_rules
@@ -677,7 +719,7 @@ impl IrGenerator {
                                 };
                                 outbound_attrs.push_front(Attribute {
                                     name: clean_name,
-                                    attr_type
+                                    attr_type,
                                 });
                             }
                         }
@@ -705,7 +747,7 @@ impl IrGenerator {
                         };
                         outbound_attrs.push_front(Attribute {
                             name: capture_name.to_string(),
-                            attr_type
+                            attr_type,
                         });
                     }
                 }
@@ -722,7 +764,7 @@ impl IrGenerator {
                         };
                         outbound_attrs.push_front(Attribute {
                             name: capture_name.to_string(),
-                            attr_type
+                            attr_type,
                         });
                     } else {
                         return Err(Error::ResolveError(format!(
@@ -859,7 +901,10 @@ impl IrGenerator {
                 for attr in unique_relation_attrs.iter() {
                     if let Err(e) = symbol_table.insert_capture(
                         &attr.name,
-                        RelationRef::new(internal_relation_name.clone(), IRRelationRole::Intermediate),
+                        RelationRef::new(
+                            internal_relation_name.clone(),
+                            IRRelationRole::Intermediate,
+                        ),
                     ) {
                         return Err(Error::SymbolTableError(format!(
                             "Failed to insert capture {} for internal relation {}: {}",
@@ -867,7 +912,6 @@ impl IrGenerator {
                         )));
                     }
                 }
-
 
                 //
                 // 6. Create the LHS node of our rule bound to the Internal Relation
@@ -905,6 +949,175 @@ impl IrGenerator {
                 };
 
                 capture_rules.push_front(ir_rule);
+            }
+            Ok(())
+        }
+
+        fn collect_rules_from_inference(
+            lval: &Lval,
+            context: &mut SSAContext,
+            ir_program: &mut IRProgram,
+            infer_rules: &mut VecDeque<IRRule>,
+        ) -> Result<()> {
+            if let Lval::Inference(relation_name, params, inference_paths) = lval {
+                // Create the output relation if it doesn't exist
+                if !ir_program
+                    .relations
+                    .iter()
+                    .any(|r| r.name == *relation_name)
+                {
+                    // First collect all predicates to find input relations
+                    let mut input_relations = HashMap::new();
+                    for path in inference_paths {
+                        if let Lval::InferencePath(predicates, _) = &**path {
+                            for predicate in predicates {
+                                if let Lval::Predicate(pred_name, _) = &**predicate {
+                                    if let Some(rel) = ir_program
+                                        .relations
+                                        .iter()
+                                        .find(|r| r.name == to_pascal_case(pred_name))
+                                    {
+                                        input_relations.insert(pred_name.clone(), rel);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Map parameters to their types based on input relations
+                    let attributes = params
+                        .iter()
+                        .map(|p| {
+                            let param_name = &p[1..]; // Remove $ prefix
+
+                            // Find the input relation and attribute that this parameter refers to
+                            for path in inference_paths {
+                                if let Lval::InferencePath(predicates, _) = &**path {
+                                    for predicate in predicates {
+                                        if let Lval::Predicate(pred_name, pred_args) = &**predicate
+                                        {
+                                            if let Some(input_rel) = input_relations.get(pred_name)
+                                            {
+                                                // Find matching argument position
+                                                if let Some(arg_pos) = pred_args
+                                                    .iter()
+                                                    .position(|arg| &arg[1..] == param_name)
+                                                {
+                                                    // Get corresponding attribute type from input relation
+                                                    if let Some(attr) =
+                                                        input_rel.attributes.get(arg_pos)
+                                                    {
+                                                        return Attribute {
+                                                            name: param_name.to_string(),
+                                                            attr_type: attr.attr_type.clone(),
+                                                        };
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Fallback to String if type cannot be determined
+                            Attribute {
+                                name: param_name.to_string(),
+                                attr_type: AttributeType::String,
+                            }
+                        })
+                        .collect();
+
+                    let relation = IRRelationType {
+                        name: to_pascal_case(relation_name),
+                        attributes,
+                        role: IRRelationRole::Output,
+                    };
+                    ir_program.relations.push(relation);
+                }
+
+                // Process each inference path
+                for path in inference_paths {
+                    if let Lval::InferencePath(predicates, computation) = &**path {
+                        // Create RHS nodes from predicates
+                        let mut rhs_nodes = Vec::new();
+                        for predicate in predicates {
+                            if let Lval::Predicate(pred_name, arguments) = &**predicate {
+                                let rhs_node = RHSNode {
+                                    relation_name: to_pascal_case(pred_name),
+                                    attributes: arguments
+                                        .iter()
+                                        .map(|arg| format!("rhs_{}", &arg[1..]))
+                                        .collect(),
+                                };
+                                rhs_nodes.push(RHSVal::RHSNode(rhs_node));
+                            }
+                        }
+
+                        // Create SSA instructions from computation block
+                        let ssa_block = if let Some(comp) = computation {
+                            if let Lval::Computation(var_name, qexpr) = &**comp {
+                                let mut instructions = Vec::new();
+
+                                // Convert qexpr to SSA instructions
+                                if let Lval::Qexpr(exprs) = &**qexpr {
+                                    for expr in exprs {
+                                        if let Lval::Sexpr(cells) = &**expr {
+                                            if let Some(Lval::Sym(operation)) =
+                                                cells.first().map(|v| &**v)
+                                            {
+                                                let operands: Vec<String> = cells
+                                                    .iter()
+                                                    .skip(1)
+                                                    .map(|cell| match &**cell {
+                                                        Lval::Sym(s) => s.clone(),
+                                                        Lval::Capture(c) => {
+                                                            format!("rhs_{}", &c[1..])
+                                                        }
+                                                        _ => "".to_string(),
+                                                    })
+                                                    .collect();
+
+                                                /* TODO: Handle computatios
+                                                let temp_var = context.generate_temp_var();
+                                                instructions.push(SSAInstruction::Assignment {
+                                                    variable: temp_var,
+                                                    operation: SSAOperation {
+                                                        op_type: OperationType::from(operation),
+                                                        operands,
+                                                    },
+                                                });
+                                                */
+                                            }
+                                        }
+                                    }
+                                }
+                                Some(SSAInstructionBlock { instructions })
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        // Create LHS node
+                        let lhs_node = LHSNode {
+                            relation_name: to_pascal_case(relation_name),
+                            output_attributes: params
+                                .iter()
+                                .map(|p| format!("lhs_{}", &p[1..]))
+                                .collect(),
+                        };
+
+                        // Create and add the IR rule
+                        let ir_rule = IRRule {
+                            lhs: lhs_node,
+                            rhs: RHSVal::NestedRHS(rhs_nodes),
+                            ssa_block,
+                        };
+
+                        infer_rules.push_back(ir_rule);
+                    }
+                }
             }
             Ok(())
         }
@@ -952,11 +1165,14 @@ impl IrGenerator {
                                                             ))
                                                         }
                                                         Lval::String(s) => {
-                                                            // strip quotes 
+                                                            // strip quotes
                                                             let s = &s[1..s.len() - 1];
                                                             StringPart::Static(s.to_string())
                                                         }
-                                                        e => unimplemented!("Unknown operand: {:?}", e),
+                                                        e => unimplemented!(
+                                                            "Unknown operand: {:?}",
+                                                            e
+                                                        ),
                                                     })
                                                     .collect::<Vec<_>>();
 

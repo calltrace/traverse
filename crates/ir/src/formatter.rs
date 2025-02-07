@@ -239,6 +239,7 @@ impl IRFormatter {
             OperationType::Len => "len",
             OperationType::Load => "load",
             OperationType::Store => "store",
+            OperationType::Noop => "noop",
         }
     }
 }

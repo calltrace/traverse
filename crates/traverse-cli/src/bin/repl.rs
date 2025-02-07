@@ -149,6 +149,7 @@ impl Repl {
         let lval =
             frontend::parser::parse(input).map_err(|e| ReplError::Parse(format!("{:?}", e)))?;
 
+        println!("Parsed DSL:\n\n{:?}", lval);
         let formatted = frontend::formatter::Formatter::new(2)
             .with_syntax_highlighting(Some(SyntaxTheme::default()))
             .format_with_highlighting(&lval);
@@ -163,12 +164,12 @@ impl Repl {
             .lval_to_ir(&lval)
             .map_err(|e| ReplError::IrGeneration(format!("{:?}", e)))?;
 
-        //println!("IR:\n\n{}", dl_ir);
+        println!("IR:\n\n{}", dl_ir);
 
         let formatted_ir = ir::format_program(&dl_ir.to_string(), true, 2, false)
             .map_err(|e| ReplError::IrGeneration(format!("{:?}", e)))?;
 
-        //println!("Datalog IR:\n\n{}", formatted_ir);
+        println!("Datalog IR:\n\n{}", formatted_ir);
 
         let ddlog = backend::gen_ddlog::DDlogGenerator::new()
             //.with_input_relations(true)
