@@ -953,6 +953,97 @@ impl IrGenerator {
             Ok(())
         }
 
+        /// Maps inference predicates to SSA operations
+        fn inference_predicates_to_ssa(
+            predicates: &[Box<Lval>],
+            context: &mut SSAContext,
+        ) -> Vec<SSAInstruction> {
+            let mut instructions = Vec::new();
+            let mut operand_map = HashMap::new();
+
+            let predicate_group_label = context.generate_label();
+            instructions.push(SSAInstruction::Label(predicate_group_label.clone()));
+            for predicate in predicates {
+                if let Lval::Predicate(pred_name, arguments) = &**predicate {
+                    // generate a label for the predicate
+                    // Generate a unique temp var for this predicate
+                    let result_var = context.generate_temp_var();
+
+                    let op_type = match pred_name.as_str() {
+                        // Comparison predicates
+                        "equals" => OperationType::Eq,
+                        "not_equals" => OperationType::Neq,
+                        "less_than" => OperationType::Lt,
+                        "less_equals" => OperationType::Leq,
+                        "greater_than" => OperationType::Gt,
+                        "greater_equals" => OperationType::Geq,
+
+                        // String predicates
+                        "contains" => OperationType::Contains,
+                        "starts_with" => OperationType::StartsWith,
+                        "ends_with" => OperationType::EndsWith,
+
+                        // Collection predicates
+                        "in" => OperationType::In,
+                        "within" => OperationType::Within,
+
+                        // Existence predicates
+                        "exists" => OperationType::Exists,
+
+                        // Logical predicates
+                        "and" => OperationType::And,
+                        "or" => OperationType::Or,
+                        "not" => OperationType::Not,
+
+                        // For unknown predicates, treat as a relation lookup
+                        _ => {
+                            // Store relation lookup result in temp var
+                            let temp_var = context.generate_temp_var();
+                            instructions.push(SSAInstruction::Assignment {
+                                variable: temp_var.clone(),
+                                operation: SSAOperation {
+                                    op_type: OperationType::Load,
+                                    operands: vec![pred_name.clone()],
+                                },
+                            });
+                            operand_map.insert(result_var.clone(), temp_var);
+                            continue;
+                        }
+                    };
+
+                    // Process arguments into operands
+                    let operands: Vec<String> = arguments
+                        .iter()
+                        .map(|arg| {
+                            if arg.starts_with('?') {
+                                // For variables, use as-is but remove ? prefix
+                                arg[1..].to_string()
+                            } else {
+                                // For constants, create a temp var with Load operation
+                                let temp_var = context.generate_temp_var();
+                                instructions.push(SSAInstruction::Assignment {
+                                    variable: temp_var.clone(),
+                                    operation: SSAOperation {
+                                        op_type: OperationType::Load,
+                                        operands: vec![arg.clone()],
+                                    },
+                                });
+                                temp_var
+                            }
+                        })
+                        .collect();
+
+                    // Add the predicate operation
+                    instructions.push(SSAInstruction::Assignment {
+                        variable: result_var.clone(),
+                        operation: SSAOperation { op_type, operands },
+                    });
+                }
+            }
+
+            instructions
+        }
+
         fn collect_rules_from_inference(
             lval: &Lval,
             context: &mut SSAContext,
@@ -1038,27 +1129,52 @@ impl IrGenerator {
                 // Process each inference path
                 for path in inference_paths {
                     if let Lval::InferencePath(predicates, computation) = &**path {
-                        // Create RHS nodes from predicates
+                        // Create RHS nodes and collect constraints from predicates
                         let mut rhs_nodes = Vec::new();
+                        let mut instructions = Vec::new();
+
+                        // Convert predicates to SSA instructions
+                        let predicate_instructions =
+                            inference_predicates_to_ssa(predicates, context);
+                        instructions.extend(predicate_instructions);
+
+                        // Add RHS nodes for relation lookups
                         for predicate in predicates {
                             if let Lval::Predicate(pred_name, arguments) = &**predicate {
-                                let rhs_node = RHSNode {
-                                    relation_name: to_pascal_case(pred_name),
-                                    attributes: arguments
-                                        .iter()
-                                        .map(|arg| format!("rhs_{}", &arg[1..]))
-                                        .collect(),
-                                };
-                                rhs_nodes.push(RHSVal::RHSNode(rhs_node));
+                                // Only create RHS nodes for actual relations, not built-in predicates
+                                if !matches!(
+                                    pred_name.as_str(),
+                                    "equals"
+                                        | "not_equals"
+                                        | "less_than"
+                                        | "less_equals"
+                                        | "greater_than"
+                                        | "greater_equals"
+                                        | "contains"
+                                        | "starts_with"
+                                        | "ends_with"
+                                        | "in"
+                                        | "within"
+                                        | "exists"
+                                        | "and"
+                                        | "or"
+                                        | "not"
+                                ) {
+                                    let rhs_node = RHSNode {
+                                        relation_name: to_pascal_case(pred_name),
+                                        attributes: arguments
+                                            .iter()
+                                            .map(|arg| arg[1..].to_string())
+                                            .collect(),
+                                    };
+                                    rhs_nodes.push(RHSVal::RHSNode(rhs_node));
+                                }
                             }
                         }
 
-                        // Create SSA instructions from computation block
-                        let ssa_block = if let Some(comp) = computation {
+                        // Add computation block instructions if present
+                        if let Some(comp) = computation {
                             if let Lval::Computation(var_name, qexpr) = &**comp {
-                                let mut instructions = Vec::new();
-
-                                // Convert qexpr to SSA instructions
                                 if let Lval::Qexpr(exprs) = &**qexpr {
                                     for expr in exprs {
                                         if let Lval::Sexpr(cells) = &**expr {
@@ -1077,35 +1193,34 @@ impl IrGenerator {
                                                     })
                                                     .collect();
 
-                                                /* TODO: Handle computatios
                                                 let temp_var = context.generate_temp_var();
                                                 instructions.push(SSAInstruction::Assignment {
                                                     variable: temp_var,
                                                     operation: SSAOperation {
-                                                        op_type: OperationType::from(operation),
+                                                        op_type: OperationType::from(
+                                                            operation.as_str(),
+                                                        ),
                                                         operands,
                                                     },
                                                 });
-                                                */
                                             }
                                         }
                                     }
                                 }
-                                Some(SSAInstructionBlock { instructions })
-                            } else {
-                                None
                             }
-                        } else {
-                            None
-                        };
+                        }
 
                         // Create LHS node
                         let lhs_node = LHSNode {
                             relation_name: to_pascal_case(relation_name),
-                            output_attributes: params
-                                .iter()
-                                .map(|p| format!("lhs_{}", &p[1..]))
-                                .collect(),
+                            output_attributes: params.iter().map(|p| p[1..].to_string()).collect(),
+                        };
+
+                        // Create SSA block if we have instructions
+                        let ssa_block = if !instructions.is_empty() {
+                            Some(SSAInstructionBlock { instructions })
+                        } else {
+                            None
                         };
 
                         // Create and add the IR rule

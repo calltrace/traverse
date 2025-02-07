@@ -231,7 +231,7 @@ impl DDlogGenerator {
                         Field {
                             pos: Pos::nopos(),
                             name: attr.name.clone(),
-                            ftype
+                            ftype,
                         }
                     })
                     .collect::<Vec<_>>();
@@ -318,7 +318,13 @@ impl DDlogGenerator {
                             name: lhs_attributes
                                 .iter()
                                 .cloned()
-                                .map(|s| format!("lhs_{}", s))
+                                .map(|s| {
+                                    if lhs_relation.role == IRRelationRole::Intermediate {
+                                        format!("lhs_{}", s)
+                                    } else {
+                                        s
+                                    }
+                                })
                                 .collect::<Vec<_>>()
                                 .join(", "),
                         }),
@@ -398,20 +404,25 @@ impl DDlogGenerator {
                         }
                     }
 
-                    // Default behavior - create direct mappings for each LHS attribute
-                    for lhs_attr in lhs_attributes.iter() {
-                        if let Some(rhs_attr) = rhs_attributes
-                            .iter()
-                            .find(|r| r.starts_with("rhs_") && r[4..] == *lhs_attr)
-                        {
-                            let mapping_expr = format!("var lhs_{} = {}", lhs_attr, rhs_attr);
-                            conditions.push(RuleRHS::RHSCondition {
-                                pos: Pos::nopos(),
-                                expr: Expr::new(ExprNode::EVar {
+                    // Intermediate relations are defined by captures so we want to make the
+                    // RHS (body) to LHS (head) attributes one-to-one. However, output relations such as the ones for inference
+                    // rules, mappings are determined by the user so we want to honor those.
+                    //
+                    if lhs_relation.role == IRRelationRole::Intermediate {
+                        for lhs_attr in lhs_attributes.iter() {
+                            if let Some(rhs_attr) = rhs_attributes
+                                .iter()
+                                .find(|r| r.starts_with("rhs_") && r[4..] == *lhs_attr)
+                            {
+                                let mapping_expr = format!("var lhs_{} = {}", lhs_attr, rhs_attr);
+                                conditions.push(RuleRHS::RHSCondition {
                                     pos: Pos::nopos(),
-                                    name: mapping_expr,
-                                }),
-                            });
+                                    expr: Expr::new(ExprNode::EVar {
+                                        pos: Pos::nopos(),
+                                        name: mapping_expr,
+                                    }),
+                                });
+                            }
                         }
                     }
                 }
@@ -483,38 +494,6 @@ impl DDlogGenerator {
                     current_label = Some(label.clone());
                     current_instructions.clear();
                 }
-                SSAInstruction::Assignment {
-                    variable: _,
-                    operation,
-                } => {
-                    // Add instruction to current block
-                    current_instructions.push(instruction.clone());
-
-                    // If this is a predicate operation, process it immediately
-                    if matches!(
-                        operation.op_type,
-                        OperationType::Eq
-                            | OperationType::Neq
-                            | OperationType::Lt
-                            | OperationType::Leq
-                            | OperationType::Gt
-                            | OperationType::Geq
-                            | OperationType::Contains
-                            | OperationType::StartsWith
-                            | OperationType::EndsWith
-                            | OperationType::In
-                            | OperationType::Within
-                            | OperationType::Exists
-                    ) {
-                        if let Some(curr_label) = &current_label {
-                            if let Some(expr) =
-                                Self::process_block_for_predicate(curr_label, &current_instructions)
-                            {
-                                mapping_expressions.push(expr);
-                            }
-                        }
-                    }
-                }
                 _ => {
                     current_instructions.push(instruction.clone());
                 }
@@ -538,20 +517,25 @@ impl DDlogGenerator {
     ) -> Option<String> {
         let mut operand_mapping: HashMap<String, String> = HashMap::new();
         let operator_mapping: HashMap<OperationType, String> = HashMap::from([
+            // Comparison Operators
             (OperationType::Eq, "==".to_string()),
             (OperationType::Neq, "!=".to_string()),
             (OperationType::Lt, "<".to_string()),
             (OperationType::Leq, "<=".to_string()),
             (OperationType::Gt, ">".to_string()),
             (OperationType::Geq, ">=".to_string()),
+            // Logical Operators
             (OperationType::And, "&&".to_string()),
             (OperationType::Or, "||".to_string()),
             (OperationType::Not, "!".to_string()),
+            // String Functions
             (OperationType::Contains, "string_contains".to_string()),
             (OperationType::StartsWith, "string_starts_with".to_string()),
             (OperationType::EndsWith, "string_ends_with".to_string()),
+            // Collection Operations
             (OperationType::In, "contains".to_string()),
             (OperationType::Within, "within".to_string()),
+            // Existence Check
             (OperationType::Exists, "exists".to_string()),
         ]);
 
@@ -568,17 +552,18 @@ impl DDlogGenerator {
             }
         }
 
-        // Second pass: find predicate operation and generate expression
+        // Second pass: collect all predicate operations
+        let mut expressions = Vec::new();
         for instr in instructions {
             if let SSAInstruction::Assignment {
-                variable: _,
+                variable,
                 operation,
             } = instr
             {
                 let op_type = &operation.op_type;
                 if let Some(operator) = operator_mapping.get(op_type) {
                     match op_type {
-                        // Infix operators
+                        // Infix operators (arithmetic and logical)
                         OperationType::Eq
                         | OperationType::Neq
                         | OperationType::Lt
@@ -586,48 +571,60 @@ impl DDlogGenerator {
                         | OperationType::Gt
                         | OperationType::Geq
                         | OperationType::And
-                        | OperationType::Or => {
+                        | OperationType::Or
+                        | OperationType::Add => {
                             if operation.operands.len() == 2 {
-                                return Some(format!(
-                                    "{} {} {}",
-                                    operand_mapping
-                                        .get(&operation.operands[0])
-                                        .unwrap_or(&operation.operands[0]),
-                                    operator,
-                                    operand_mapping
-                                        .get(&operation.operands[1])
-                                        .unwrap_or(&operation.operands[1])
-                                ));
+                                let left = operand_mapping
+                                    .get(&operation.operands[0])
+                                    .unwrap_or(&operation.operands[0]);
+                                let right = operand_mapping
+                                    .get(&operation.operands[1])
+                                    .unwrap_or(&operation.operands[1]);
+
+                                // Handle string concatenation specially
+                                if *op_type == OperationType::Concat {
+                                    expressions.push(format!(
+                                        "var {} = {} {} {}",
+                                        variable, left, operator, right
+                                    ));
+                                } else {
+                                    expressions.push(format!("{} {} {}", left, operator, right));
+                                }
                             }
                         }
 
                         // Prefix operators
                         OperationType::Not => {
                             if operation.operands.len() == 1 {
-                                return Some(format!(
-                                    "{}{}",
-                                    operator,
-                                    operand_mapping
-                                        .get(&operation.operands[0])
-                                        .unwrap_or(&operation.operands[0])
-                                ));
+                                let operand = operand_mapping
+                                    .get(&operation.operands[0])
+                                    .unwrap_or(&operation.operands[0]);
+                                expressions.push(format!("{}{}", operator, operand));
                             }
                         }
 
-                        // Function-style operators
+                        // String functions
                         OperationType::Contains
                         | OperationType::StartsWith
-                        | OperationType::EndsWith
-                        | OperationType::In
-                        | OperationType::Within
-                        | OperationType::Exists => {
+                        | OperationType::EndsWith => {
                             let operands_str = operation
                                 .operands
                                 .iter()
                                 .map(|op| operand_mapping.get(op).unwrap_or(op).clone())
                                 .collect::<Vec<_>>()
                                 .join(", ");
-                            return Some(format!("{}({})", operator, operands_str));
+                            expressions.push(format!("{}({})", operator, operands_str));
+                        }
+
+                        // Collection operations
+                        OperationType::In | OperationType::Within | OperationType::Exists => {
+                            let operands_str = operation
+                                .operands
+                                .iter()
+                                .map(|op| operand_mapping.get(op).unwrap_or(op).clone())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            expressions.push(format!("{}({})", operator, operands_str));
                         }
 
                         _ => {}
@@ -635,7 +632,14 @@ impl DDlogGenerator {
                 }
             }
         }
-        None
+
+
+        if expressions.is_empty() {
+            None
+        } else {
+            // Join all expressions with AND operator
+            Some(expressions.join(" and "))
+        }
     }
 
     /// Generate a DDLog-style string interpolation statement
@@ -803,7 +807,6 @@ impl DDlogGenerator {
                     ftype: f.ftype.clone(),
                 })
                 .collect::<Vec<Field>>();
-            println!("Sanitized fields: {:?}", sanitized_fields);
             match rel_type {
                 RelationType::Input => {
                     relations.push(Relation {
