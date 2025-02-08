@@ -81,14 +81,12 @@ use std::{
 
 use log::debug;
 
-
 pub fn format_program(
     input: &str,
     highlight: bool,
     indent_size: usize,
     use_tabs: bool,
 ) -> Result<String, String> {
-
     // Create program AST
     let program = parse(input).map_err(|e| e.to_string())?;
 
@@ -143,7 +141,7 @@ pub enum RelationRole {
     Input,
     Output,
     Intermediate,
-    Internal
+    Internal,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -174,7 +172,7 @@ pub enum RHSVal {
 #[derive(Clone, Debug)]
 pub struct RHSNode {
     pub relation_name: String,
-    pub attributes: IndexSet<String>,
+    pub attributes: Vec<String>,
 }
 
 /// Represents a block of SSA instructions.
@@ -260,7 +258,7 @@ impl From<&str> for OperationType {
     }
 }
 
-impl RelationRef { 
+impl RelationRef {
     pub fn new(name: String, role: RelationRole) -> Self {
         Self { name, role }
     }
@@ -667,8 +665,7 @@ mod parser {
                     .unwrap()
                     .into_inner()
                     .map(|a| a.as_str().to_string())
-                    .collect::<IndexSet<_>>();
-
+                    .collect::<Vec<_>>();
                 RHSNode {
                     relation_name,
                     attributes,
@@ -764,7 +761,7 @@ mod parser {
         }
     }
 
-   fn parse_operation_type(op_type: &str) -> OperationType {
+    fn parse_operation_type(op_type: &str) -> OperationType {
         match op_type {
             "add" => OperationType::Add,
             "sub" => OperationType::Sub,

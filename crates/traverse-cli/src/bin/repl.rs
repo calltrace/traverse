@@ -183,7 +183,7 @@ impl Repl {
         let filtered_ddlog = ddlog
             .to_string()
             .lines()
-            .filter(|line| !re.is_match(line.trim()))
+         //   .filter(|line| !re.is_match(line.trim()))
             .collect::<Vec<_>>()
             .join("\n");
 

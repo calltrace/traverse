@@ -44,7 +44,7 @@ rhs_nodes = { rhs_node ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ rhs_node ~ WHITESPAC
 rhs_node = { identifier ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ input_attributes ~ WHITESPACE* ~ ")" }
 
 // Defines a list of input attributes in an RHS clause, separated by commas.
-input_attributes = { identifier ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ identifier)* }
+input_attributes = { (identifier | placeholder)  ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ (identifier | placeholder))* }
 
 // Defines an SSA instruction, which can be a label, assignment, or control flow instruction.
 ssa_instruction = { (label | ssa_assignment | control_flow) ~ WHITESPACE* ~ ";" }
@@ -111,7 +111,9 @@ branch = { "if" ~ WHITESPACE* ~ identifier ~ WHITESPACE* ~ "goto" ~ WHITESPACE* 
 goto = { "goto" ~ WHITESPACE* ~ label_reference }
 
 // Defines an identifier for variable names and relations.
-identifier = @{ (ASCII_ALPHANUMERIC | "_" )+ }
+identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+
+placeholder = @{ "_" }
 
 // Defines a reference to a label for control flow.
 label_reference = @{ "L" ~ ASCII_DIGIT+ }

@@ -364,7 +364,6 @@ impl IrGenerator {
              *
              */
             Lval::Inference(rel_name, params, inference_paths) => {
-                println!("Processing inference rule: {}", rel_name);
                 let mut infer_rules = VecDeque::new();
                 collect_rules_from_inference(lval, context, ir_program, &mut infer_rules)?;
 
@@ -622,7 +621,7 @@ impl IrGenerator {
                                     .iter()
                                     .cloned()
                                     .map(|s| format!("rhs_{}", s.name.to_lowercase()))
-                                    .collect::<IndexSet<String>>(),
+                                    .collect::<Vec<String>>(),
                             };
                             rhs_nodes.push(RHSVal::RHSNode(rhs_node));
                         } else {
@@ -1079,41 +1078,18 @@ impl IrGenerator {
                     let attributes = params
                         .iter()
                         .map(|p| {
-                            let param_name = &p[1..]; // Remove $ prefix
+                            let param_name = &p[1..];
 
-                            // Find the input relation and attribute that this parameter refers to
-                            for path in inference_paths {
-                                if let Lval::InferencePath(predicates, _) = &**path {
-                                    for predicate in predicates {
-                                        if let Lval::Predicate(pred_name, pred_args) = &**predicate
-                                        {
-                                            if let Some(input_rel) = input_relations.get(pred_name)
-                                            {
-                                                // Find matching argument position
-                                                if let Some(arg_pos) = pred_args
-                                                    .iter()
-                                                    .position(|arg| &arg[1..] == param_name)
-                                                {
-                                                    // Get corresponding attribute type from input relation
-                                                    if let Some(attr) =
-                                                        input_rel.attributes.get(arg_pos)
-                                                    {
-                                                        return Attribute {
-                                                            name: param_name.to_string(),
-                                                            attr_type: attr.attr_type.clone(),
-                                                        };
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Fallback to String if type cannot be determined
+                            // TODO: implement type annotations for parameters. 
+                            // HACK: anything that has 'id' in it's name is a number, and the rest is string. 
+                            let attr_type = if param_name.ends_with("_id") {
+                                AttributeType::Number
+                            } else {
+                                AttributeType::String
+                            };
                             Attribute {
                                 name: param_name.to_string(),
-                                attr_type: AttributeType::String,
+                                attr_type
                             }
                         })
                         .collect();
@@ -1137,6 +1113,7 @@ impl IrGenerator {
                         let predicate_instructions =
                             inference_predicates_to_ssa(predicates, context);
                         instructions.extend(predicate_instructions);
+
 
                         // Add RHS nodes for relation lookups
                         for predicate in predicates {
@@ -1164,8 +1141,14 @@ impl IrGenerator {
                                         relation_name: to_pascal_case(pred_name),
                                         attributes: arguments
                                             .iter()
-                                            .map(|arg| arg[1..].to_string())
-                                            .collect(),
+                                            .map(|arg| {
+                                                if arg.len() > 1 {
+                                                    arg[1..].to_string()
+                                                } else {
+                                                    arg.to_string()
+                                                }
+                                            })
+                                            .collect::<Vec<String>>(),
                                     };
                                     rhs_nodes.push(RHSVal::RHSNode(rhs_node));
                                 }

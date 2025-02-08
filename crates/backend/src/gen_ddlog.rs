@@ -441,7 +441,7 @@ impl DDlogGenerator {
         Ok(program.into())
     }
 
-    fn collect_all_rhs_attributes(&self, ir: &IRProgram, val: &RHSVal) -> IndexSet<String> {
+    fn collect_all_rhs_attributes(&self, ir: &IRProgram, val: &RHSVal) -> Vec<String> {
         match val {
             RHSVal::RHSNode(node) => {
                 if self
@@ -450,11 +450,11 @@ impl DDlogGenerator {
                 {
                     node.attributes.clone()
                 } else {
-                    IndexSet::new()
+                    Vec::new()
                 }
             }
             RHSVal::NestedRHS(vals) => {
-                let mut collected_attributes = IndexSet::new();
+                let mut collected_attributes = Vec::new();
                 for val in vals {
                     collected_attributes.extend(self.collect_all_rhs_attributes(ir, val));
                 }

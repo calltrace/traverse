@@ -1,4 +1,4 @@
-// Define what constitutes whitespace. The `_` prefix indicates that whitespace will be skipped and not included in the parse tree.
+// Define what constitutes whitespace. The `_` prefix indicates that whitespace will be skipped and not included in the par'Ase tree.'A'
 WHITESPACE = _{ " " | "\t" | NEWLINE }
 
 // Define block comments. The `_` prefix ensures comments are skipped. This rule matches any content between `/*` and `*/`.
@@ -71,13 +71,16 @@ path_body = { predicate+ ~ WHITESPACE* ~ computation? }
 predicate = { "(" ~ identifier ~ argument_list ~ ")" }
 computation = { "(" ~ "compute" ~ variable ~ qexpr ~ ")" }
 argument_list = { argument ~ ("," ~ argument)* }
-argument = _{ variable | constant }
+argument = _{ variable | constant | placeholder }
 
 // Basic elements
 variable = @{ "?" ~ identifier }
 constant = @{ identifier | number }
 identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 number = @{ ASCII_DIGIT+ }
+placeholder = @{ "_" }
+
+
 
 // Define the `emit` special form, used for output nodes. 
 // It allows key-value pairs and nested `emit` forms.
