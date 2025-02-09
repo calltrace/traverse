@@ -10,9 +10,7 @@ use crate::ddlog_lang::{
 };
 
 use ir::{
-    Attribute, AttributeType, IRProgram, IRRule, LHSNode, OperationType, RHSNode, RHSVal,
-    RelationRole as IRRelationRole, RelationType as IRRelationType, SSAInstruction,
-    SSAInstructionBlock, SSAOperation,
+    Attribute, AttributeType, IRProgram, IRRule, LHSNode, Operand, OperationType, RHSNode, RHSVal, Reference, RelationRole as IRRelationRole, RelationType as IRRelationType, SSAInstruction, SSAInstructionBlock, SSAOperation
 };
 
 const RESERVED_WORDS: &[&str] = &["else", "function", "type", "match", "var"];
@@ -547,7 +545,25 @@ impl DDlogGenerator {
             } = instr
             {
                 if operation.op_type == OperationType::Load {
-                    operand_mapping.insert(variable.clone(), operation.operands[0].clone());
+                    if let Some(first_operand) = operation.operands.first() {
+                        match first_operand {
+                            Operand::Identifier(id) => {
+                                operand_mapping.insert(variable.clone(), id.clone());
+                            }
+                            Operand::Reference(Reference::Named(name)) => {
+                                operand_mapping.insert(variable.clone(), name.clone());
+                            }
+                            Operand::Reference(Reference::Position(pos)) => {
+                                operand_mapping.insert(variable.clone(), format!("${}", pos));
+                            }
+                            Operand::StringLiteral(s) => {
+                                operand_mapping.insert(variable.clone(), format!("\"{}\"", s));
+                            }
+                            Operand::NumberLiteral(n) => {
+                                operand_mapping.insert(variable.clone(), n.to_string());
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -561,6 +577,24 @@ impl DDlogGenerator {
             } = instr
             {
                 let op_type = &operation.op_type;
+                let left = match &operation.operands[0] {
+                    Operand::Identifier(id) => operand_mapping.get(id).unwrap_or(id).clone(),
+                    Operand::Reference(ref_val) => match ref_val {
+                        Reference::Named(name) => format!("rhs_{}", name),
+                        Reference::Position(pos) => format!("${}", pos),
+                    },
+                    Operand::StringLiteral(s) => format!("\"{}\"", s),
+                    Operand::NumberLiteral(n) => n.to_string(),
+                };
+                let right = match &operation.operands[1] {
+                    Operand::Identifier(id) => operand_mapping.get(id).unwrap_or(id).clone(),
+                    Operand::Reference(ref_val) => match ref_val {
+                        Reference::Named(name) => format!("rhs_{}", name),
+                        Reference::Position(pos) => format!("${}", pos),
+                    },
+                    Operand::StringLiteral(s) => format!("\"{}\"", s),
+                    Operand::NumberLiteral(n) => n.to_string(),
+                };
                 if let Some(operator) = operator_mapping.get(op_type) {
                     match op_type {
                         // Infix operators (arithmetic and logical)
@@ -574,18 +608,31 @@ impl DDlogGenerator {
                         | OperationType::Or
                         | OperationType::Add => {
                             if operation.operands.len() == 2 {
-                                let left = operand_mapping
-                                    .get(&operation.operands[0])
-                                    .unwrap_or(&operation.operands[0]);
-                                let right = operand_mapping
-                                    .get(&operation.operands[1])
-                                    .unwrap_or(&operation.operands[1]);
+                                let left = match &operation.operands[0] {
+                                    Operand::Identifier(id) => operand_mapping.get(id).unwrap_or(id).clone(),
+                                    Operand::Reference(Reference::Named(name)) => format!("rhs_{}", name),
+                                    Operand::Reference(Reference::Position(pos)) => format!("${}", pos),
+                                    Operand::StringLiteral(s) => format!("\"{}\"", s),
+                                    Operand::NumberLiteral(n) => n.to_string(),
+                                };
+                                let right = match &operation.operands[1] {
+                                    Operand::Identifier(id) => operand_mapping.get(id).unwrap_or(id).clone(),
+                                    Operand::Reference(Reference::Named(name)) => format!("rhs_{}", name),
+                                    Operand::Reference(Reference::Position(pos)) => format!("${}", pos),
+                                    Operand::StringLiteral(s) => format!("\"{}\"", s),
+                                    Operand::NumberLiteral(n) => n.to_string(),
+                                };
 
-                                // Handle string concatenation specially
+                                // Handle string concatenation and addition specially
                                 if *op_type == OperationType::Concat {
                                     expressions.push(format!(
                                         "var {} = {} {} {}",
                                         variable, left, operator, right
+                                    ));
+                                } else if *op_type == OperationType::Add {
+                                    expressions.push(format!(
+                                        "var {} = {} + {}",
+                                        variable, left, right
                                     ));
                                 } else {
                                     expressions.push(format!("{} {} {}", left, operator, right));
@@ -596,9 +643,13 @@ impl DDlogGenerator {
                         // Prefix operators
                         OperationType::Not => {
                             if operation.operands.len() == 1 {
-                                let operand = operand_mapping
-                                    .get(&operation.operands[0])
-                                    .unwrap_or(&operation.operands[0]);
+                                let operand = match &operation.operands[0] {
+                                    Operand::Identifier(id) => operand_mapping.get(id).unwrap_or(id).clone(),
+                                    Operand::Reference(Reference::Named(name)) => format!("rhs_{}", name),
+                                    Operand::Reference(Reference::Position(pos)) => format!("${}", pos),
+                                    Operand::StringLiteral(s) => format!("\"{}\"", s),
+                                    Operand::NumberLiteral(n) => n.to_string(),
+                                };
                                 expressions.push(format!("{}{}", operator, operand));
                             }
                         }
@@ -610,7 +661,15 @@ impl DDlogGenerator {
                             let operands_str = operation
                                 .operands
                                 .iter()
-                                .map(|op| operand_mapping.get(op).unwrap_or(op).clone())
+                                .map(|op| match op {
+                                    Operand::Identifier(id) => operand_mapping.get(id).unwrap_or(id).clone(),
+                                    Operand::Reference(ref_val) => match ref_val {
+                                        Reference::Named(name) => format!("rhs_{}", name),
+                                        Reference::Position(pos) => format!("${}", pos),
+                                    },
+                                    Operand::StringLiteral(s) => format!("\"{}\"", s),
+                                    Operand::NumberLiteral(n) => n.to_string(),
+                                })
                                 .collect::<Vec<_>>()
                                 .join(", ");
                             expressions.push(format!("{}({})", operator, operands_str));
@@ -621,7 +680,15 @@ impl DDlogGenerator {
                             let operands_str = operation
                                 .operands
                                 .iter()
-                                .map(|op| operand_mapping.get(op).unwrap_or(op).clone())
+                                .map(|op| match op {
+                                    Operand::Identifier(id) => operand_mapping.get(id).unwrap_or(id).clone(),
+                                    Operand::Reference(ref_val) => match ref_val {
+                                        Reference::Named(name) => format!("rhs_{}", name),
+                                        Reference::Position(pos) => format!("${}", pos),
+                                    },
+                                    Operand::StringLiteral(s) => format!("\"{}\"", s),
+                                    Operand::NumberLiteral(n) => n.to_string(),
+                                })
                                 .collect::<Vec<_>>()
                                 .join(", ");
                             expressions.push(format!("{}({})", operator, operands_str));
@@ -679,9 +746,15 @@ impl DDlogGenerator {
                     let resolved_operands: Vec<String> = operation
                         .operands
                         .iter()
-                        // remove $ prefix
-                        .map(|operand| operand.trim_start_matches('$'))
-                        .map(|operand| resolve_operands(operand, map))
+                        .map(|operand| match operand {
+                            Operand::Identifier(id) => resolve_operands(id, map),
+                            Operand::Reference(ref_val) => match ref_val {
+                                Reference::Named(name) => format!("rhs_{}", name),
+                                Reference::Position(pos) => format!("${}", pos),
+                            },
+                            Operand::StringLiteral(s) => format!("\"{}\"", s),
+                            Operand::NumberLiteral(n) => n.to_string(),
+                        })
                         .collect();
                     return resolved_operands.join(" ++ ");
                 }

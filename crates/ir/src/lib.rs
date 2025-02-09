@@ -199,9 +199,23 @@ pub enum SSAInstruction {
 
 /// Represents an SSA operation.
 #[derive(Clone, Debug, PartialEq)]
+pub enum Operand {
+    Reference(Reference),
+    Identifier(String),
+    StringLiteral(String),
+    NumberLiteral(i64),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Reference {
+    Position(usize),
+    Named(String),
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct SSAOperation {
     pub op_type: OperationType,
-    pub operands: Vec<String>,
+    pub operands: Vec<Operand>,
 }
 
 /// Enum for supported operation types in SSA.
@@ -411,13 +425,6 @@ impl fmt::Display for SSAInstruction {
     }
 }
 
-impl fmt::Display for SSAOperation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let operands = self.operands.join(", ");
-        write!(f, "{}({})", self.op_type, operands)
-    }
-}
-
 impl fmt::Display for OperationType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -453,6 +460,38 @@ impl fmt::Display for OperationType {
                 OperationType::Noop => "noop",
             }
         )
+    }
+}
+
+impl fmt::Display for Operand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Operand::Reference(ref_val) => write!(f, "{}", ref_val),
+            Operand::Identifier(id) => write!(f, "{}", id),
+            Operand::StringLiteral(s) => write!(f, "\"{}\"", s),
+            Operand::NumberLiteral(n) => write!(f, "{}", n),
+        }
+    }
+}
+
+impl fmt::Display for Reference {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Reference::Position(pos) => write!(f, "${}", pos),
+            Reference::Named(name) => write!(f, "${}", name),
+        }
+    }
+}
+
+impl fmt::Display for SSAOperation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let operands = self
+            .operands
+            .iter()
+            .map(|op| op.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        write!(f, "{}({})", self.op_type, operands)
     }
 }
 
@@ -693,22 +732,21 @@ mod parser {
                 let variable = inner.next().unwrap().as_str().to_string();
                 let identifier_or_operation = inner.next().unwrap();
                 match identifier_or_operation.as_rule() {
-                    Rule::identifier => {
-                        SSAInstruction::Assignment {
-                            variable,
-                            operation: SSAOperation {
-                                op_type: OperationType::Load, // Treat variable assignment as a Load
-                                operands: vec![identifier_or_operation.as_str().to_string()],
-                            },
-                        }
-                    }
+                    Rule::identifier => SSAInstruction::Assignment {
+                        variable,
+                        operation: SSAOperation {
+                            op_type: OperationType::Load,
+                            operands: vec![Operand::Identifier(
+                                identifier_or_operation.as_str().to_string(),
+                            )],
+                        },
+                    },
                     Rule::ssa_operation => SSAInstruction::Assignment {
                         variable,
                         operation: parse_ssa_operation(identifier_or_operation),
                     },
                     x => panic!("Unsupported SSA assignment: {:?}", x),
                 }
-                //let operation = parse_ssa_operation(inner.next().unwrap());
             }
             Rule::goto => {
                 let label = parsed.into_inner().next().unwrap().as_str().to_string();
@@ -743,16 +781,43 @@ mod parser {
         let label = parsed.into_inner().next().unwrap().as_str().to_string();
         SSAInstruction::Goto(label)
     }
+
+    fn parse_operand(parsed: Pair<Rule>) -> Operand {
+        match parsed.as_rule() {
+            Rule::operand => parse_operand(parsed.into_inner().next().unwrap()),
+            Rule::identifier => Operand::Identifier(parsed.as_str().to_string()),
+            Rule::string_literal => {
+                let s = parsed.as_str();
+                // Remove surrounding quotes
+                let s = &s[1..s.len() - 1];
+                Operand::StringLiteral(s.to_string())
+            }
+            Rule::reference => {
+                let s = parsed.as_str();
+                if let Some(pos_str) = s.strip_prefix('$') {
+                    if let Ok(pos) = pos_str.parse::<usize>() {
+                        Operand::Reference(Reference::Position(pos))
+                    } else {
+                        Operand::Reference(Reference::Named(pos_str.to_string()))
+                    }
+                } else {
+                    panic!("Invalid reference format: {}", s);
+                }
+            }
+            _ => panic!("Unsupported operand type: {:?}", parsed.as_rule()),
+        }
+    }
+
     fn parse_ssa_operation(parsed: Pair<Rule>) -> SSAOperation {
         match parsed.as_rule() {
             Rule::ssa_operation => {
                 let mut inner = parsed.into_inner();
                 let op_type = parse_operation_type(inner.next().unwrap().as_str());
-                let operands: Vec<String> = inner
+                let operands = inner
                     .next()
                     .unwrap()
                     .into_inner()
-                    .map(|o| o.as_str().to_string())
+                    .map(parse_operand)
                     .collect();
 
                 SSAOperation { op_type, operands }
@@ -1060,52 +1125,112 @@ rules {
 
         assert_eq!(program.to_string(), expected_output);
     }
+    #[test]
+    fn test_parse_operands() {
+        let input = r#"
+    relations {
+        test_relation(x: String): Input;
+    }
+    rules {
+        test_relation(x) => test_relation(y) {
+            t1 = add($1, "hello");
+            t2 = concat($varname, $2);
+            t3 = load(identifier);
+        }
+    }
+    "#;
+
+        let pair = IRParser::parse(Rule::ir, input)
+            .expect("Failed to parse input")
+            .next()
+            .unwrap();
+
+        let program = parse_ir_program(pair);
+        let rule = &program.rules[0];
+
+        if let Some(ssa_block) = &rule.ssa_block {
+            let instructions = &ssa_block.instructions;
+
+            // Check first instruction operands
+            if let SSAInstruction::Assignment { operation, .. } = &instructions[0] {
+                assert_eq!(
+                    operation.operands[0],
+                    Operand::Reference(Reference::Position(1))
+                );
+                assert_eq!(
+                    operation.operands[1],
+                    Operand::StringLiteral("hello".to_string())
+                );
+            }
+
+            // Check second instruction operands
+            if let SSAInstruction::Assignment { operation, .. } = &instructions[1] {
+                assert_eq!(
+                    operation.operands[0],
+                    Operand::Reference(Reference::Named("varname".to_string()))
+                );
+                assert_eq!(
+                    operation.operands[1],
+                    Operand::Reference(Reference::Position(2))
+                );
+            }
+
+            // Check third instruction operands
+            if let SSAInstruction::Assignment { operation, .. } = &instructions[2] {
+                assert_eq!(
+                    operation.operands[0],
+                    Operand::Identifier("identifier".to_string())
+                );
+            }
+        }
+    }
 
     #[test]
     fn test_serialize_rules_with_ssa() {
-        let rules = vec![IRRule {
-            lhs: LHSNode {
-                relation_name: "output_relation".to_string(),
-                output_attributes: HashSet::from(["x".to_string()]),
-            },
-            rhs: RHSVal::NestedRHS(vec![
-                RHSVal::RHSNode(RHSNode {
-                    relation_name: "input_relation".to_string(),
-                    attributes: HashSet::from(["a".to_string(), "b".to_string()]),
-                }),
-                RHSVal::RHSNode(RHSNode {
-                    relation_name: "temp_relation".to_string(),
-                    attributes: HashSet::from(["c".to_string()]),
-                }),
-            ]),
-            ssa_block: Some(SSAInstructionBlock {
-                instructions: vec![
-                    SSAInstruction::Label("L1".to_string()),
-                    SSAInstruction::Assignment {
-                        variable: "t1".to_string(),
-                        operation: SSAOperation {
-                            op_type: OperationType::Load,
-                            operands: vec!["a".to_string()],
+        fn test_serialize_rules_with_ssa() {
+            let rules = vec![IRRule {
+                lhs: LHSNode {
+                    relation_name: "output_relation".to_string(),
+                    output_attributes: HashSet::from(["x".to_string()]),
+                },
+                rhs: RHSVal::NestedRHS(vec![
+                    RHSVal::RHSNode(RHSNode {
+                        relation_name: "input_relation".to_string(),
+                        attributes: HashSet::from(["a".to_string(), "b".to_string()]),
+                    }),
+                    RHSVal::RHSNode(RHSNode {
+                        relation_name: "temp_relation".to_string(),
+                        attributes: HashSet::from(["c".to_string()]),
+                    }),
+                ]),
+                ssa_block: Some(SSAInstructionBlock {
+                    instructions: vec![
+                        SSAInstruction::Label("L1".to_string()),
+                        SSAInstruction::Assignment {
+                            variable: "t1".to_string(),
+                            operation: SSAOperation {
+                                op_type: OperationType::Load,
+                                operands: vec!["a".to_string()],
+                            },
                         },
-                    },
-                    SSAInstruction::Assignment {
-                        variable: "t2".to_string(),
-                        operation: SSAOperation {
-                            op_type: OperationType::Add,
-                            operands: vec!["t1".to_string(), "b".to_string()],
+                        SSAInstruction::Assignment {
+                            variable: "t2".to_string(),
+                            operation: SSAOperation {
+                                op_type: OperationType::Add,
+                                operands: vec!["t1".to_string(), "b".to_string()],
+                            },
                         },
-                    },
-                    SSAInstruction::Goto("L2".to_string()),
-                ],
-            }),
-        }];
+                        SSAInstruction::Goto("L2".to_string()),
+                    ],
+                }),
+            }];
 
-        let program = IRProgram {
-            relations: vec![],
-            rules,
-        };
+            let program = IRProgram {
+                relations: vec![],
+                rules,
+            };
 
-        let expected_output = r#"relations {
+            let expected_output = r#"relations {
 }
 
 rules {
@@ -1117,6 +1242,7 @@ rules {
     }
 }"#;
 
-        assert_eq!(program.to_string(), expected_output);
+            assert_eq!(program.to_string(), expected_output);
+        }
     }
 }

@@ -65,10 +65,18 @@ string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
 // Operands can be either identifiers or string literals
 operands = { operand ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ operand)* }
 
-// Defines a reference operand starting with '$' followed by an identifier
-reference = @{ "$" ~ (ASCII_ALPHANUMERIC | "_")+ }
+// Defines references that can be either named ($varname) or positional ($1, $2)
+// Only used within SSA instructions for referencing values
+reference = @{ "$" ~ (position_reference | named_reference) }
+
+// Named reference using identifiers
+named_reference = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+
+// Simple positional reference using numbers (1-based indexing)
+position_reference = @{ ASCII_DIGIT+ }
 
 // Defines a single operand which can be an identifier, string literal, or reference
+// References ($1, $varname) are only valid in SSA instructions
 operand = { identifier | string_literal | reference }
 
 // Defines the types of operations supported in SSA (e.g., arithmetic, logical, and data operations).

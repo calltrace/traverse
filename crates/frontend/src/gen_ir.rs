@@ -1,11 +1,11 @@
 use crate::{dsl::Lval, parser::parse};
 
-use ir::RelationRef;
 use ir::{
     Attribute, AttributeType, IRProgram, IRRule, LHSNode, OperationType, RHSNode, RHSVal,
     RelationRole as IRRelationRole, RelationType as IRRelationType, SSAInstruction,
     SSAInstructionBlock, SSAOperation,
 };
+use ir::{Operand, Reference, RelationRef};
 
 use core::fmt;
 use indexmap::IndexMap;
@@ -1002,7 +1002,9 @@ impl IrGenerator {
                                 variable: temp_var.clone(),
                                 operation: SSAOperation {
                                     op_type: OperationType::Load,
-                                    operands: vec![pred_name.clone()],
+                                    operands: vec![Operand::Reference(Reference::Named(
+                                        pred_name.clone(),
+                                    ))],
                                 },
                             });
                             operand_map.insert(result_var.clone(), temp_var);
@@ -1024,15 +1026,22 @@ impl IrGenerator {
                                     variable: temp_var.clone(),
                                     operation: SSAOperation {
                                         op_type: OperationType::Load,
-                                        operands: vec![arg.clone()],
+                                        operands: vec![Operand::Reference(Reference::Named(
+                                            arg.clone(),
+                                        ))],
                                     },
                                 });
                                 temp_var
                             }
                         })
-                        .collect();
+                        .collect::<Vec<String>>();
 
                     // Add the predicate operation
+                    // map operand names (string) to Operand objects
+                    let operands = operands
+                        .iter()
+                        .map(|op| Operand::Reference(Reference::Named(op.clone())))
+                        .collect();
                     instructions.push(SSAInstruction::Assignment {
                         variable: result_var.clone(),
                         operation: SSAOperation { op_type, operands },
@@ -1080,8 +1089,8 @@ impl IrGenerator {
                         .map(|p| {
                             let param_name = &p[1..];
 
-                            // TODO: implement type annotations for parameters. 
-                            // HACK: anything that has 'id' in it's name is a number, and the rest is string. 
+                            // TODO: implement type annotations for parameters.
+                            // HACK: anything that has 'id' in it's name is a number, and the rest is string.
                             let attr_type = if param_name.ends_with("_id") {
                                 AttributeType::Number
                             } else {
@@ -1089,7 +1098,7 @@ impl IrGenerator {
                             };
                             Attribute {
                                 name: param_name.to_string(),
-                                attr_type
+                                attr_type,
                             }
                         })
                         .collect();
@@ -1113,7 +1122,6 @@ impl IrGenerator {
                         let predicate_instructions =
                             inference_predicates_to_ssa(predicates, context);
                         instructions.extend(predicate_instructions);
-
 
                         // Add RHS nodes for relation lookups
                         for predicate in predicates {
@@ -1177,6 +1185,14 @@ impl IrGenerator {
                                                     .collect();
 
                                                 let temp_var = context.generate_temp_var();
+                                                let operands = operands
+                                                    .iter()
+                                                    .map(|op| {
+                                                        Operand::Reference(Reference::Named(
+                                                            op.clone(),
+                                                        ))
+                                                    })
+                                                    .collect();
                                                 instructions.push(SSAInstruction::Assignment {
                                                     variable: temp_var,
                                                     operation: SSAOperation {
@@ -1290,17 +1306,19 @@ impl IrGenerator {
                                                                         operands: if last_var
                                                                             .is_empty()
                                                                         {
-                                                                            vec![format!(
+                                                                            vec![Operand::Reference(Reference::Named(format!(
                                                                                 "\"{}\"",
                                                                                 text
-                                                                            )]
+                                                                            )))]
                                                                         } else {
                                                                             vec![
-                                                                                last_var.clone(),
-                                                                                format!(
+                                                                                Operand::Reference(Reference::Named(
+                                                                                    last_var.clone(),
+                                                                                )),
+                                                                                Operand::Reference(Reference::Named(format!(
                                                                                     "\"{}\"",
                                                                                     text
-                                                                                ),
+                                                                                ))),
                                                                             ]
                                                                         },
                                                                     },
@@ -1317,11 +1335,17 @@ impl IrGenerator {
                                                                         operands: if last_var
                                                                             .is_empty()
                                                                         {
-                                                                            vec![var.clone()]
+                                                                            vec![Operand::Reference(Reference::Named(
+                                                                                var.clone(),
+                                                                            ))]
                                                                         } else {
                                                                             vec![
-                                                                                last_var.clone(),
-                                                                                var.clone(),
+                                                                                Operand::Reference(Reference::Named(
+                                                                                    last_var.clone(),
+                                                                                )),
+                                                                                Operand::Reference(Reference::Named(
+                                                                                    var.clone(),
+                                                                                )),
                                                                             ]
                                                                         },
                                                                     },
@@ -1404,7 +1428,17 @@ impl IrGenerator {
                             variable: temp_var.clone(),
                             operation: SSAOperation {
                                 op_type: OperationType::Load,
-                                operands: vec![sym.clone()],
+                                operands: vec![Operand::Identifier(sym.clone())],
+                            },
+                        });
+                        instructions.push(SSAInstruction::Assignment {
+                            variable: temp_var.clone(),
+                            operation: SSAOperation {
+                                op_type: OperationType::Load,
+                                operands: vec![Operand::Reference(Reference::Named(format!(
+                                    "rhs_{}",
+                                    &sym[1..]
+                                )))],
                             },
                         });
                     }
@@ -1413,7 +1447,10 @@ impl IrGenerator {
                             variable: temp_var.clone(),
                             operation: SSAOperation {
                                 op_type: OperationType::Load,
-                                operands: vec![format!("rhs_{}", capture[1..].to_string())],
+                                operands: vec![Operand::Reference(Reference::Named(format!(
+                                    "rhs_{}",
+                                    &capture[1..]
+                                )))],
                             },
                         });
                     }
@@ -1422,7 +1459,7 @@ impl IrGenerator {
                             variable: temp_var.clone(),
                             operation: SSAOperation {
                                 op_type: OperationType::Load,
-                                operands: vec![num.to_string()],
+                                operands: vec![Operand::NumberLiteral(*num)],
                             },
                         });
                     }
@@ -1431,7 +1468,7 @@ impl IrGenerator {
                             variable: temp_var.clone(),
                             operation: SSAOperation {
                                 op_type: OperationType::Load,
-                                operands: vec![s.clone()],
+                                operands: vec![Operand::StringLiteral(s.clone())]
                             },
                         });
                     }
@@ -1448,7 +1485,7 @@ impl IrGenerator {
                     }
                 }
 
-                operand_vars.push(temp_var);
+                operand_vars.push(Operand::Reference(Reference::Named(temp_var.clone())));
             }
             //
             // Create the logical/comparison instruction

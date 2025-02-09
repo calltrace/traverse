@@ -1,7 +1,6 @@
 
 use crate::{
-    AttributeType, IRProgram, IRRule, LHSNode, OperationType, RHSNode, RHSVal, RelationRole,
-    RelationType, SSAInstruction, SSAInstructionBlock, SSAOperation,
+    AttributeType, IRProgram, IRRule, LHSNode, Operand, OperationType, RHSNode, RHSVal, Reference, RelationRole, RelationType, SSAInstruction, SSAInstructionBlock, SSAOperation
 };
 
 /// Formats an IR program with configurable indentation, spacing and optional syntax highlighting.
@@ -204,11 +203,32 @@ impl IRFormatter {
     }
 
     fn format_ssa_operation(&self, operation: &SSAOperation) -> String {
+        let formatted_operands = operation.operands.iter()
+            .map(|op| self.format_operand(op))
+            .collect::<Vec<_>>()
+            .join(", ");
+            
         format!(
             "{}({})",
             self.format_operation_type(&operation.op_type),
-            operation.operands.join(", ")
+            formatted_operands
         )
+    }
+
+    fn format_operand(&self, operand: &Operand) -> String {
+        match operand {
+            Operand::Reference(ref_val) => self.format_reference(ref_val),
+            Operand::Identifier(id) => id.clone(),
+            Operand::StringLiteral(s) => format!("\"{}\"", s),
+            Operand::NumberLiteral(n) => n.to_string(),
+        }
+    }
+
+    fn format_reference(&self, reference: &Reference) -> String {
+        match reference {
+            Reference::Position(pos) => format!("${}", pos),
+            Reference::Named(name) => format!("${}", name),
+        }
     }
 
     fn format_operation_type(&self, op_type: &OperationType) -> &'static str {
@@ -251,6 +271,53 @@ mod tests {
     use crate::RelationRole;
     use std::collections::HashSet;
 
+    #[test]
+    fn test_format_references() {
+        let program = IRProgram {
+            relations: vec![],
+            rules: vec![IRRule {
+                lhs: LHSNode {
+                    relation_name: "output".to_string(),
+                    output_attributes: HashSet::from(["result".to_string()]),
+                },
+                rhs: RHSVal::RHSNode(RHSNode {
+                    relation_name: "input".to_string(),
+                    attributes: HashSet::from(["value".to_string()]),
+                }),
+                ssa_block: Some(SSAInstructionBlock {
+                    instructions: vec![
+                        SSAInstruction::Assignment {
+                            variable: "t1".to_string(),
+                            operation: SSAOperation {
+                                op_type: OperationType::Load,
+                                operands: vec![
+                                    Operand::Reference(Reference::Position(1)),
+                                    Operand::Reference(Reference::Named("value".to_string())),
+                                    Operand::StringLiteral("test".to_string()),
+                                ],
+                            },
+                        },
+                    ],
+                }),
+            }],
+        };
+
+        let formatter = IRFormatter::default();
+        let formatted = formatter.format(&program);
+
+        let expected = r#"relations {
+}
+
+rules {
+output(result) => input(value) {
+    t1 = load($1, $value, "test");
+}
+}"#;
+
+        assert_eq!(formatted, expected);
+    }
+
+    
     #[test]
     fn test_highlighting() {
         let program = crate::IRProgram {
@@ -331,6 +398,35 @@ rules {}"#;
                             variable: "t1".to_string(),
                             operation: SSAOperation {
                                 op_type: OperationType::Load,
+                                operands: vec![Operand::Reference(Reference::Named("a".to_string()))],
+                            },
+                        },
+                    ],
+                }),
+            }],
+        };
+    }
+
+    #[test]
+    fn test_format_program_with_ssa() {
+        let program = IRProgram {
+            relations: vec![],
+            rules: vec![IRRule {
+                lhs: LHSNode {
+                    relation_name: "output".to_string(),
+                    output_attributes: HashSet::from(["x".to_string()]),
+                },
+                rhs: RHSVal::RHSNode(RHSNode {
+                    relation_name: "input".to_string(),
+                    attributes: HashSet::from(["a".to_string()]),
+                }),
+                ssa_block: Some(SSAInstructionBlock {
+                    instructions: vec![
+                        SSAInstruction::Label("L1".to_string()),
+                        SSAInstruction::Assignment {
+                            variable: "t1".to_string(),
+                            operation: SSAOperation {
+                                op_type: OperationType::Load,
                                 operands: vec!["a".to_string()],
                             },
                         },
@@ -343,8 +439,6 @@ rules {}"#;
         let formatted = formatter.format(&program);
 
         let expected = r#"relations {
-}
-
 rules {
     output(x) => input(a) {
         L1:
@@ -379,5 +473,6 @@ rules {
 rules {}"#;
 
         assert_eq!(formatted, expected);
+    
     }
 }

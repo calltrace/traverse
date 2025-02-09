@@ -1,6 +1,5 @@
 use crate::{
-    AttributeType, IRProgram, IRRule, LHSNode, OperationType, RHSNode, RHSVal, RelationRole,
-    RelationType, SSAInstruction, SSAOperation,
+    AttributeType, IRProgram, IRRule, LHSNode, Operand, OperationType, RHSNode, RHSVal, Reference, RelationRole, RelationType, SSAInstruction, SSAOperation
 };
 use std::fmt::{self, Display};
 
@@ -281,10 +280,35 @@ fn highlight_ssa_assignment(variable: &str, operation: &SSAOperation) -> Vec<Hig
                 color: HighlightColor::Delimiter,
             });
         }
-        result.push(Highlighted {
-            content: operand.clone(),
-            color: HighlightColor::Variable,
-        });
+        match operand {
+            Operand::Reference(ref_val) => {
+                result.push(Highlighted {
+                    content: match ref_val {
+                        Reference::Position(pos) => format!("${}", pos),
+                        Reference::Named(name) => format!("${}", name),
+                    },
+                    color: HighlightColor::Type, // Using Type color to make references stand out
+                });
+            }
+            Operand::Identifier(id) => {
+                result.push(Highlighted {
+                    content: id.clone(),
+                    color: HighlightColor::Variable,
+                });
+            }
+            Operand::StringLiteral(s) => {
+                result.push(Highlighted {
+                    content: format!("\"{}\"", s),
+                    color: HighlightColor::Operation, // Using Operation color for string literals
+                });
+            }
+            Operand::NumberLiteral(n) => {
+                result.push(Highlighted {
+                    content: n.to_string(),
+                    color: HighlightColor::Type, // Using Type color for number literals
+                });
+            }
+        }
     }
 
     result.push(Highlighted {
