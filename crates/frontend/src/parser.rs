@@ -95,7 +95,7 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
 
             while let Some(element) = inner.next() {
                 match element.as_rule() {
-                    Rule::predicate => {
+                    Rule::predicate_expr => {
                         predicates.push(lval_read(element)?);
                     }
                     Rule::computation => {
@@ -107,6 +107,25 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
 
             Ok(Lval::inference_path(predicates, computation))
         }
+
+        Rule::predicate_expr => {
+            let mut inner = parsed.into_inner();
+            let first = inner.next().unwrap();
+
+            match first.as_rule() {
+                Rule::prefix_predicate => {
+                    let mut prefix_inner = first.into_inner();
+                    let prefix_op = prefix_inner.next().unwrap().as_str();
+                    let predicate = lval_read(prefix_inner.next().unwrap())?;
+                    Ok(Lval::prefix_predicate(prefix_op, predicate))
+                },
+                Rule::predicate => {
+                    lval_read(first)
+                },
+                _ => Err(Error::Parse("Invalid predicate expression".to_string()))
+            }
+        }
+
         Rule::predicate => {
             let mut inner = parsed.into_inner();
             let identifier = inner.next().unwrap().as_str();

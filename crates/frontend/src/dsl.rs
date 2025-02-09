@@ -42,9 +42,12 @@ pub enum Lval {
     Inference(String, Vec<String>, Vec<Box<Lval>>), // (relation_name, parameters, inference_paths)
     InferencePath(Vec<Box<Lval>>, Option<Box<Lval>>), // (predicates, optional_computation)
     Predicate(String, Vec<String>),                 // (identifier, arguments)
+    PrefixPredicate(String, Box<Lval>),
+    PredicateExpr(Box<Lval>),
     Computation(String, Box<Lval>),                 // (variable, qexpr)
     RulesBlock(Vec<Box<Lval>>),             // (relation_name, rules)
 }
+
 impl Lval {
     pub fn rules_block(rules: Vec<Box<Lval>>) -> Box<Lval> {
         Box::new(Lval::RulesBlock(rules))
@@ -59,6 +62,14 @@ impl Lval {
 
     pub fn predicate(identifier: &str, arguments: Vec<String>) -> Box<Lval> {
         Box::new(Lval::Predicate(identifier.to_string(), arguments))
+    }
+
+    pub fn prefix_predicate(prefix: &str, predicate: Box<Lval>) -> Box<Lval> {
+        Box::new(Lval::PrefixPredicate(prefix.to_string(), predicate))
+    }
+
+    pub fn predicate_expr(predicate: Box<Lval>) -> Box<Lval> {
+        Box::new(Lval::PredicateExpr(predicate))
     }
 
     pub fn computation(variable: &str, qexpr: Box<Lval>) -> Box<Lval> {
@@ -291,6 +302,12 @@ impl fmt::Display for Lval {
             }
             Lval::Predicate(identifier, arguments) => {
                 write!(f, "({} {})", identifier, arguments.join(", "))
+            }
+            Lval::PrefixPredicate(prefix, predicate) => {
+                write!(f, "({} {})", prefix, predicate)
+            }
+            Lval::PredicateExpr(predicate) => {
+                write!(f, "{}", predicate)
             }
             Lval::Computation(variable, qexpr) => {
                 write!(f, "(compute {} {})", variable, qexpr)
