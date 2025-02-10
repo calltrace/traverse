@@ -953,21 +953,15 @@ impl IrGenerator {
         }
 
         /// Maps inference predicates to SSA operations
-        fn inference_predicates_to_ssa(
-            predicates: &[Box<Lval>],
+        fn process_single_predicate(
+            predicate: &Lval,
             context: &mut SSAContext,
-        ) -> Vec<SSAInstruction> {
+        ) -> Result<(Vec<SSAInstruction>, String)> {
             let mut instructions = Vec::new();
-            let mut operand_map = HashMap::new();
+            let result_var = context.generate_temp_var();
 
-            let predicate_group_label = context.generate_label();
-            instructions.push(SSAInstruction::Label(predicate_group_label.clone()));
-            for predicate in predicates {
-                if let Lval::Predicate(pred_name, arguments) = &**predicate {
-                    // generate a label for the predicate
-                    // Generate a unique temp var for this predicate
-                    let result_var = context.generate_temp_var();
-
+            match predicate {
+                Lval::Predicate(pred_name, arguments) => {
                     let op_type = match pred_name.as_str() {
                         // Comparison predicates
                         "equals" => OperationType::Eq,
@@ -996,10 +990,13 @@ impl IrGenerator {
 
                         // For unknown predicates, treat as a relation lookup
                         _ => {
-                            // Store relation lookup result in temp var
-                            let temp_var = context.generate_temp_var();
+                            return Err(Error::GenerationError(format!(
+                                "Unknown predicate: {}",
+                                pred_name
+                            )));
+                            /*
                             instructions.push(SSAInstruction::Assignment {
-                                variable: temp_var.clone(),
+                                variable: result_var.clone(),
                                 operation: SSAOperation {
                                     op_type: OperationType::Load,
                                     operands: vec![Operand::Reference(Reference::Named(
@@ -1007,8 +1004,8 @@ impl IrGenerator {
                                     ))],
                                 },
                             });
-                            operand_map.insert(result_var.clone(), temp_var);
-                            continue;
+                            return (instructions, result_var);
+                            */
                         }
                     };
 
@@ -1034,10 +1031,9 @@ impl IrGenerator {
                                 temp_var
                             }
                         })
-                        .collect::<Vec<String>>();
+                        .collect();
 
                     // Add the predicate operation
-                    // map operand names (string) to Operand objects
                     let operands = operands
                         .iter()
                         .map(|op| Operand::Reference(Reference::Named(op.clone())))
@@ -1046,6 +1042,54 @@ impl IrGenerator {
                         variable: result_var.clone(),
                         operation: SSAOperation { op_type, operands },
                     });
+                }
+                Lval::PrefixPredicate(prefix_name, inner_predicate) => {
+                    // First process the inner predicate
+                    if let Ok((mut inner_instructions, inner_result)) =
+                        process_single_predicate(inner_predicate, context)
+                    {
+                        instructions.extend(inner_instructions);
+
+                        // Then wrap it with the prefix operation
+                        let op_type = match prefix_name.as_str() {
+                            "not" => OperationType::Not,
+                            // Add other prefix operations as needed
+                            _ => panic!("Unknown prefix predicate: {}", prefix_name),
+                        };
+
+                        instructions.push(SSAInstruction::Assignment {
+                            variable: result_var.clone(),
+                            operation: SSAOperation {
+                                op_type,
+                                operands: vec![Operand::Reference(Reference::Named(inner_result))],
+                            },
+                        });
+                    } else {
+                        return Err(Error::GenerationError(format!(
+                            "Invalid prefix predicate: {}",
+                            prefix_name
+                        )));
+                    }
+                }
+                _ => panic!("Invalid predicate type"),
+            }
+
+            Ok((instructions, result_var))
+        }
+
+        fn inference_predicates_to_ssa(
+            predicates: &[Box<Lval>],
+            context: &mut SSAContext,
+        ) -> Vec<SSAInstruction> {
+            let mut instructions = Vec::new();
+            let predicate_group_label = context.generate_label();
+            instructions.push(SSAInstruction::Label(predicate_group_label.clone()));
+
+            for predicate in predicates {
+                if let Ok((mut pred_instructions, _result_var)) =
+                    process_single_predicate(predicate, context)
+                {
+                    instructions.append(&mut pred_instructions);
                 }
             }
 
@@ -1059,25 +1103,41 @@ impl IrGenerator {
             infer_rules: &mut VecDeque<IRRule>,
         ) -> Result<()> {
             if let Lval::Inference(relation_name, params, inference_paths) = lval {
+                let mut input_relations_pos = HashMap::new();
                 // Create the output relation if it doesn't exist
                 if !ir_program
                     .relations
                     .iter()
                     .any(|r| r.name == *relation_name)
                 {
-                    // First collect all predicates to find input relations
+                    // First collect all predicates to find input relations. We have to consider
+                    // predicates that are associated with a prefix operator (e.g. Not).
                     let mut input_relations = HashMap::new();
+                    let mut cur_pos = 0;
                     for path in inference_paths {
                         if let Lval::InferencePath(predicates, _) = &**path {
                             for predicate in predicates {
-                                if let Lval::Predicate(pred_name, _) = &**predicate {
-                                    if let Some(rel) = ir_program
-                                        .relations
-                                        .iter()
-                                        .find(|r| r.name == to_pascal_case(pred_name))
-                                    {
-                                        input_relations.insert(pred_name.clone(), rel);
+                                let pred_name = match &**predicate {
+                                    Lval::Predicate(name, _) => name,
+                                    Lval::PrefixPredicate(_, inner_pred) => {
+                                        if let Lval::Predicate(name, _) = &**inner_pred {
+                                            name
+                                        } else {
+                                            continue;
+                                        }
                                     }
+                                    _ => continue,
+                                };
+
+                                if let Some(rel) = ir_program
+                                    .relations
+                                    .iter()
+                                    .find(|r| r.name == to_pascal_case(pred_name))
+                                {
+                                    let input_rel_name = to_pascal_case(pred_name);
+                                    input_relations.insert(input_rel_name, rel);
+                                    input_relations_pos.insert(cur_pos, rel.clone());
+                                    cur_pos += 1;
                                 }
                             }
                         }
@@ -1124,8 +1184,66 @@ impl IrGenerator {
                         instructions.extend(predicate_instructions);
 
                         // Add RHS nodes for relation lookups
-                        for predicate in predicates {
-                            if let Lval::Predicate(pred_name, arguments) = &**predicate {
+                        for (position, predicate) in predicates.iter().enumerate() {
+                            if let Lval::PrefixPredicate(prefix_pred_name, embedded_predicate) =
+                                &**predicate
+                            {
+                                // First get the position from the embedded predicate
+                                let rhs_node = if let Lval::Predicate(pred_name, arguments) =
+                                    &**embedded_predicate
+                                {
+                                    RHSVal::RHSNode(RHSNode {
+                                        relation_name: to_pascal_case(pred_name),
+                                        attributes: arguments
+                                            .iter()
+                                            .map(|arg| {
+                                                if arg.len() > 1 {
+                                                    arg[1..].to_string()
+                                                } else {
+                                                    arg.to_string()
+                                                }
+                                            })
+                                            .collect::<Vec<String>>(),
+                                    })
+                                } else {
+                                    return Err(Error::GenerationError(
+                                        "Invalid prefix predicate relation".to_string(),
+                                    ));
+                                };
+
+                                rhs_nodes.push(rhs_node);
+
+                                // TODO: Remove?
+                                // Load the relation result into a temp var
+                                let load_var = context.generate_temp_var();
+                                instructions.push(SSAInstruction::Assignment {
+                                    variable: load_var.clone(),
+                                    operation: SSAOperation {
+                                        op_type: OperationType::Load,
+                                        operands: vec![Operand::Reference(Reference::Position(
+                                            position,
+                                        ))],
+                                    },
+                                });
+
+                                // Apply the prefix operation
+                                let result_var = context.generate_temp_var();
+                                let op_type = match prefix_pred_name.as_str() {
+                                    "not" => OperationType::Not,
+                                    // Add other prefix operations as needed
+                                    _ => panic!("Unknown prefix predicate: {}", prefix_pred_name),
+                                };
+
+                                instructions.push(SSAInstruction::Assignment {
+                                    variable: result_var,
+                                    operation: SSAOperation {
+                                        op_type,
+                                        operands: vec![Operand::Reference(Reference::Named(
+                                            load_var,
+                                        ))],
+                                    },
+                                });
+                            } else if let Lval::Predicate(pred_name, arguments) = &**predicate {
                                 // Only create RHS nodes for actual relations, not built-in predicates
                                 if !matches!(
                                     pred_name.as_str(),
@@ -1468,7 +1586,7 @@ impl IrGenerator {
                             variable: temp_var.clone(),
                             operation: SSAOperation {
                                 op_type: OperationType::Load,
-                                operands: vec![Operand::StringLiteral(s.clone())]
+                                operands: vec![Operand::StringLiteral(s.clone())],
                             },
                         });
                     }

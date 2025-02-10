@@ -10,7 +10,9 @@ use crate::ddlog_lang::{
 };
 
 use ir::{
-    Attribute, AttributeType, IRProgram, IRRule, LHSNode, Operand, OperationType, RHSNode, RHSVal, Reference, RelationRole as IRRelationRole, RelationType as IRRelationType, SSAInstruction, SSAInstructionBlock, SSAOperation
+    Attribute, AttributeType, IRProgram, IRRule, LHSNode, Operand, OperationType, RHSNode, RHSVal,
+    Reference, RelationRole as IRRelationRole, RelationType as IRRelationType, SSAInstruction,
+    SSAInstructionBlock, SSAOperation,
 };
 
 const RESERVED_WORDS: &[&str] = &["else", "function", "type", "match", "var"];
@@ -78,13 +80,26 @@ impl DDlogGenerator {
         fn expand_rhs_val(val: &RHSVal) -> Vec<RuleRHS> {
             match val {
                 RHSVal::RHSNode(node) => {
+                    // Check if any attribute has a negation prefix and modify relation name accordingly
+                    let has_negation = node.attributes.iter().any(|attr| {
+                        if let Some(ref_name) = attr.strip_prefix('$') {
+                            ref_name.starts_with("not_")
+                        } else {
+                            false
+                        }
+                    });
+
                     // Create a RHSLiteral referencing the input relation
                     let literal = RuleRHS::RHSLiteral {
                         pos: Pos::nopos(),
                         polarity: true,
                         atom: Atom {
                             pos: Pos::nopos(),
-                            relation: node.relation_name.clone(),
+                            relation: if has_negation {
+                                format!("Not{}", node.relation_name)
+                            } else {
+                                node.relation_name.clone()
+                            },
                             delay: Delay::zero(),
                             diff: false,
                             value: Expr::new(ExprNode::EVar {
@@ -96,6 +111,13 @@ impl DDlogGenerator {
                                     .map(|s| {
                                         if s.starts_with("unused_") {
                                             "_".to_string()
+                                        } else if let Some(ref_name) = s.strip_prefix('$') {
+                                            // Remove the negation prefix if present
+                                            if ref_name.starts_with("not_") {
+                                                ref_name[4..].to_lowercase()
+                                            } else {
+                                                ref_name.to_lowercase()
+                                            }
                                         } else {
                                             s.to_lowercase()
                                         }
@@ -330,8 +352,104 @@ impl DDlogGenerator {
                     location: None,
                 };
 
-                let rhs_clauses = expand_rhs_val(&rule.rhs);
+                let mut rhs_clauses = expand_rhs_val(&rule.rhs);
                 let rhs_attributes = self.collect_all_rhs_attributes(&ir, &rule.rhs);
+
+                // Process SSA block to identify negations and modify relation names
+                if let Some(ssa_block) = &rule.ssa_block {
+                    // Build a map of variable assignments to track data flow
+                    let mut var_assignments: HashMap<String, Operand> = HashMap::new();
+                    let mut negated_vars: HashSet<String> = HashSet::new();
+
+                    // First pass: collect negated variables and build assignment map
+                    for instruction in &ssa_block.instructions {
+                        if let SSAInstruction::Assignment {
+                            variable,
+                            operation,
+                        } = instruction
+                        {
+                            match &operation.op_type {
+                                OperationType::Not => {
+                                    // Mark the output variable as negated
+                                    negated_vars.insert(variable.clone());
+                                    // Store the input operand for tracking
+                                    if let Some(operand) = operation.operands.first() {
+                                        var_assignments.insert(variable.clone(), operand.clone());
+                                    }
+                                }
+                                OperationType::Load => {
+                                    // Track load operations to map variables to their sources
+                                    if let Some(operand) = operation.operands.first() {
+                                        var_assignments.insert(variable.clone(), operand.clone());
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+
+                    let mut negated_positions = HashSet::new();
+                    for nv in negated_vars {
+                        if let Some(va) = var_assignments.get(&nv) {
+                            if let Operand::Reference(Reference::Named(name)) = va {
+                                // resolve the variable given it's name so that we can obtain it's
+                                // position within the RHS
+                                var_assignments.get(name).map(|v| {
+                                    if let Operand::Reference(Reference::Position(pos)) = v {
+                                        negated_positions.insert(*pos);
+                                    }
+                                });
+                            }
+                        } else {
+                            continue;
+                        }
+                    }
+
+                    // Second pass: modify relation names for negated positions
+                    if !negated_positions.is_empty() {
+                        // enumerate clauses and tthen iterate over the negated position to see if
+                        // there the index matches
+                        for (i, clause) in rhs_clauses.iter_mut().enumerate() {
+                            if let RuleRHS::RHSLiteral { atom, .. } = clause {
+                                // Check if this clause corresponds to a negated position
+                                if negated_positions.contains(&i) {
+                                    atom.relation = format!("not {}", atom.relation);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let Some(ssa_block) = &rule.ssa_block {
+                    let mut negated_positions = HashSet::new();
+
+                    // First pass: collect negated positions
+                    for instruction in &ssa_block.instructions {
+                        if let SSAInstruction::Assignment { operation, .. } = instruction {
+                            if operation.op_type == OperationType::Not {
+                                for operand in &operation.operands {
+                                    if let Operand::Reference(Reference::Position(pos)) = operand {
+                                        negated_positions.insert(*pos);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Second pass: modify relation names for negated positions
+                    if !negated_positions.is_empty() {
+                        for clause in &mut rhs_clauses {
+                            if let RuleRHS::RHSLiteral { atom, .. } = clause {
+                                // Check if this clause corresponds to a negated position
+                                if let Ok(pos) = atom.value.to_string().parse::<usize>() {
+                                    if negated_positions.contains(&pos) {
+                                        atom.relation = format!("Not{}", atom.relation);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 let mut conditions = Vec::new();
                 // HACK: the RI grammar should allow for disambiguating relations in terms of their
@@ -514,6 +632,7 @@ impl DDlogGenerator {
         instructions: &[SSAInstruction],
     ) -> Option<String> {
         let mut operand_mapping: HashMap<String, String> = HashMap::new();
+        let mut negation_refs: HashSet<String> = HashSet::new();
         let operator_mapping: HashMap<OperationType, String> = HashMap::from([
             // Comparison Operators
             (OperationType::Eq, "==".to_string()),
@@ -535,9 +654,19 @@ impl DDlogGenerator {
             (OperationType::Within, "within".to_string()),
             // Existence Check
             (OperationType::Exists, "exists".to_string()),
+            // Arithmetic Operators
+            (OperationType::Add, "+".to_string()),
+            (OperationType::Sub, "-".to_string()),
+            (OperationType::Mul, "*".to_string()),
+            (OperationType::Div, "/".to_string()),
+            (OperationType::Mod, "%".to_string()),
+            // String Operations
+            (OperationType::Concat, "++".to_string()),
+            (OperationType::Len, "string_length".to_string()),
         ]);
 
-        // First pass: collect all operand mappings
+        // First pass: collect all operand mappings and identify relation references
+        let mut relation_refs = HashSet::new();
         for instr in instructions {
             if let SSAInstruction::Assignment {
                 variable,
@@ -551,10 +680,28 @@ impl DDlogGenerator {
                                 operand_mapping.insert(variable.clone(), id.clone());
                             }
                             Operand::Reference(Reference::Named(name)) => {
-                                operand_mapping.insert(variable.clone(), name.clone());
+                                let ref_name = if operation.op_type == OperationType::Not {
+                                    format!("$not_{}", name)
+                                } else {
+                                    format!("${}", name)
+                                };
+                                operand_mapping.insert(variable.clone(), ref_name.clone());
+                                relation_refs.insert(ref_name);
+                                if operation.op_type == OperationType::Not {
+                                    negation_refs.insert(name.clone());
+                                }
                             }
                             Operand::Reference(Reference::Position(pos)) => {
-                                operand_mapping.insert(variable.clone(), format!("${}", pos));
+                                let ref_name = if operation.op_type == OperationType::Not {
+                                    format!("$not_{}", pos)
+                                } else {
+                                    format!("${}", pos)
+                                };
+                                operand_mapping.insert(variable.clone(), ref_name.clone());
+                                relation_refs.insert(ref_name);
+                                if operation.op_type == OperationType::Not {
+                                    negation_refs.insert(pos.to_string());
+                                }
                             }
                             Operand::StringLiteral(s) => {
                                 operand_mapping.insert(variable.clone(), format!("\"{}\"", s));
@@ -568,6 +715,30 @@ impl DDlogGenerator {
             }
         }
 
+        // Helper function to format operand
+        let format_operand = |op: &Operand| -> String {
+            match op {
+                Operand::Identifier(id) => operand_mapping.get(id).unwrap_or(id).clone(),
+                Operand::Reference(Reference::Named(name)) => {
+                    if relation_refs.contains(name) {
+                        format!("{}.{}", label, name) // Prefix with predicate name for relation refs
+                    } else {
+                        format!("rhs_{}", name)
+                    }
+                }
+                Operand::Reference(Reference::Position(pos)) => {
+                    let ref_name = format!("${}", pos);
+                    if relation_refs.contains(&ref_name) {
+                        format!("{}.{}", label, ref_name) // Prefix with predicate name for positional refs
+                    } else {
+                        ref_name
+                    }
+                }
+                Operand::StringLiteral(s) => format!("\"{}\"", s),
+                Operand::NumberLiteral(n) => n.to_string(),
+            }
+        };
+
         // Second pass: collect all predicate operations
         let mut expressions = Vec::new();
         for instr in instructions {
@@ -576,130 +747,71 @@ impl DDlogGenerator {
                 operation,
             } = instr
             {
-                let op_type = &operation.op_type;
-                let left = match &operation.operands[0] {
-                    Operand::Identifier(id) => operand_mapping.get(id).unwrap_or(id).clone(),
-                    Operand::Reference(ref_val) => match ref_val {
-                        Reference::Named(name) => format!("rhs_{}", name),
-                        Reference::Position(pos) => format!("${}", pos),
-                    },
-                    Operand::StringLiteral(s) => format!("\"{}\"", s),
-                    Operand::NumberLiteral(n) => n.to_string(),
-                };
-                let right = match &operation.operands[1] {
-                    Operand::Identifier(id) => operand_mapping.get(id).unwrap_or(id).clone(),
-                    Operand::Reference(ref_val) => match ref_val {
-                        Reference::Named(name) => format!("rhs_{}", name),
-                        Reference::Position(pos) => format!("${}", pos),
-                    },
-                    Operand::StringLiteral(s) => format!("\"{}\"", s),
-                    Operand::NumberLiteral(n) => n.to_string(),
-                };
-                if let Some(operator) = operator_mapping.get(op_type) {
-                    match op_type {
-                        // Infix operators (arithmetic and logical)
-                        OperationType::Eq
-                        | OperationType::Neq
-                        | OperationType::Lt
-                        | OperationType::Leq
-                        | OperationType::Gt
-                        | OperationType::Geq
-                        | OperationType::And
-                        | OperationType::Or
-                        | OperationType::Add => {
-                            if operation.operands.len() == 2 {
-                                let left = match &operation.operands[0] {
-                                    Operand::Identifier(id) => operand_mapping.get(id).unwrap_or(id).clone(),
-                                    Operand::Reference(Reference::Named(name)) => format!("rhs_{}", name),
-                                    Operand::Reference(Reference::Position(pos)) => format!("${}", pos),
-                                    Operand::StringLiteral(s) => format!("\"{}\"", s),
-                                    Operand::NumberLiteral(n) => n.to_string(),
-                                };
-                                let right = match &operation.operands[1] {
-                                    Operand::Identifier(id) => operand_mapping.get(id).unwrap_or(id).clone(),
-                                    Operand::Reference(Reference::Named(name)) => format!("rhs_{}", name),
-                                    Operand::Reference(Reference::Position(pos)) => format!("${}", pos),
-                                    Operand::StringLiteral(s) => format!("\"{}\"", s),
-                                    Operand::NumberLiteral(n) => n.to_string(),
-                                };
-
-                                // Handle string concatenation and addition specially
-                                if *op_type == OperationType::Concat {
-                                    expressions.push(format!(
-                                        "var {} = {} {} {}",
-                                        variable, left, operator, right
-                                    ));
-                                } else if *op_type == OperationType::Add {
-                                    expressions.push(format!(
-                                        "var {} = {} + {}",
-                                        variable, left, right
-                                    ));
-                                } else {
-                                    expressions.push(format!("{} {} {}", left, operator, right));
+                if let Some(operator) = operator_mapping.get(&operation.op_type) {
+                    let expr = match operation.operands.len() {
+                        // Unary operators (not, len, etc)
+                        1 => {
+                            // for now we assume thatcan only be applied to
+                            // input relations referenced on the RHS (body of the rule)
+                            let operand = format_operand(&operation.operands[0]);
+                            match operation.op_type {
+                                OperationType::Not => None,
+                                OperationType::Len => Some(format!("{}({})", operator, operand)),
+                                _ => Some(format!("{}({})", operator, operand)),
+                            }
+                        }
+                        // Binary operators (arithmetic, comparison, logical)
+                        2 => {
+                            let left = format_operand(&operation.operands[0]);
+                            let right = format_operand(&operation.operands[1]);
+                            match operation.op_type {
+                                // Infix operators
+                                OperationType::Add
+                                | OperationType::Sub
+                                | OperationType::Mul
+                                | OperationType::Div
+                                | OperationType::Mod
+                                | OperationType::Eq
+                                | OperationType::Neq
+                                | OperationType::Lt
+                                | OperationType::Leq
+                                | OperationType::Gt
+                                | OperationType::Geq
+                                | OperationType::And
+                                | OperationType::Or
+                                | OperationType::Concat => {
+                                    Some(format!("{} {} {}", left, operator, right))
                                 }
+                                // Function-style operators
+                                _ => Some(format!("{}({}, {})", operator, left, right)),
                             }
                         }
-
-                        // Prefix operators
-                        OperationType::Not => {
-                            if operation.operands.len() == 1 {
-                                let operand = match &operation.operands[0] {
-                                    Operand::Identifier(id) => operand_mapping.get(id).unwrap_or(id).clone(),
-                                    Operand::Reference(Reference::Named(name)) => format!("rhs_{}", name),
-                                    Operand::Reference(Reference::Position(pos)) => format!("${}", pos),
-                                    Operand::StringLiteral(s) => format!("\"{}\"", s),
-                                    Operand::NumberLiteral(n) => n.to_string(),
-                                };
-                                expressions.push(format!("{}{}", operator, operand));
-                            }
-                        }
-
-                        // String functions
-                        OperationType::Contains
-                        | OperationType::StartsWith
-                        | OperationType::EndsWith => {
-                            let operands_str = operation
+                        // Variadic operators (contains, within, etc)
+                        _ => {
+                            let operands = operation
                                 .operands
                                 .iter()
-                                .map(|op| match op {
-                                    Operand::Identifier(id) => operand_mapping.get(id).unwrap_or(id).clone(),
-                                    Operand::Reference(ref_val) => match ref_val {
-                                        Reference::Named(name) => format!("rhs_{}", name),
-                                        Reference::Position(pos) => format!("${}", pos),
-                                    },
-                                    Operand::StringLiteral(s) => format!("\"{}\"", s),
-                                    Operand::NumberLiteral(n) => n.to_string(),
-                                })
+                                .map(format_operand)
                                 .collect::<Vec<_>>()
                                 .join(", ");
-                            expressions.push(format!("{}({})", operator, operands_str));
+                            Some(format!("{}({})", operator, operands))
                         }
+                    };
 
-                        // Collection operations
-                        OperationType::In | OperationType::Within | OperationType::Exists => {
-                            let operands_str = operation
-                                .operands
-                                .iter()
-                                .map(|op| match op {
-                                    Operand::Identifier(id) => operand_mapping.get(id).unwrap_or(id).clone(),
-                                    Operand::Reference(ref_val) => match ref_val {
-                                        Reference::Named(name) => format!("rhs_{}", name),
-                                        Reference::Position(pos) => format!("${}", pos),
-                                    },
-                                    Operand::StringLiteral(s) => format!("\"{}\"", s),
-                                    Operand::NumberLiteral(n) => n.to_string(),
-                                })
-                                .collect::<Vec<_>>()
-                                .join(", ");
-                            expressions.push(format!("{}({})", operator, operands_str));
+                    if let Some(expr) = expr {
+                        // For assignments, wrap in var declaration
+                        if operation.op_type == OperationType::Load
+                            || operation.op_type == OperationType::Concat
+                            || operation.op_type == OperationType::Add
+                        {
+                            expressions.push(format!("var {} = {}", variable, expr));
+                        } else {
+                            expressions.push(expr);
                         }
-
-                        _ => {}
                     }
                 }
             }
         }
-
 
         if expressions.is_empty() {
             None
