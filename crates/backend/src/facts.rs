@@ -15,8 +15,8 @@ pub enum DDLogCommand {
     Start,
     Insert(Rule),
     Commit,
-    Dump,
-    CommitDumpChanges
+    Dump(Option<String>),
+    CommitDumpChanges,
 }
 
 impl DDLogCommand {
@@ -215,7 +215,13 @@ impl Display for DDLogCommand {
                 write!(f, "{}", insert) // Uses Rule's Display impl
             }
             DDLogCommand::Commit => write!(f, "commit;"),
-            DDLogCommand::Dump => write!(f, "dump;"),
+            DDLogCommand::Dump(rel) => {
+                if rel.is_none() {
+                    write!(f, "dump;")
+                } else {
+                    write!(f, "dump {};", rel.as_ref().unwrap())
+                }
+            }
             DDLogCommand::CommitDumpChanges => write!(f, "commit dump_changes;"),
         }
     }

@@ -15,7 +15,7 @@ use ir::{
     SSAInstructionBlock, SSAOperation,
 };
 
-const RESERVED_WORDS: &[&str] = &["else", "function", "type", "match", "var"];
+const RESERVED_WORDS: &[&str] = &["else", "function", "type", "match", "var", "string", "String"];
 
 enum RelationType {
     Input,
@@ -26,6 +26,7 @@ pub struct DDlogGenerator {
     generate_input_relations: bool, // Option to control input relation generation
     input_ts_grammars: Vec<PathBuf>, // Paths to input tree-sitter grammars
     intermediate_ts_grammars: Vec<PathBuf>, // Paths to intermediate/internal tree-sitter grammars
+    embed_primitives: bool,         // Option to embed primitive types in the generated DDlog
 }
 
 impl DDlogGenerator {
@@ -35,6 +36,7 @@ impl DDlogGenerator {
             generate_input_relations: false, // Default to not generating input relations
             input_ts_grammars: Vec::new(),   // Default to no parser homes
             intermediate_ts_grammars: Vec::new(), // Default to no intermediate grammars
+            embed_primitives: false,
         }
     }
 
@@ -74,6 +76,14 @@ impl DDlogGenerator {
         self
     }
 
+    pub fn embed_primitives(mut self) -> Self {
+        self.embed_primitives = true;
+        self
+    }
+
+    ///
+    ///
+    ///
     ///
     /// Converts an IRProgram into a DatalogProgram, handling nested RHSVal structures.
     pub fn generate(&self, ir: IRProgram) -> IrToDdlogResult {
@@ -113,10 +123,13 @@ impl DDlogGenerator {
                                             "_".to_string()
                                         } else if let Some(ref_name) = s.strip_prefix('$') {
                                             // Remove the negation prefix if present
-                                            if ref_name.starts_with("not_") {
-                                                ref_name[4..].to_lowercase()
+                                            let ref_name = ref_name.to_lowercase();
+                                            if let Some(sanitized_ref_name) =
+                                                ref_name.strip_prefix("not_")
+                                            {
+                                                sanitized_ref_name.to_string()
                                             } else {
-                                                ref_name.to_lowercase()
+                                                ref_name
                                             }
                                         } else {
                                             s.to_lowercase()
@@ -174,8 +187,7 @@ impl DDlogGenerator {
                 )));
             }
 
-            let content =
-                std::fs::read_to_string(&node_types_path).map_err(|e| Error::IoError(e))?;
+            let content = std::fs::read_to_string(&node_types_path).map_err(Error::IoError)?;
             let node_types: Vec<ContextFreeNodeType> =
                 serde_json::from_str(&content).map_err(|e| Error::JsonParseError(e.to_string()))?;
 
@@ -485,7 +497,7 @@ impl DDlogGenerator {
                         }),
                     });
                 } else {
-                    // Capture form
+                    // Capture form and inferences
                     if let Some(ssa_block) = &rule.ssa_block {
                         // First process any labeled blocks for predicates
                         let condition_exprs =
@@ -551,6 +563,195 @@ impl DDlogGenerator {
                     lhs: vec![lhs],
                     rhs: rhs_clauses,
                 });
+            }
+        }
+
+        if self.embed_primitives {
+            //
+            let node_rel = {
+                let fields = vec![
+                    Field {
+                        pos: Pos::nopos(),
+                        name: "node_id".to_string(),
+                        ftype: DType::TInt { pos: Pos::nopos() },
+                    },
+                    Field {
+                        pos: Pos::nopos(),
+                        name: "parent_id".to_string(),
+                        ftype: DType::TInt { pos: Pos::nopos() },
+                    },
+                    Field {
+                        pos: Pos::nopos(),
+                        name: "value".to_string(),
+                        ftype: DType::TString { pos: Pos::nopos() },
+                    },
+                ];
+                Relation {
+                    pos: Pos::nopos(),
+                    role: RelationRole::RelOutput,
+                    semantics: RelationSemantics::RelSet,
+                    name: "Node".to_string(),
+                    rtype: DType::TStruct {
+                        pos: Pos::nopos(),
+                        name: "Node".to_string(),
+                        fields,
+                    },
+                    primary_key: None,
+                }
+            };
+
+            let ancestor_rel = {
+                let fields = vec![
+                    Field {
+                        pos: Pos::nopos(),
+                        name: "node_id".to_string(),
+                        ftype: DType::TInt { pos: Pos::nopos() },
+                    },
+                    Field {
+                        pos: Pos::nopos(),
+                        name: "ancestor_id".to_string(),
+                        ftype: DType::TInt { pos: Pos::nopos() },
+                    },
+                ];
+                Relation {
+                    pos: Pos::nopos(),
+                    role: RelationRole::RelOutput,
+                    semantics: RelationSemantics::RelSet,
+                    name: "Ancestor".to_string(),
+                    rtype: DType::TStruct {
+                        pos: Pos::nopos(),
+                        name: "Ancestor".to_string(),
+                        fields,
+                    },
+                    primary_key: None,
+                }
+            };
+            program.add_relation(node_rel);
+            program.add_relation(ancestor_rel);
+
+            // Add base ancestor rule
+            program.add_rule(Rule {
+                pos: Pos::nopos(),
+                module: ModuleName { path: vec![] },
+                lhs: vec![RuleLHS {
+                    pos: Pos::nopos(),
+                    atom: Atom {
+                        pos: Pos::nopos(),
+                        relation: "Ancestor".to_string(),
+                        delay: Delay::zero(),
+                        diff: false,
+                        value: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "node_id, ancestor_id".to_string(),
+                        }),
+                    },
+                    location: None,
+                }],
+                rhs: vec![RuleRHS::RHSLiteral {
+                    pos: Pos::nopos(),
+                    polarity: true,
+                    atom: Atom {
+                        pos: Pos::nopos(),
+                        relation: "Node".to_string(),
+                        delay: Delay::zero(),
+                        diff: false,
+                        value: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "node_id, ancestor_id, _".to_string(),
+                        }),
+                    },
+                }],
+            });
+
+            // Add transitive closure rule
+            program.add_rule(Rule {
+                pos: Pos::nopos(),
+                module: ModuleName { path: vec![] },
+                lhs: vec![RuleLHS {
+                    pos: Pos::nopos(),
+                    atom: Atom {
+                        pos: Pos::nopos(),
+                        relation: "Ancestor".to_string(),
+                        delay: Delay::zero(),
+                        diff: false,
+                        value: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "node_id, ancestor_id".to_string(),
+                        }),
+                    },
+                    location: None,
+                }],
+                rhs: vec![
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "Ancestor".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "node_id, parent_id".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "Node".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "parent_id, ancestor_id, _".to_string(),
+                            }),
+                        },
+                    },
+                ],
+            });
+
+            // Create Node rules for each tree-sitter node type
+            for node_type in &input_node_types {
+                if !Self::is_leaf_node(node_type) {
+                    let pascal_name = Self::to_pascal_case(&node_type.name.sexp_name);
+                    if !RESERVED_WORDS.iter().any(|w| w.eq_ignore_ascii_case(&pascal_name)) {
+                        program.add_rule(Rule {
+                            pos: Pos::nopos(),
+                            module: ModuleName { path: vec![] },
+                            lhs: vec![RuleLHS {
+                                pos: Pos::nopos(),
+                                atom: Atom {
+                                    pos: Pos::nopos(),
+                                    relation: "Node".to_string(),
+                                    delay: Delay::zero(),
+                                    diff: false,
+                                    value: Expr::new(ExprNode::EVar {
+                                        pos: Pos::nopos(),
+                                        name: "node_id, parent_id, value".to_string(),
+                                    }),
+                                },
+                                location: None,
+                            }],
+                            rhs: vec![RuleRHS::RHSLiteral {
+                                pos: Pos::nopos(),
+                                polarity: true,
+                                atom: Atom {
+                                    pos: Pos::nopos(),
+                                    relation: pascal_name,
+                                    delay: Delay::zero(),
+                                    diff: false,
+                                    value: Expr::new(ExprNode::EVar {
+                                        pos: Pos::nopos(),
+                                        name: "node_id, parent_id, value".to_string(),
+                                    }),
+                                },
+                            }],
+                        });
+                    }
+                }
             }
         }
 
@@ -908,125 +1109,6 @@ impl DDlogGenerator {
     fn is_leaf_node(node: &ContextFreeNodeType) -> bool {
         !node.name.is_named
     }
-
-    pub fn generate_ddlog_relations(
-        &self,
-        nodes: &[ContextFreeNodeType],
-        rel_type: RelationType,
-    ) -> Vec<Relation> {
-        let mut relations = Vec::new();
-        let mut distinct_types = BTreeSet::new();
-
-        // Collect distinct types
-        for node in nodes {
-            distinct_types.insert(node.name.sexp_name.clone());
-            match &node.kind {
-                NodeTypeKind::Supertype { subtypes } => {
-                    for st in subtypes {
-                        distinct_types.insert(st.sexp_name.clone());
-                    }
-                }
-                NodeTypeKind::Regular { fields, children } => {
-                    for spec in fields.values() {
-                        for ctype in &spec.types {
-                            distinct_types.insert(ctype.sexp_name.clone());
-                        }
-                    }
-                    for ctype in &children.types {
-                        distinct_types.insert(ctype.sexp_name.clone());
-                    }
-                }
-            }
-        }
-
-        // Build leaf map
-        let mut is_leaf_map = BTreeMap::<String, bool>::new();
-        for node in nodes {
-            let leaf = Self::is_leaf_node(node);
-            is_leaf_map.insert(node.name.sexp_name.clone(), leaf);
-        }
-
-        // Prepare schemas for main and link relations
-        let mut main_relation_schemas = BTreeMap::<String, Vec<Field>>::new();
-        let mut link_relation_fields = BTreeMap::<String, BTreeSet<String>>::new();
-
-        // Initialize main relations
-        for tname in &distinct_types {
-            let is_leaf = is_leaf_map.get(tname).copied().unwrap_or(false);
-            if !is_leaf {
-                let pascal = Self::to_pascal_case(tname);
-                let rel_name = Self::sanitize_reserved(&pascal);
-                main_relation_schemas.insert(
-                    rel_name.clone(),
-                    vec![
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "node_id".to_string(),
-                            ftype: DType::TInt { pos: Pos::nopos() },
-                        },
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "parent_id".to_string(),
-                            ftype: DType::TInt { pos: Pos::nopos() },
-                        },
-                        Field {
-                            pos: Pos::nopos(),
-                            name: "value".to_string(),
-                            ftype: DType::TString { pos: Pos::nopos() },
-                        },
-                    ],
-                );
-                link_relation_fields.insert(rel_name, BTreeSet::new());
-            }
-        }
-
-        // Process all nodes to build relation schemas
-        // Create main relations
-        for (rel_name, fields) in &main_relation_schemas {
-            let sanitized_fields = fields
-                .iter()
-                .cloned()
-                .map(|f| Field {
-                    pos: f.pos.clone(),
-                    name: Self::sanitize_reserved(&f.name),
-                    ftype: f.ftype.clone(),
-                })
-                .collect::<Vec<Field>>();
-            match rel_type {
-                RelationType::Input => {
-                    relations.push(Relation {
-                        pos: Pos::nopos(),
-                        role: RelationRole::RelInput,
-                        semantics: RelationSemantics::RelSet,
-                        name: rel_name.clone(),
-                        rtype: DType::TStruct {
-                            pos: Pos::nopos(),
-                            name: rel_name.clone(),
-                            fields: sanitized_fields,
-                        },
-                        primary_key: None,
-                    });
-                }
-                RelationType::Intermediate => {
-                    relations.push(Relation {
-                        pos: Pos::nopos(),
-                        role: RelationRole::RelInternal,
-                        semantics: RelationSemantics::RelSet,
-                        name: rel_name.clone(),
-                        rtype: DType::TStruct {
-                            pos: Pos::nopos(),
-                            name: rel_name.clone(),
-                            fields: sanitized_fields,
-                        },
-                        primary_key: None,
-                    });
-                    // Internal doesn't have repreentatio in DDLog so are discarded.
-                }
-            }
-        }
-
-        relations
-    }
 }
 
 #[derive(Debug)]
@@ -1081,7 +1163,7 @@ mod tests {
     use super::*;
 
     use frontend::dsl::Lval;
-    use frontend::gen_ir::{self, IrGenerator};
+    use frontend::gen_ir::IrGenerator;
 
     #[test]
     fn test_compiler_end_to_end_single_capture() {

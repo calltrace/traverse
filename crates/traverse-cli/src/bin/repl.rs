@@ -10,6 +10,7 @@ use clap::Parser;
 use frontend::{gen_ir::IrGenerator, syntax::SyntaxTheme};
 use language::{Language, Solidity};
 use reedline::{DefaultPrompt, DefaultValidator, FileBackedHistory, Reedline, Signal};
+use std::io::Write;
 
 #[derive(Debug)]
 enum ReplError {
@@ -175,6 +176,7 @@ impl Repl {
             //.with_input_relations(true)
             .with_input_relations(false)
             .with_input_treesitter_grammars(self.input_ts_grammars.clone())
+            .embed_primitives()
             //.with_intermediate_treesitter_grammars(self.intermediate_ts_grammars.clone())
             .generate(*dl_ir)
             .map_err(|e| ReplError::DdlogGeneration(format!("{}", e)))?;
@@ -194,7 +196,15 @@ impl Repl {
 
         if !self.no_execute {
             println!("Ingesting source file");
-            let cmds = self.parse_source_file()?;
+            let mut cmds = self.parse_source_file()?;
+
+            cmds.push(DDLogCommand::Dump(Some("FunctionContract".to_string())));
+            cmds.push(DDLogCommand::Dump(Some("Node".to_string())));
+
+            let mut file = fs::File::create("dump.txt").expect("Failed to create dump file");
+            for cmd in &cmds {
+                writeln!(file, "{}", cmd).expect("Failed to write to dump file");
+            }
 
             let base_dir = PathBuf::from(format!("./{}", self.project_name));
             fs::create_dir_all(&base_dir).expect("Failed to create base directory");
@@ -219,10 +229,11 @@ impl Repl {
             }
             println!("Finished");
 
-            backend::ddlog_rt::run_ddlog_crate(&base_dir, &self.project_name, &cmds).map_err(
+            let ddlog_out = backend::ddlog_rt::run_ddlog_crate(&base_dir, &self.project_name, &cmds).map_err(
                 |e| ReplError::DdlogExecution(format!("Failed to run DDlog project: {}", e)),
             )?;
 
+            println!("{}", ddlog_out);
             println!("DDlog project executed successfully");
         } else {
             println!("Skipping DDlog execution (--no-execute was specified)");
