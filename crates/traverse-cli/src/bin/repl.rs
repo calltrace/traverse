@@ -198,17 +198,20 @@ impl Repl {
             println!("Ingesting source file");
             let mut cmds = self.parse_source_file()?;
 
-            cmds.push(DDLogCommand::Dump(Some("FunctionContract".to_string())));
-            cmds.push(DDLogCommand::Dump(Some("Node".to_string())));
+            //cmds.push(DDLogCommand::Dump(Some("FunctionContract".to_string())));
+            //cmds.push(DDLogCommand::Dump(Some("Node".to_string())));
 
             let mut file = fs::File::create("dump.txt").expect("Failed to create dump file");
             for cmd in &cmds {
                 writeln!(file, "{}", cmd).expect("Failed to write to dump file");
             }
 
+            println!("Dumped commands to dump.txt");
+
             let base_dir = PathBuf::from(format!("./{}", self.project_name));
             fs::create_dir_all(&base_dir).expect("Failed to create base directory");
 
+            println!("Generating Rust project");
             generate_rust_project(&base_dir, &self.project_name, &ddlog.to_string());
 
             match build_ddlog_crate(&base_dir, &self.project_name) {

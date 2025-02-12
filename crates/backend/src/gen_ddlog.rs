@@ -588,7 +588,7 @@ impl DDlogGenerator {
                 ];
                 Relation {
                     pos: Pos::nopos(),
-                    role: RelationRole::RelOutput,
+                    role: RelationRole::RelInternal,
                     semantics: RelationSemantics::RelSet,
                     name: "Node".to_string(),
                     rtype: DType::TStruct {
@@ -615,7 +615,7 @@ impl DDlogGenerator {
                 ];
                 Relation {
                     pos: Pos::nopos(),
-                    role: RelationRole::RelOutput,
+                    role: RelationRole::RelInternal,
                     semantics: RelationSemantics::RelSet,
                     name: "Ancestor".to_string(),
                     rtype: DType::TStruct {
