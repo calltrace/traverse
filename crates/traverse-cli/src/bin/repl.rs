@@ -25,12 +25,12 @@ enum ReplError {
 impl std::fmt::Display for ReplError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ReplError::Io(err) => write!(f, "IO error: {}", err),
-            ReplError::Parse(msg) => write!(f, "Parse error: {}", msg),
-            ReplError::IrGeneration(msg) => write!(f, "IR generation error: {}", msg),
-            ReplError::DdlogGeneration(msg) => write!(f, "DDlog generation error: {}", msg),
-            ReplError::DdlogValidation(msg) => write!(f, "DDlog validation error: {}", msg),
-            ReplError::DdlogExecution(msg) => write!(f, "DDlog execution error: {}", msg),
+            ReplError::Io(err) => writeln!(f, "IO error: {}", err),
+            ReplError::Parse(msg) => writeln!(f, "Parse error:\n{}", msg),
+            ReplError::IrGeneration(msg) => writeln!(f, "IR generation error:\n{}", msg),
+            ReplError::DdlogGeneration(msg) => writeln!(f, "DDlog generation error:\n{}", msg),
+            ReplError::DdlogValidation(msg) => write!(f, "DDlog validation error:\n{}", msg),
+            ReplError::DdlogExecution(msg) => writeln!(f, "DDlog execution error:\n{}", msg),
         }
     }
 }
@@ -185,12 +185,29 @@ impl Repl {
         let filtered_ddlog = ddlog
             .to_string()
             .lines()
-         //   .filter(|line| !re.is_match(line.trim()))
+            //   .filter(|line| !re.is_match(line.trim()))
             .collect::<Vec<_>>()
             .join("\n");
 
-        println!("\nGenerated DDLog (no relations for brevity):{}", filtered_ddlog);
-        validate(&ddlog.to_string()).map_err(|e| ReplError::DdlogValidation(e.to_string()))?;
+        println!(
+            "\nGenerated DDLog (no relations for brevity):{}",
+            filtered_ddlog
+        );
+        let ddlog_str = ddlog.to_string();
+        if let Err(e) = validate(&ddlog_str) {
+            let numbered_ddlog = ddlog_str
+                .lines()
+                .enumerate()
+                .map(|(i, line)| format!("{:4} | {}", i + 1, line))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            println!(
+                "\nDDLog Validation failed. Full DDLog code:\n{}",
+                numbered_ddlog
+            );
+            return Err(ReplError::DdlogValidation(e.to_string()));
+        }
 
         println!("\nDDLog Validation succeeded");
 
@@ -224,17 +241,17 @@ impl Repl {
                 self.project_name, base_dir
             );
 
-
-            // dump cmds 
+            // dump cmds
             println!("Commands to execute:");
             for cmd in &cmds {
                 println!("{}", cmd);
             }
             println!("Finished");
 
-            let ddlog_out = backend::ddlog_rt::run_ddlog_crate(&base_dir, &self.project_name, &cmds).map_err(
-                |e| ReplError::DdlogExecution(format!("Failed to run DDlog project: {}", e)),
-            )?;
+            let ddlog_out =
+                backend::ddlog_rt::run_ddlog_crate(&base_dir, &self.project_name, &cmds).map_err(
+                    |e| ReplError::DdlogExecution(format!("Failed to run DDlog project: {}", e)),
+                )?;
 
             println!("{}", ddlog_out);
             println!("DDlog project executed successfully");

@@ -536,6 +536,9 @@ impl DDlogGenerator {
                     // RHS (body) to LHS (head) attributes one-to-one. However, output relations such as the ones for inference
                     // rules, mappings are determined by the user so we want to honor those.
                     //
+                    println!("lhs_attributes: {:?}", lhs_attributes);
+                    println!("rhs_attributes: {:?}", rhs_attributes);
+                    println!("relation role {:?}", lhs_relation.role);
                     if lhs_relation.role == IRRelationRole::Intermediate {
                         for lhs_attr in lhs_attributes.iter() {
                             if let Some(rhs_attr) = rhs_attributes

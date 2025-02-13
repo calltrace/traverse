@@ -22,6 +22,7 @@ pub fn validate(dl_program: &str) -> Result<String, String> {
     file.write_all(dl_program.as_bytes())
         .map_err(|e| format!("Failed to write .dl file: {}", e))?;
 
+
     let mut ddlog_run = Command::new("ddlog")
         .args(["-i", &dl_file.to_string_lossy(), "--action=validate"])
         .stdin(Stdio::piped())
@@ -30,7 +31,11 @@ pub fn validate(dl_program: &str) -> Result<String, String> {
         .spawn()
         .map_err(|e| format!("Failed to launch ddlog command: {}", e))?;
 
-    if ddlog_run.wait().is_ok() {
+    let status = ddlog_run
+        .wait()
+        .map_err(|e| format!("Failed to wait for ddlog process: {}", e))?;
+
+    if status.success() {
         let mut stdout = ddlog_run.stdout.take().ok_or("Failed to get stdout")?;
 
         // read stdout
@@ -42,16 +47,11 @@ pub fn validate(dl_program: &str) -> Result<String, String> {
         let bytes = bytes::Bytes::from(buffer);
         Ok(String::from_utf8_lossy(&bytes).into())
     } else {
-        // read stderr
-        let mut stderr = ddlog_run.stderr.take().ok_or("Failed to get stderr")?;
-        let mut buffer = Vec::new();
-        stderr
-            .read_to_end(&mut buffer)
-            .map_err(|e| format!("Failed to read stderr: {}", e))?;
-        let bytes = bytes::Bytes::from(buffer);
-        let stderr_dump: String = String::from_utf8_lossy(&bytes).into();
-
-        Err(stderr_dump)
+        let exit_code = status.code().unwrap_or(-1);
+        Err(format!(
+            "DDlog validation failed with exit code: {}\n",
+            exit_code,
+        ))
     }
 }
 

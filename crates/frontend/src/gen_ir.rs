@@ -113,6 +113,23 @@ impl SymbolTable {
     }
 }
 
+pub(crate) fn normalize_string(s: &str) -> String {
+    let mut result = String::with_capacity(s.len() * 2);
+    let mut chars = s.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c.is_uppercase() {
+            if !result.is_empty() {
+                result.push('_');
+            }
+            result.push(c.to_ascii_lowercase());
+        } else {
+            result.push(c.to_ascii_lowercase());
+        }
+    }
+    result
+}
+
 pub(crate) fn to_pascal_case(s: &str) -> String {
     s.split('_')
         .filter(|part| !part.is_empty())
@@ -658,361 +675,346 @@ impl IrGenerator {
         /// Walks through an Lval and collects all captures, generating corresponding IRRules
         /// that reference only input relations.
         fn collect_rules_from_capture(
-                    lval: &Lval,
-                    context: &mut SSAContext,
-                    ir_program: &mut IRProgram,
-                    capture_rules: &mut VecDeque<IRRule>,
-                    symbol_table: &mut SymbolTable,
-                ) -> Result<()> {
-                    if let Lval::CaptureForm(
-                        rel_name,
+            lval: &Lval,
+            context: &mut SSAContext,
+            ir_program: &mut IRProgram,
+            capture_rules: &mut VecDeque<IRRule>,
+            symbol_table: &mut SymbolTable,
+        ) -> Result<()> {
+            if let Lval::CaptureForm(
+                rel_name,
+                attrs_map,
+                capture_refs,
+                descendant,
+                when,
+                do_block,
+            ) = lval
+            {
+                // Process descendants first to collect their attributes
+                let mut outbound_attrs = process_descendants(
+                    descendant,
+                    context,
+                    ir_program,
+                    capture_rules,
+                    symbol_table,
+                    attrs_map,
+                    capture_refs,
+                )?;
+
+                // Process current capture form's attributes
+                process_current_captures(attrs_map, rel_name, symbol_table, &mut outbound_attrs)?;
+
+                // Process capture references
+                process_capture_refs(capture_refs, symbol_table, &mut outbound_attrs)?;
+
+                // Get input relation attributes
+                let input_relation = get_input_relation(ir_program, rel_name)?;
+                let rhs_attrs = generate_rhs_attributes(input_relation, attrs_map);
+
+                // Build RHS value with lineage
+                let rhs_vals_with_lineage =
+                    build_rhs_with_lineage(rel_name, rhs_attrs, capture_rules);
+
+                // Generate internal relation
+                let (internal_relation_name, internal_relation) =
+                    generate_internal_relation(rel_name, &outbound_attrs);
+
+                // Register internal relation
+                ir_program.relations.push(internal_relation.clone());
+
+                // Update symbol table with internal relation captures
+                register_internal_relation_captures(
+                    &internal_relation,
+                    &internal_relation_name,
+                    symbol_table,
+                )?;
+
+                // Validate capture references
+                validate_capture_refs(capture_refs, symbol_table)?;
+
+                // Create and register the rule. This includes creating the LHS (head) of the rule.
+                let ir_rule = create_capture_rule(
+                    internal_relation_name,
+                    &outbound_attrs,
+                    rhs_vals_with_lineage,
+                );
+
+                capture_rules.push_front(ir_rule);
+            }
+            Ok(())
+        }
+
+        // Helper functions
+
+        fn process_descendants(
+            descendant: &Option<Box<Lval>>,
+            context: &mut SSAContext,
+            ir_program: &mut IRProgram,
+            capture_rules: &mut VecDeque<IRRule>,
+            symbol_table: &mut SymbolTable,
+            attrs_map: &IndexMap<String, Box<Lval>>,
+            capture_refs: &[String],
+        ) -> Result<VecDeque<Attribute>> {
+            let mut outbound_attrs = VecDeque::new();
+
+            if let Some(desc) = descendant {
+                collect_rules_from_capture(desc, context, ir_program, capture_rules, symbol_table)?;
+
+                if let Some(last_rule) = capture_rules.front() {
+                    collect_descendant_attributes(
+                        last_rule,
                         attrs_map,
                         capture_refs,
-                        descendant,
-                        when,
-                        do_block,
-                    ) = lval
-                    {
-                        // Process descendants first to collect their attributes
-                        let mut outbound_attrs = process_descendants(
-                            descendant,
-                            context,
-                            ir_program,
-                            capture_rules,
-                            symbol_table,
-                            attrs_map,
-                            capture_refs,
-                        )?;
-        
-                        // Process current capture form's attributes
-                        process_current_captures(
-                            attrs_map,
-                            rel_name,
-                            symbol_table,
-                            &mut outbound_attrs,
-                        )?;
-        
-                        // Process capture references
-                        process_capture_refs(
-                            capture_refs,
-                            symbol_table,
-                            &mut outbound_attrs,
-                        )?;
-        
-                        // Get input relation attributes
-                        let input_relation = get_input_relation(ir_program, rel_name)?;
-                        let rhs_attrs = generate_rhs_attributes(input_relation, attrs_map);
-        
-                        // Build RHS value with lineage
-                        let rhs_vals_with_lineage = build_rhs_with_lineage(
-                            rel_name,
-                            rhs_attrs,
-                            capture_rules,
-                        );
-        
-                        // Generate internal relation
-                        let (internal_relation_name, internal_relation) = generate_internal_relation(
-                            rel_name,
-                            &outbound_attrs,
-                        );
-        
-                        // Register internal relation
-                        ir_program.relations.push(internal_relation.clone());
-        
-                        // Update symbol table with internal relation captures
-                        register_internal_relation_captures(
-                            &internal_relation,
-                            &internal_relation_name,
-                            symbol_table,
-                        )?;
-        
-                        // Validate capture references
-                        validate_capture_refs(capture_refs, symbol_table)?;
-        
-                        // Create and register the rule
-                        let ir_rule = create_capture_rule(
-                            internal_relation_name,
-                            &outbound_attrs,
-                            rhs_vals_with_lineage,
-                        );
-        
-                        capture_rules.push_front(ir_rule);
-                    }
-                    Ok(())
-                }
-        
-                // Helper functions
-                
-                fn process_descendants(
-                    descendant: &Option<Box<Lval>>,
-                    context: &mut SSAContext,
-                    ir_program: &mut IRProgram,
-                    capture_rules: &mut VecDeque<IRRule>,
-                    symbol_table: &mut SymbolTable,
-                    attrs_map: &IndexMap<String, Box<Lval>>,
-                    capture_refs: &[String],
-                ) -> Result<VecDeque<Attribute>> {
-                    let mut outbound_attrs = VecDeque::new();
-                    
-                    if let Some(desc) = descendant {
-                        collect_rules_from_capture(
-                            desc,
-                            context,
-                            ir_program,
-                            capture_rules,
-                            symbol_table,
-                        )?;
-        
-                        if let Some(last_rule) = capture_rules.front() {
-                            collect_descendant_attributes(
-                                last_rule,
-                                attrs_map,
-                                capture_refs,
-                                &mut outbound_attrs,
-                            );
-                        }
-                    }
-                    
-                    Ok(outbound_attrs)
-                }
-        
-                fn collect_descendant_attributes(
-                    rule: &IRRule,
-                    attrs_map: &IndexMap<String, Box<Lval>>,
-                    capture_refs: &[String],
-                    outbound_attrs: &mut VecDeque<Attribute>,
-                ) {
-                    for attr_name in rule.lhs.output_attributes.iter() {
-                        let clean_name = attr_name.trim_start_matches("lhs_").to_string();
-        
-                        if is_referenced_attribute(&clean_name, attrs_map, capture_refs) {
-                            outbound_attrs.push_front(create_attribute(&clean_name));
-                        }
-                    }
-                }
-        
-                fn is_referenced_attribute(
-                    name: &str,
-                    attrs_map: &IndexMap<String, Box<Lval>>,
-                    capture_refs: &[String],
-                ) -> bool {
-                    let is_in_captures = attrs_map.values().any(|lval| {
-                        if let Lval::Capture(capture_name) = lval.as_ref() {
-                            capture_name[1..].to_string() == name
-                        } else {
-                            false
-                        }
-                    });
-        
-                    let is_in_capture_refs = capture_refs
-                        .iter()
-                        .any(|cr| cr[1..].to_string() == name);
-        
-                    is_in_captures || is_in_capture_refs
-                }
-        
-                fn create_attribute(name: &str) -> Attribute {
-                    Attribute {
-                        name: name.to_string(),
-                        attr_type: if name.ends_with("_id") {
-                            AttributeType::Number
-                        } else {
-                            AttributeType::String
-                        },
-                    }
-                }
-        
-                fn process_current_captures(
-                    attrs_map: &IndexMap<String, Box<Lval>>,
-                    rel_name: &str,
-                    symbol_table: &mut SymbolTable,
-                    outbound_attrs: &mut VecDeque<Attribute>,
-                ) -> Result<()> {
-                    for (attr_name, lval_box) in attrs_map {
-                        if let Lval::Capture(capture_name) = lval_box.as_ref() {
-                            let capture_name = &capture_name[1..];
-                            
-                            symbol_table.insert_capture(
-                                capture_name,
-                                RelationRef::new(rel_name.to_string(), IRRelationRole::Input),
-                            )?;
-        
-                            outbound_attrs.push_front(create_attribute(capture_name));
-                        }
-                    }
-                    Ok(())
-                }
-        
-                fn process_capture_refs(
-                    capture_refs: &[String],
-                    symbol_table: &mut SymbolTable,
-                    outbound_attrs: &mut VecDeque<Attribute>,
-                ) -> Result<()> {
-                    for capture_ref in capture_refs {
-                        let capture_name = &capture_ref[1..];
-                        
-                        if symbol_table.lookup_capture(capture_name).is_some() {
-                            outbound_attrs.push_front(create_attribute(capture_name));
-                        } else {
-                            return Err(Error::ResolveError(format!(
-                                "Referenced capture '{}' not found",
-                                capture_name
-                            )));
-                        }
-                    }
-                    Ok(())
-                }
-        
-                fn get_input_relation<'a>(
-                    ir_program: &'a IRProgram,
-                    rel_name: &str,
-                ) -> Result<&'a IRRelationType> {
-                    ir_program
-                        .relations
-                        .iter()
-                        .find(|rel| rel.name == to_pascal_case(rel_name))
-                        .ok_or_else(|| {
-                            Error::ResolveError(format!(
-                                "Relation '{}' (as '{}') not found in program",
-                                rel_name,
-                                to_pascal_case(rel_name)
-                            ))
-                        })
-                }
-        
-                fn generate_rhs_attributes(
-                    input_relation: &IRRelationType,
-                    attrs_map: &IndexMap<String, Box<Lval>>,
-                ) -> Vec<String> {
-                    input_relation
-                        .attributes
-                        .iter()
-                        .map(|attr| {
-                            if let Some(attr_val) = attrs_map.get(&attr.name) {
-                                if let Lval::Capture(capture_name) = attr_val.as_ref() {
-                                    format!("rhs_{}", &capture_name[1..])
-                                } else {
-                                    format!("unused_{}", attr.name)
-                                }
-                            } else {
-                                format!("unused_{}", attr.name)
-                            }
-                        })
-                        .collect()
-                }
-        
-                fn build_rhs_with_lineage(
-                    rel_name: &str,
-                    rhs_attrs: Vec<String>,
-                    capture_rules: &VecDeque<IRRule>,
-                ) -> RHSVal {
-                    let mut unique_rhs_vals = vec![RHSVal::RHSNode(RHSNode {
-                        relation_name: to_pascal_case(rel_name),
-                        attributes: rhs_attrs,
-                    })];
-        
-                    for rule in capture_rules {
-                        if let RHSVal::NestedRHS(nested_vals) = &rule.rhs {
-                            for val in nested_vals {
-                                if !unique_rhs_vals.contains(val) {
-                                    unique_rhs_vals.push(val.clone());
-                                }
-                            }
-                        } else if !unique_rhs_vals.contains(&rule.rhs) {
-                            unique_rhs_vals.push(rule.rhs.clone());
-                        }
-                    }
-        
-                    RHSVal::NestedRHS(unique_rhs_vals)
-                }
-        
-                fn generate_internal_relation(
-                    rel_name: &str,
-                    outbound_attrs: &VecDeque<Attribute>,
-                ) -> (String, IRRelationType) {
-                    let combined_attrs = outbound_attrs
-                        .iter()
-                        .map(|attr| attr.name.clone())
-                        .collect::<Vec<_>>()
-                        .join("_");
-        
-                    let hash_input = format!("{}_{}", rel_name, combined_attrs);
-                    let hash = {
-                        use std::hash::{Hash, Hasher};
-                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                        hash_input.hash(&mut hasher);
-                        format!("{:x}", hasher.finish())
-                    };
-        
-                    let internal_relation_name = format!(
-                        "{}__{}", 
-                        to_pascal_case(&combined_attrs),
-                        &hash[0..8]
+                        &mut outbound_attrs,
                     );
-        
-                    let unique_relation_attrs: IndexSet<_> = outbound_attrs
-                        .iter()
-                        .cloned()
-                        .collect();
-        
-                    let internal_relation = IRRelationType {
-                        name: internal_relation_name.clone(),
-                        attributes: unique_relation_attrs.into_iter().collect(),
-                        role: IRRelationRole::Internal,
-                    };
-        
-                    (internal_relation_name, internal_relation)
                 }
-        
-                fn register_internal_relation_captures(
-                    internal_relation: &IRRelationType,
-                    internal_relation_name: &str,
-                    symbol_table: &mut SymbolTable,
-                ) -> Result<()> {
-                    for attr in &internal_relation.attributes {
-                        symbol_table.insert_capture(
-                            &attr.name,
-                            RelationRef::new(
-                                internal_relation_name.to_string(),
-                                IRRelationRole::Intermediate,
-                            ),
-                        )?;
+            }
+
+            Ok(outbound_attrs)
+        }
+
+        fn collect_descendant_attributes(
+            rule: &IRRule,
+            attrs_map: &IndexMap<String, Box<Lval>>,
+            capture_refs: &[String],
+            outbound_attrs: &mut VecDeque<Attribute>,
+        ) {
+            for attr_name in rule.lhs.output_attributes.iter() {
+                let clean_name = attr_name.trim_start_matches("lhs_").to_string();
+
+                if is_referenced_attribute(&clean_name, attrs_map, capture_refs) {
+                    outbound_attrs.push_front(create_attribute(&clean_name));
+                }
+            }
+        }
+
+        fn is_referenced_attribute(
+            name: &str,
+            attrs_map: &IndexMap<String, Box<Lval>>,
+            capture_refs: &[String],
+        ) -> bool {
+            let is_in_captures = attrs_map.values().any(|lval| {
+                if let Lval::Capture(capture_name) = lval.as_ref() {
+                    capture_name[1..].to_string() == name
+                } else {
+                    false
+                }
+            });
+
+            let is_in_capture_refs = capture_refs.iter().any(|cr| cr[1..].to_string() == name);
+
+            is_in_captures || is_in_capture_refs
+        }
+
+        /**
+*        * TODO: Selecting the attribute type based on the attribute name is a temporary solution.
+*        */
+        fn create_attribute(name: &str) -> Attribute {
+            Attribute {
+                name: name.to_string(),
+                attr_type: if normalize_string(name).ends_with("_id") {
+                    AttributeType::Number
+                } else {
+                    AttributeType::String
+                },
+            }
+        }
+
+        fn process_current_captures(
+            attrs_map: &IndexMap<String, Box<Lval>>,
+            rel_name: &str,
+            symbol_table: &mut SymbolTable,
+            outbound_attrs: &mut VecDeque<Attribute>,
+        ) -> Result<()> {
+            for (attr_name, lval_box) in attrs_map {
+                if let Lval::Capture(capture_name) = lval_box.as_ref() {
+                    let capture_name = &capture_name[1..];
+
+                    symbol_table.insert_capture(
+                        capture_name,
+                        RelationRef::new(rel_name.to_string(), IRRelationRole::Input),
+                    )?;
+
+                    outbound_attrs.push_front(create_attribute(capture_name));
+                }
+            }
+            Ok(())
+        }
+
+        fn process_capture_refs(
+            capture_refs: &[String],
+            symbol_table: &mut SymbolTable,
+            outbound_attrs: &mut VecDeque<Attribute>,
+        ) -> Result<()> {
+            for capture_ref in capture_refs {
+                let capture_name = &capture_ref[1..];
+
+                if symbol_table.lookup_capture(capture_name).is_some() {
+                    outbound_attrs.push_front(create_attribute(capture_name));
+                } else {
+                    return Err(Error::ResolveError(format!(
+                        "Referenced capture '{}' not found",
+                        capture_name
+                    )));
+                }
+            }
+            Ok(())
+        }
+
+        fn get_input_relation<'a>(
+            ir_program: &'a IRProgram,
+            rel_name: &str,
+        ) -> Result<&'a IRRelationType> {
+            ir_program
+                .relations
+                .iter()
+                .find(|rel| rel.name == to_pascal_case(rel_name))
+                .ok_or_else(|| {
+                    Error::ResolveError(format!(
+                        "Relation '{}' (as '{}') not found in program",
+                        rel_name,
+                        to_pascal_case(rel_name)
+                    ))
+                })
+        }
+
+        fn generate_rhs_attributes(
+            input_relation: &IRRelationType,
+            attrs_map: &IndexMap<String, Box<Lval>>,
+        ) -> Vec<String> {
+            input_relation
+                .attributes
+                .iter()
+                .map(|attr| {
+                    if let Some(attr_val) = attrs_map.get(&attr.name) {
+                        if let Lval::Capture(capture_name) = attr_val.as_ref() {
+                            format!("rhs_{}", normalize_string(&capture_name[1..]))
+                        } else {
+                            format!("unused_{}", normalize_string(&attr.name))
+                        }
+                    } else {
+                        format!("unused_{}", normalize_string(&attr.name))
                     }
-                    Ok(())
-                }
-        
-                fn validate_capture_refs(
-                    capture_refs: &[String],
-                    symbol_table: &SymbolTable,
-                ) -> Result<()> {
-                    for capture_ref in capture_refs {
-                        let capture_name = &capture_ref[1..];
-                        if symbol_table.lookup_capture(capture_name).is_none() {
-                            return Err(Error::ResolveError(format!(
-                                "Referenced capture '{}' not found",
-                                capture_name
-                            )));
+                })
+                .collect()
+        }
+
+        fn build_rhs_with_lineage(
+            rel_name: &str,
+            rhs_attrs: Vec<String>,
+            capture_rules: &VecDeque<IRRule>,
+        ) -> RHSVal {
+            let mut unique_rhs_vals = vec![RHSVal::RHSNode(RHSNode {
+                relation_name: to_pascal_case(rel_name),
+                attributes: rhs_attrs,
+            })];
+
+            for rule in capture_rules {
+                if let RHSVal::NestedRHS(nested_vals) = &rule.rhs {
+                    for val in nested_vals {
+                        if !unique_rhs_vals.contains(val) {
+                            unique_rhs_vals.push(val.clone());
                         }
                     }
-                    Ok(())
+                } else if !unique_rhs_vals.contains(&rule.rhs) {
+                    unique_rhs_vals.push(rule.rhs.clone());
                 }
-        
-                fn create_capture_rule(
-                    internal_relation_name: String,
-                    outbound_attrs: &VecDeque<Attribute>,
-                    rhs_vals_with_lineage: RHSVal,
-                ) -> IRRule {
-                    IRRule {
-                        lhs: LHSNode {
-                            relation_name: internal_relation_name,
-                            output_attributes: outbound_attrs
-                                .iter()
-                                .map(|attr| format!("lhs_{}", attr.name))
-                                .collect(),
-                        },
-                        rhs: rhs_vals_with_lineage,
-                        ssa_block: None,
-                    }
+            }
+
+            RHSVal::NestedRHS(unique_rhs_vals)
+        }
+
+        fn generate_internal_relation(
+            rel_name: &str,
+            outbound_attrs: &VecDeque<Attribute>,
+        ) -> (String, IRRelationType) {
+            // normalize attributes
+            let normalized_relation_attrs = {
+                let unique_relation_attrs: IndexSet<_> = outbound_attrs.iter().cloned().collect();
+                unique_relation_attrs
+                    .iter()
+                    .map(|attr| Attribute {
+                        name: normalize_string(&attr.name),
+                        attr_type: attr.attr_type.clone(),
+                    })
+                    .collect::<Vec<_>>()
+            };
+
+            let combined_attrs = normalized_relation_attrs
+                .iter()
+                .map(|attr| attr.name.clone())
+                .collect::<Vec<_>>()
+                .join("_");
+
+            let hash_input = format!("{}_{}", rel_name, combined_attrs);
+            let hash = {
+                use std::hash::{Hash, Hasher};
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                hash_input.hash(&mut hasher);
+                format!("{:x}", hasher.finish())
+            };
+
+            let internal_relation_name =
+                format!("{}__{}", to_pascal_case(&combined_attrs), &hash[0..8]);
+
+            let internal_relation = IRRelationType {
+                name: internal_relation_name.clone(),
+                attributes: normalized_relation_attrs.into_iter().collect(),
+                role: IRRelationRole::Internal,
+            };
+
+            (internal_relation_name, internal_relation)
+        }
+
+        fn register_internal_relation_captures(
+            internal_relation: &IRRelationType,
+            internal_relation_name: &str,
+            symbol_table: &mut SymbolTable,
+        ) -> Result<()> {
+            for attr in &internal_relation.attributes {
+                symbol_table.insert_capture(
+                    &normalize_string(&attr.name),
+                    RelationRef::new(
+                        internal_relation_name.to_string(),
+                        IRRelationRole::Intermediate,
+                    ),
+                )?;
+            }
+            Ok(())
+        }
+
+        fn validate_capture_refs(
+            capture_refs: &[String],
+            symbol_table: &SymbolTable,
+        ) -> Result<()> {
+            for capture_ref in capture_refs {
+                let capture_name = &capture_ref[1..];
+                if symbol_table.lookup_capture(capture_name).is_none() {
+                    return Err(Error::ResolveError(format!(
+                        "Referenced capture '{}' not found",
+                        capture_name
+                    )));
+                }
+            }
+            Ok(())
+        }
+
+        fn create_capture_rule(
+            internal_relation_name: String,
+            outbound_attrs: &VecDeque<Attribute>,
+            rhs_vals_with_lineage: RHSVal,
+        ) -> IRRule {
+            IRRule {
+                lhs: LHSNode {
+                    relation_name: internal_relation_name,
+                    output_attributes: outbound_attrs
+                        .iter()
+                        .map(|attr| format!("lhs_{}", normalize_string(&attr.name)))
+                        .collect(),
+                },
+                rhs: rhs_vals_with_lineage,
+                ssa_block: None,
+            }
         }
 
         /// Maps inference predicates to SSA operations
@@ -1160,456 +1162,508 @@ impl IrGenerator {
         }
 
         fn collect_rules_from_inference(
-                    lval: &Lval,
-                    context: &mut SSAContext,
-                    ir_program: &mut IRProgram,
-                    infer_rules: &mut VecDeque<IRRule>,
-                ) -> Result<()> {
-                    if let Lval::Inference(relation_name, params, inference_paths) = lval {
-                        // Create or validate output relation
-                        ensure_output_relation_exists(relation_name, params, ir_program)?;
-        
-                        // Process each inference path
-                        for path in inference_paths {
-                            if let Lval::InferencePath(predicates, computation) = &**path {
-                                let (rhs_nodes, mut instructions) = process_predicates(predicates, context)?;
-                                
-                                // Process computation block if present
-                                if let Some(comp) = computation {
-                                    process_computation(comp, context, &mut instructions)?;
-                                }
-        
-                                // Create the inference rule
-                                let ir_rule = create_inference_rule(
-                                    relation_name,
-                                    params,
-                                    rhs_nodes,
-                                    instructions,
-                                );
-        
-                                infer_rules.push_back(ir_rule);
+            lval: &Lval,
+            context: &mut SSAContext,
+            ir_program: &mut IRProgram,
+            infer_rules: &mut VecDeque<IRRule>,
+        ) -> Result<()> {
+            if let Lval::Inference(relation_name, params, inference_paths) = lval {
+                // Create or validate output relation
+                ensure_output_relation_exists(relation_name, params, ir_program)?;
+
+                // Process each inference path
+                for path in inference_paths {
+                    if let Lval::InferencePath(predicates, computation) = &**path {
+                        let (rhs_nodes, mut instructions) =
+                            process_predicates(predicates, context)?;
+
+                        // Process computation block if present
+                        if let Some(comp) = computation {
+                            process_computation(comp, context, &mut instructions)?;
+                        }
+
+                        // Create the inference rule
+                        let ir_rule =
+                            create_inference_rule(relation_name, params, rhs_nodes, instructions);
+
+                        infer_rules.push_back(ir_rule);
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        fn ensure_output_relation_exists(
+            relation_name: &str,
+            params: &[String],
+            ir_program: &mut IRProgram,
+        ) -> Result<()> {
+            if !ir_program
+                .relations
+                .iter()
+                .any(|r| r.name == *relation_name)
+            {
+                let attributes = params
+                    .iter()
+                    .map(|p| {
+                        let param_name = &p[1..];
+                        Attribute {
+                            name: param_name.to_string(),
+                            attr_type: if param_name.ends_with("_id") {
+                                AttributeType::Number
+                            } else {
+                                AttributeType::String
+                            },
+                        }
+                    })
+                    .collect();
+
+                ir_program.relations.push(IRRelationType {
+                    name: to_pascal_case(relation_name),
+                    attributes,
+                    role: IRRelationRole::Output,
+                });
+            }
+            Ok(())
+        }
+
+        fn process_predicates(
+            predicates: &[Box<Lval>],
+            context: &mut SSAContext,
+        ) -> Result<(Vec<RHSVal>, Vec<SSAInstruction>)> {
+            let mut rhs_nodes = Vec::new();
+            let mut instructions = Vec::new();
+
+            // Convert predicates to SSA instructions
+            instructions.extend(inference_predicates_to_ssa(predicates, context));
+
+            // Process each predicate
+            for (position, predicate) in predicates.iter().enumerate() {
+                match &**predicate {
+                    Lval::PrefixPredicate(prefix_name, embedded_pred) => {
+                        process_prefix_predicate(
+                            prefix_name,
+                            embedded_pred,
+                            position,
+                            context,
+                            &mut rhs_nodes,
+                            &mut instructions,
+                        )?;
+                    }
+                    Lval::Predicate(pred_name, arguments) => {
+                        process_regular_predicate(pred_name, arguments, &mut rhs_nodes)?;
+                    }
+                    _ => return Err(Error::GenerationError("Invalid predicate type".to_string())),
+                }
+            }
+
+            Ok((rhs_nodes, instructions))
+        }
+
+        fn process_prefix_predicate(
+            prefix_name: &str,
+            embedded_pred: &Lval,
+            position: usize,
+            context: &mut SSAContext,
+            rhs_nodes: &mut Vec<RHSVal>,
+            instructions: &mut Vec<SSAInstruction>,
+        ) -> Result<()> {
+            if let Lval::Predicate(pred_name, arguments) = embedded_pred {
+                let rhs_node = RHSVal::RHSNode(RHSNode {
+                    relation_name: to_pascal_case(pred_name),
+                    attributes: arguments
+                        .iter()
+                        .map(|arg| {
+                            if arg.len() > 1 {
+                                arg[1..].to_string()
+                            } else {
+                                arg.to_string()
                             }
+                        })
+                        .collect(),
+                });
+                rhs_nodes.push(rhs_node);
+
+                // Generate SSA instructions for prefix operation
+                let load_var = context.generate_temp_var();
+                let result_var = context.generate_temp_var();
+
+                instructions.push(SSAInstruction::Assignment {
+                    variable: load_var.clone(),
+                    operation: SSAOperation {
+                        op_type: OperationType::Load,
+                        operands: vec![Operand::Reference(Reference::Position(position))],
+                    },
+                });
+
+                let op_type = match prefix_name {
+                    "not" => OperationType::Not,
+                    _ => {
+                        return Err(Error::GenerationError(format!(
+                            "Unknown prefix predicate: {}",
+                            prefix_name
+                        )))
+                    }
+                };
+
+                instructions.push(SSAInstruction::Assignment {
+                    variable: result_var,
+                    operation: SSAOperation {
+                        op_type,
+                        operands: vec![Operand::Reference(Reference::Named(load_var))],
+                    },
+                });
+
+                Ok(())
+            } else {
+                Err(Error::GenerationError(
+                    "Invalid prefix predicate structure".to_string(),
+                ))
+            }
+        }
+
+        fn process_regular_predicate(
+            pred_name: &str,
+            arguments: &[String],
+            rhs_nodes: &mut Vec<RHSVal>,
+        ) -> Result<()> {
+            // Skip built-in predicates
+            if !is_builtin_predicate(pred_name) {
+                let rhs_node = RHSNode {
+                    relation_name: to_pascal_case(pred_name),
+                    attributes: arguments
+                        .iter()
+                        .map(|arg| {
+                            if arg.len() > 1 {
+                                arg[1..].to_string()
+                            } else {
+                                arg.to_string()
+                            }
+                        })
+                        .collect(),
+                };
+                rhs_nodes.push(RHSVal::RHSNode(rhs_node));
+            }
+            Ok(())
+        }
+
+        fn is_builtin_predicate(pred_name: &str) -> bool {
+            matches!(
+                pred_name,
+                "equals"
+                    | "not_equals"
+                    | "less_than"
+                    | "less_equals"
+                    | "greater_than"
+                    | "greater_equals"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with"
+                    | "in"
+                    | "within"
+                    | "exists"
+                    | "and"
+                    | "or"
+                    | "not"
+            )
+        }
+
+        fn process_computation(
+            comp: &Lval,
+            context: &mut SSAContext,
+            instructions: &mut Vec<SSAInstruction>,
+        ) -> Result<()> {
+            if let Lval::Computation(_var_name, qexpr) = comp {
+                if let Lval::Qexpr(exprs) = &**qexpr {
+                    for expr in exprs {
+                        if let Lval::Sexpr(cells) = &**expr {
+                            process_computation_expression(cells, context, instructions)?;
                         }
                     }
-                    Ok(())
                 }
-        
-                fn ensure_output_relation_exists(
-                    relation_name: &str,
-                    params: &[String],
-                    ir_program: &mut IRProgram,
-                ) -> Result<()> {
-                    if !ir_program.relations.iter().any(|r| r.name == *relation_name) {
-                        let attributes = params.iter().map(|p| {
-                            let param_name = &p[1..];
-                            Attribute {
-                                name: param_name.to_string(),
-                                attr_type: if param_name.ends_with("_id") {
-                                    AttributeType::Number
-                                } else {
-                                    AttributeType::String
-                                },
-                            }
-                        }).collect();
-        
-                        ir_program.relations.push(IRRelationType {
-                            name: to_pascal_case(relation_name),
-                            attributes,
-                            role: IRRelationRole::Output,
-                        });
-                    }
-                    Ok(())
-                }
-        
-                fn process_predicates(
-                    predicates: &[Box<Lval>],
-                    context: &mut SSAContext,
-                ) -> Result<(Vec<RHSVal>, Vec<SSAInstruction>)> {
-                    let mut rhs_nodes = Vec::new();
-                    let mut instructions = Vec::new();
-        
-                    // Convert predicates to SSA instructions
-                    instructions.extend(inference_predicates_to_ssa(predicates, context));
-        
-                    // Process each predicate
-                    for (position, predicate) in predicates.iter().enumerate() {
-                        match &**predicate {
-                            Lval::PrefixPredicate(prefix_name, embedded_pred) => {
-                                process_prefix_predicate(
-                                    prefix_name,
-                                    embedded_pred,
-                                    position,
-                                    context,
-                                    &mut rhs_nodes,
-                                    &mut instructions,
-                                )?;
-                            }
-                            Lval::Predicate(pred_name, arguments) => {
-                                process_regular_predicate(
-                                    pred_name,
-                                    arguments,
-                                    &mut rhs_nodes,
-                                )?;
-                            }
-                            _ => return Err(Error::GenerationError("Invalid predicate type".to_string())),
-                        }
-                    }
-        
-                    Ok((rhs_nodes, instructions))
-                }
-        
-                fn process_prefix_predicate(
-                    prefix_name: &str,
-                    embedded_pred: &Lval,
-                    position: usize,
-                    context: &mut SSAContext,
-                    rhs_nodes: &mut Vec<RHSVal>,
-                    instructions: &mut Vec<SSAInstruction>,
-                ) -> Result<()> {
-                    if let Lval::Predicate(pred_name, arguments) = embedded_pred {
-                        let rhs_node = RHSVal::RHSNode(RHSNode {
-                            relation_name: to_pascal_case(pred_name),
-                            attributes: arguments.iter()
-                                .map(|arg| if arg.len() > 1 { arg[1..].to_string() } else { arg.to_string() })
-                                .collect(),
-                        });
-                        rhs_nodes.push(rhs_node);
-        
-                        // Generate SSA instructions for prefix operation
-                        let load_var = context.generate_temp_var();
-                        let result_var = context.generate_temp_var();
-        
-                        instructions.push(SSAInstruction::Assignment {
-                            variable: load_var.clone(),
-                            operation: SSAOperation {
-                                op_type: OperationType::Load,
-                                operands: vec![Operand::Reference(Reference::Position(position))],
-                            },
-                        });
-        
-                        let op_type = match prefix_name {
-                            "not" => OperationType::Not,
-                            _ => return Err(Error::GenerationError(format!("Unknown prefix predicate: {}", prefix_name))),
-                        };
-        
-                        instructions.push(SSAInstruction::Assignment {
-                            variable: result_var,
-                            operation: SSAOperation {
-                                op_type,
-                                operands: vec![Operand::Reference(Reference::Named(load_var))],
-                            },
-                        });
-        
-                        Ok(())
-                    } else {
-                        Err(Error::GenerationError("Invalid prefix predicate structure".to_string()))
-                    }
-                }
-        
-                fn process_regular_predicate(
-                    pred_name: &str,
-                    arguments: &[String],
-                    rhs_nodes: &mut Vec<RHSVal>,
-                ) -> Result<()> {
-                    // Skip built-in predicates
-                    if !is_builtin_predicate(pred_name) {
-                        let rhs_node = RHSNode {
-                            relation_name: to_pascal_case(pred_name),
-                            attributes: arguments.iter()
-                                .map(|arg| if arg.len() > 1 { arg[1..].to_string() } else { arg.to_string() })
-                                .collect(),
-                        };
-                        rhs_nodes.push(RHSVal::RHSNode(rhs_node));
-                    }
-                    Ok(())
-                }
-        
-                fn is_builtin_predicate(pred_name: &str) -> bool {
-                    matches!(
-                        pred_name,
-                        "equals" | "not_equals" | "less_than" | "less_equals" | "greater_than" |
-                        "greater_equals" | "contains" | "starts_with" | "ends_with" | "in" |
-                        "within" | "exists" | "and" | "or" | "not"
-                    )
-                }
-        
-                fn process_computation(
-                    comp: &Lval,
-                    context: &mut SSAContext,
-                    instructions: &mut Vec<SSAInstruction>,
-                ) -> Result<()> {
-                    if let Lval::Computation(_var_name, qexpr) = comp {
-                        if let Lval::Qexpr(exprs) = &**qexpr {
-                            for expr in exprs {
-                                if let Lval::Sexpr(cells) = &**expr {
-                                    process_computation_expression(cells, context, instructions)?;
-                                }
-                            }
-                        }
-                    }
-                    Ok(())
-                }
-        
-                fn process_computation_expression(
-                    cells: &[Box<Lval>],
-                    context: &mut SSAContext,
-                    instructions: &mut Vec<SSAInstruction>,
-                ) -> Result<()> {
-                    if let Some(Lval::Sym(operation)) = cells.first().map(|v| &**v) {
-                        let operands: Vec<String> = cells.iter()
-                            .skip(1)
-                            .map(|cell| match &**cell {
-                                Lval::Sym(s) => s.clone(),
-                                Lval::Capture(c) => format!("rhs_{}", &c[1..]),
-                                _ => String::new(),
-                            })
-                            .collect();
-        
-                        let temp_var = context.generate_temp_var();
-                        instructions.push(SSAInstruction::Assignment {
-                            variable: temp_var,
-                            operation: SSAOperation {
-                                op_type: OperationType::from(operation.as_str()),
-                                operands: operands.iter()
-                                    .map(|op| Operand::Reference(Reference::Named(op.clone())))
-                                    .collect(),
-                            },
-                        });
-                    }
-                    Ok(())
-                }
-        
-                fn create_inference_rule(
-                    relation_name: &str,
-                    params: &[String],
-                    rhs_nodes: Vec<RHSVal>,
-                    instructions: Vec<SSAInstruction>,
-                ) -> IRRule {
-                    IRRule {
-                        lhs: LHSNode {
-                            relation_name: to_pascal_case(relation_name),
-                            output_attributes: params.iter().map(|p| p[1..].to_string()).collect(),
-                        },
-                        rhs: RHSVal::NestedRHS(rhs_nodes),
-                        ssa_block: if !instructions.is_empty() {
-                            Some(SSAInstructionBlock { instructions })
-                        } else {
-                            None
-                        },
-                    }
+            }
+            Ok(())
+        }
+
+        fn process_computation_expression(
+            cells: &[Box<Lval>],
+            context: &mut SSAContext,
+            instructions: &mut Vec<SSAInstruction>,
+        ) -> Result<()> {
+            if let Some(Lval::Sym(operation)) = cells.first().map(|v| &**v) {
+                let operands: Vec<String> = cells
+                    .iter()
+                    .skip(1)
+                    .map(|cell| match &**cell {
+                        Lval::Sym(s) => s.clone(),
+                        Lval::Capture(c) => format!("rhs_{}", &c[1..]),
+                        _ => String::new(),
+                    })
+                    .collect();
+
+                let temp_var = context.generate_temp_var();
+                instructions.push(SSAInstruction::Assignment {
+                    variable: temp_var,
+                    operation: SSAOperation {
+                        op_type: OperationType::from(operation.as_str()),
+                        operands: operands
+                            .iter()
+                            .map(|op| Operand::Reference(Reference::Named(op.clone())))
+                            .collect(),
+                    },
+                });
+            }
+            Ok(())
+        }
+
+        fn create_inference_rule(
+            relation_name: &str,
+            params: &[String],
+            rhs_nodes: Vec<RHSVal>,
+            instructions: Vec<SSAInstruction>,
+        ) -> IRRule {
+            IRRule {
+                lhs: LHSNode {
+                    relation_name: to_pascal_case(relation_name),
+                    output_attributes: params.iter().map(|p| p[1..].to_string()).collect(),
+                },
+                rhs: RHSVal::NestedRHS(rhs_nodes),
+                ssa_block: if !instructions.is_empty() {
+                    Some(SSAInstructionBlock { instructions })
+                } else {
+                    None
+                },
+            }
         }
 
         fn process_do_block(
-                    do_block: &Lval,
-                    context: &mut SSAContext,
-                    instructions: &mut Vec<SSAInstruction>,
-                ) -> Result<()> {
-                    if let Lval::DoForm(actions) = &do_block {
-                        for action in actions {
-                            if let Lval::Qexpr(cells) = &**action {
-                                for cell in cells {
-                                    if let Lval::Sexpr(lvals) = &**cell {
-                                        if let Some(Lval::Sym(operation)) = lvals.first().map(|v| &**v) {
-                                            match operation.as_str() {
-                                                "format" => {
-                                                    process_format_operation(lvals, context, instructions)?;
-                                                }
-                                                "concat" => {
-                                                    process_concat_operation(lvals, context, instructions)?;
-                                                }
-                                                "replace" => {
-                                                    process_replace_operation(lvals, context, instructions)?;
-                                                }
-                                                "lowercase" | "uppercase" => {
-                                                    process_case_operation(operation.as_str(), lvals, context, instructions)?;
-                                                }
-                                                "trim" => {
-                                                    process_trim_operation(lvals, context, instructions)?;
-                                                }
-                                                _ => {
-                                                    return Err(Error::GenerationError(
-                                                        format!("Unsupported operation: {}", operation)
-                                                    ));
-                                                }
-                                            }
+            do_block: &Lval,
+            context: &mut SSAContext,
+            instructions: &mut Vec<SSAInstruction>,
+        ) -> Result<()> {
+            if let Lval::DoForm(actions) = &do_block {
+                for action in actions {
+                    if let Lval::Qexpr(cells) = &**action {
+                        for cell in cells {
+                            if let Lval::Sexpr(lvals) = &**cell {
+                                if let Some(Lval::Sym(operation)) = lvals.first().map(|v| &**v) {
+                                    match operation.as_str() {
+                                        "format" => {
+                                            process_format_operation(lvals, context, instructions)?;
                                         }
-                                    } else {
-                                        return Err(Error::GenerationError(
-                                            format!("Invalid do-block cell type: {:?}", cell)
-                                        ));
+                                        "concat" => {
+                                            process_concat_operation(lvals, context, instructions)?;
+                                        }
+                                        "replace" => {
+                                            process_replace_operation(
+                                                lvals,
+                                                context,
+                                                instructions,
+                                            )?;
+                                        }
+                                        "lowercase" | "uppercase" => {
+                                            process_case_operation(
+                                                operation.as_str(),
+                                                lvals,
+                                                context,
+                                                instructions,
+                                            )?;
+                                        }
+                                        "trim" => {
+                                            process_trim_operation(lvals, context, instructions)?;
+                                        }
+                                        _ => {
+                                            return Err(Error::GenerationError(format!(
+                                                "Unsupported operation: {}",
+                                                operation
+                                            )));
+                                        }
                                     }
                                 }
+                            } else {
+                                return Err(Error::GenerationError(format!(
+                                    "Invalid do-block cell type: {:?}",
+                                    cell
+                                )));
                             }
                         }
                     }
-                    Ok(())
                 }
-        
-                fn process_format_operation(
-                    lvals: &[Box<Lval>],
-                    context: &mut SSAContext,
-                    instructions: &mut Vec<SSAInstruction>,
-                ) -> Result<()> {
-                    let operands = parse_string_operands(&lvals[1..])?;
-                    generate_string_concat_instructions(operands, context, instructions);
-                    Ok(())
-                }
-        
-                fn process_concat_operation(
-                    lvals: &[Box<Lval>],
-                    context: &mut SSAContext,
-                    instructions: &mut Vec<SSAInstruction>,
-                ) -> Result<()> {
-                    if lvals.len() < 3 {
-                        return Err(Error::GenerationError("concat requires at least 2 operands".to_string()));
-                    }
-                    let operands = parse_string_operands(&lvals[1..])?;
-                    generate_string_concat_instructions(operands, context, instructions);
-                    Ok(())
-                }
-        
-                fn process_replace_operation(
-                    lvals: &[Box<Lval>],
-                    context: &mut SSAContext,
-                    instructions: &mut Vec<SSAInstruction>,
-                ) -> Result<()> {
-                    if lvals.len() != 4 {
-                        return Err(Error::GenerationError("replace requires 3 operands".to_string()));
-                    }
-                    
-                    let target = parse_single_operand(&lvals[1])?;
-                    let pattern = parse_single_operand(&lvals[2])?;
-                    let replacement = parse_single_operand(&lvals[3])?;
-                    
-                    let result_var = context.generate_temp_var();
-                    instructions.push(SSAInstruction::Assignment {
-                        variable: result_var,
-                        operation: SSAOperation {
-                            op_type: OperationType::Replace,
-                            operands: vec![
-                                operand_to_reference(target),
-                                operand_to_reference(pattern),
-                                operand_to_reference(replacement),
-                            ],
-                        },
-                    });
-                    Ok(())
-                }
-        
-                fn process_case_operation(
-                    operation: &str,
-                    lvals: &[Box<Lval>],
-                    context: &mut SSAContext,
-                    instructions: &mut Vec<SSAInstruction>,
-                ) -> Result<()> {
-                    if lvals.len() != 2 {
-                        return Err(Error::GenerationError(format!("{} requires 1 operand", operation)));
-                    }
-                    
-                    let input = parse_single_operand(&lvals[1])?;
-                    let result_var = context.generate_temp_var();
-                    
-                    instructions.push(SSAInstruction::Assignment {
-                        variable: result_var,
-                        operation: SSAOperation {
-                            op_type: if operation == "lowercase" {
-                                OperationType::ToLower
-                            } else {
-                                OperationType::ToUpper
-                            },
-                            operands: vec![operand_to_reference(input)],
-                        },
-                    });
-                    Ok(())
-                }
-        
-                fn process_trim_operation(
-                    lvals: &[Box<Lval>],
-                    context: &mut SSAContext,
-                    instructions: &mut Vec<SSAInstruction>,
-                ) -> Result<()> {
-                    if lvals.len() != 2 {
-                        return Err(Error::GenerationError("trim requires 1 operand".to_string()));
-                    }
-                    
-                    let input = parse_single_operand(&lvals[1])?;
-                    let result_var = context.generate_temp_var();
-                    
-                    instructions.push(SSAInstruction::Assignment {
-                        variable: result_var,
-                        operation: SSAOperation {
-                            op_type: OperationType::Trim,
-                            operands: vec![operand_to_reference(input)],
-                        },
-                    });
-                    Ok(())
-                }
-        
-                fn parse_string_operands(lvals: &[Box<Lval>]) -> Result<Vec<StringPart>> {
-                    lvals.iter().map(|lval| parse_single_operand(lval)).collect()
-                }
-        
-                fn parse_single_operand(lval: &Lval) -> Result<StringPart> {
-                    match lval {
-                        Lval::Sym(operand) => {
-                            if let Some('$') = operand.chars().next() {
-                                Ok(StringPart::Dynamic(operand.clone()))
-                            } else {
-                                Ok(StringPart::Static(operand.clone()))
-                            }
-                        }
-                        Lval::Capture(capture) => {
-                            Ok(StringPart::Dynamic(format!("rhs_{}", &capture[1..])))
-                        }
-                        Lval::String(s) => {
-                            Ok(StringPart::Static(s[1..s.len()-1].to_string()))
-                        }
-                        _ => Err(Error::GenerationError(format!(
-                            "Unsupported operand type: {:?}",
-                            lval
-                        )))
-                    }
-                }
-        
-                fn generate_string_concat_instructions(
-                    operands: Vec<StringPart>,
-                    context: &mut SSAContext,
-                    instructions: &mut Vec<SSAInstruction>,
-                ) {
-                    let mut last_var = String::new();
-        
-                    for operand in operands {
-                        let variable = context.generate_temp_var();
-                        let operation = SSAOperation {
-                            op_type: OperationType::Concat,
-                            operands: if last_var.is_empty() {
-                                vec![operand_to_reference(operand)]
-                            } else {
-                                vec![
-                                    Operand::Reference(Reference::Named(last_var.clone())),
-                                    operand_to_reference(operand),
-                                ]
-                            },
-                        };
-        
-                        instructions.push(SSAInstruction::Assignment {
-                            variable: variable.clone(),
-                            operation,
-                        });
-        
-                        last_var = variable;
+            }
+            Ok(())
+        }
+
+        fn process_format_operation(
+            lvals: &[Box<Lval>],
+            context: &mut SSAContext,
+            instructions: &mut Vec<SSAInstruction>,
+        ) -> Result<()> {
+            let operands = parse_string_operands(&lvals[1..])?;
+            generate_string_concat_instructions(operands, context, instructions);
+            Ok(())
+        }
+
+        fn process_concat_operation(
+            lvals: &[Box<Lval>],
+            context: &mut SSAContext,
+            instructions: &mut Vec<SSAInstruction>,
+        ) -> Result<()> {
+            if lvals.len() < 3 {
+                return Err(Error::GenerationError(
+                    "concat requires at least 2 operands".to_string(),
+                ));
+            }
+            let operands = parse_string_operands(&lvals[1..])?;
+            generate_string_concat_instructions(operands, context, instructions);
+            Ok(())
+        }
+
+        fn process_replace_operation(
+            lvals: &[Box<Lval>],
+            context: &mut SSAContext,
+            instructions: &mut Vec<SSAInstruction>,
+        ) -> Result<()> {
+            if lvals.len() != 4 {
+                return Err(Error::GenerationError(
+                    "replace requires 3 operands".to_string(),
+                ));
+            }
+
+            let target = parse_single_operand(&lvals[1])?;
+            let pattern = parse_single_operand(&lvals[2])?;
+            let replacement = parse_single_operand(&lvals[3])?;
+
+            let result_var = context.generate_temp_var();
+            instructions.push(SSAInstruction::Assignment {
+                variable: result_var,
+                operation: SSAOperation {
+                    op_type: OperationType::Replace,
+                    operands: vec![
+                        operand_to_reference(target),
+                        operand_to_reference(pattern),
+                        operand_to_reference(replacement),
+                    ],
+                },
+            });
+            Ok(())
+        }
+
+        fn process_case_operation(
+            operation: &str,
+            lvals: &[Box<Lval>],
+            context: &mut SSAContext,
+            instructions: &mut Vec<SSAInstruction>,
+        ) -> Result<()> {
+            if lvals.len() != 2 {
+                return Err(Error::GenerationError(format!(
+                    "{} requires 1 operand",
+                    operation
+                )));
+            }
+
+            let input = parse_single_operand(&lvals[1])?;
+            let result_var = context.generate_temp_var();
+
+            instructions.push(SSAInstruction::Assignment {
+                variable: result_var,
+                operation: SSAOperation {
+                    op_type: if operation == "lowercase" {
+                        OperationType::ToLower
+                    } else {
+                        OperationType::ToUpper
+                    },
+                    operands: vec![operand_to_reference(input)],
+                },
+            });
+            Ok(())
+        }
+
+        fn process_trim_operation(
+            lvals: &[Box<Lval>],
+            context: &mut SSAContext,
+            instructions: &mut Vec<SSAInstruction>,
+        ) -> Result<()> {
+            if lvals.len() != 2 {
+                return Err(Error::GenerationError(
+                    "trim requires 1 operand".to_string(),
+                ));
+            }
+
+            let input = parse_single_operand(&lvals[1])?;
+            let result_var = context.generate_temp_var();
+
+            instructions.push(SSAInstruction::Assignment {
+                variable: result_var,
+                operation: SSAOperation {
+                    op_type: OperationType::Trim,
+                    operands: vec![operand_to_reference(input)],
+                },
+            });
+            Ok(())
+        }
+
+        fn parse_string_operands(lvals: &[Box<Lval>]) -> Result<Vec<StringPart>> {
+            lvals
+                .iter()
+                .map(|lval| parse_single_operand(lval))
+                .collect()
+        }
+
+        fn parse_single_operand(lval: &Lval) -> Result<StringPart> {
+            match lval {
+                Lval::Sym(operand) => {
+                    if let Some('$') = operand.chars().next() {
+                        Ok(StringPart::Dynamic(operand.clone()))
+                    } else {
+                        Ok(StringPart::Static(operand.clone()))
                     }
                 }
-        
-                fn operand_to_reference(part: StringPart) -> Operand {
-                    match part {
-                        StringPart::Static(text) => {
-                            Operand::Reference(Reference::Named(format!("\"{}\"", text)))
-                        }
-                        StringPart::Dynamic(var) => {
-                            Operand::Reference(Reference::Named(var))
-                        }
-                    }
+                Lval::Capture(capture) => Ok(StringPart::Dynamic(format!("rhs_{}", &capture[1..]))),
+                Lval::String(s) => Ok(StringPart::Static(s[1..s.len() - 1].to_string())),
+                _ => Err(Error::GenerationError(format!(
+                    "Unsupported operand type: {:?}",
+                    lval
+                ))),
+            }
+        }
+
+        fn generate_string_concat_instructions(
+            operands: Vec<StringPart>,
+            context: &mut SSAContext,
+            instructions: &mut Vec<SSAInstruction>,
+        ) {
+            let mut last_var = String::new();
+
+            for operand in operands {
+                let variable = context.generate_temp_var();
+                let operation = SSAOperation {
+                    op_type: OperationType::Concat,
+                    operands: if last_var.is_empty() {
+                        vec![operand_to_reference(operand)]
+                    } else {
+                        vec![
+                            Operand::Reference(Reference::Named(last_var.clone())),
+                            operand_to_reference(operand),
+                        ]
+                    },
+                };
+
+                instructions.push(SSAInstruction::Assignment {
+                    variable: variable.clone(),
+                    operation,
+                });
+
+                last_var = variable;
+            }
+        }
+
+        fn operand_to_reference(part: StringPart) -> Operand {
+            match part {
+                StringPart::Static(text) => {
+                    Operand::Reference(Reference::Named(format!("\"{}\"", text)))
+                }
+                StringPart::Dynamic(var) => Operand::Reference(Reference::Named(var)),
+            }
         }
 
         /// Maps a logical operator and operands to SSAOperation, updating counters.
