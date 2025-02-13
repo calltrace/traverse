@@ -247,6 +247,10 @@ pub enum OperationType {
     Len,
     Load,
     Store,
+    ToLower,
+    ToUpper,
+    Trim,
+    Replace,
     Noop,
 }
 
@@ -457,6 +461,10 @@ impl fmt::Display for OperationType {
                 OperationType::Exists => "exists",
                 OperationType::StartsWith => "starts_with",
                 OperationType::EndsWith => "ends_with",
+                OperationType::ToLower => "to_lower",
+                OperationType::ToUpper => "to_upper",
+                OperationType::Trim => "trim",
+                OperationType::Replace => "replace",
                 OperationType::Noop => "noop",
             }
         )
@@ -849,6 +857,10 @@ mod parser {
             "len" => OperationType::Len,
             "load" => OperationType::Load,
             "store" => OperationType::Store,
+            "to_lower" => OperationType::ToLower,
+            "to_upper" => OperationType::ToUpper,
+            "trim" => OperationType::Trim,
+            "replace" => OperationType::Replace,
             _ => panic!("Unsupported operation type: {}", op_type),
         }
     }

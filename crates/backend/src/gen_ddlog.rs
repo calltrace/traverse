@@ -461,7 +461,7 @@ impl DDlogGenerator {
                             }
                         }
                     }
-                }
+               }
 
                 let mut conditions = Vec::new();
                 // HACK: the RI grammar should allow for disambiguating relations in terms of their
