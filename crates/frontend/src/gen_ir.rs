@@ -115,11 +115,13 @@ impl SymbolTable {
 
 pub(crate) fn normalize_string(s: &str) -> String {
     let mut result = String::with_capacity(s.len() * 2);
-    let mut chars = s.chars().peekable();
+    let chars = s.chars().peekable();
 
-    while let Some(c) = chars.next() {
-        if c.is_uppercase() {
-            if !result.is_empty() {
+    for c in chars {
+        if c == '_' {
+            result.push('_');
+        } else if c.is_uppercase() {
+            if !result.is_empty() && !result.ends_with('_') {
                 result.push('_');
             }
             result.push(c.to_ascii_lowercase());
@@ -626,11 +628,9 @@ impl IrGenerator {
                     // Note: we're hydrating all the attributes of the intermediary relation, not
                     // only the captureref's ones.
                     if !exists {
-                        if let Some(relation) = Self::lookup_relation(
-                            ir_program,
-                            referenced_rel,
-                            Some(IRRelationRole::Intermediate),
-                        ) {
+                        if let Some(relation) =
+                            Self::lookup_relation(ir_program, referenced_rel, None)
+                        {
                             let rhs_node = RHSNode {
                                 relation_name: referenced_rel.clone(),
                                 attributes: relation
@@ -807,8 +807,8 @@ impl IrGenerator {
         }
 
         /**
-*        * TODO: Selecting the attribute type based on the attribute name is a temporary solution.
-*        */
+         *        * TODO: Selecting the attribute type based on the attribute name is a temporary solution.
+         *        */
         fn create_attribute(name: &str) -> Attribute {
             Attribute {
                 name: name.to_string(),
@@ -1634,18 +1634,31 @@ impl IrGenerator {
         ) {
             let mut last_var = String::new();
 
-            for operand in operands {
+            // Handle first operand specially
+            if let Some(first_operand) = operands.first() {
+                let variable = context.generate_temp_var();
+                let operation = SSAOperation {
+                    op_type: OperationType::Load,
+                    operands: vec![operand_to_reference(first_operand.clone())],
+                };
+
+                instructions.push(SSAInstruction::Assignment {
+                    variable: variable.clone(),
+                    operation,
+                });
+
+                last_var = variable;
+            }
+
+            // Handle remaining operands with concat
+            for operand in operands.into_iter().skip(1) {
                 let variable = context.generate_temp_var();
                 let operation = SSAOperation {
                     op_type: OperationType::Concat,
-                    operands: if last_var.is_empty() {
-                        vec![operand_to_reference(operand)]
-                    } else {
-                        vec![
-                            Operand::Reference(Reference::Named(last_var.clone())),
-                            operand_to_reference(operand),
-                        ]
-                    },
+                    operands: vec![
+                        Operand::Reference(Reference::Named(last_var.clone())),
+                        operand_to_reference(operand),
+                    ],
                 };
 
                 instructions.push(SSAInstruction::Assignment {
@@ -1660,9 +1673,11 @@ impl IrGenerator {
         fn operand_to_reference(part: StringPart) -> Operand {
             match part {
                 StringPart::Static(text) => {
-                    Operand::Reference(Reference::Named(format!("\"{}\"", text)))
+                    Operand::StringLiteral(text) // Use the static text as-is
                 }
-                StringPart::Dynamic(var) => Operand::Reference(Reference::Named(var)),
+                StringPart::Dynamic(var) => {
+                    Operand::Reference(Reference::Named(normalize_string(&var)))
+                }
             }
         }
 

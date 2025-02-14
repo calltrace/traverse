@@ -89,7 +89,6 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
                 .unwrap()
                 .into_inner();
 
-            println!("{:?}", inner);
             let mut predicates = vec![];
             let mut computation = None;
 

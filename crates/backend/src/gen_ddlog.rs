@@ -15,7 +15,9 @@ use ir::{
     SSAInstructionBlock, SSAOperation,
 };
 
-const RESERVED_WORDS: &[&str] = &["else", "function", "type", "match", "var", "string", "String"];
+const RESERVED_WORDS: &[&str] = &[
+    "else", "function", "type", "match", "var", "string", "String",
+];
 
 enum RelationType {
     Input,
@@ -461,7 +463,7 @@ impl DDlogGenerator {
                             }
                         }
                     }
-               }
+                }
 
                 let mut conditions = Vec::new();
                 // HACK: the RI grammar should allow for disambiguating relations in terms of their
@@ -482,7 +484,7 @@ impl DDlogGenerator {
                     }
 
                     let mapping_expr = self.generate_ddlog_interpolation(
-                        &format!("lhs_{}", lhs_relation.attributes[0].name),
+                        &format!("{}", lhs_relation.attributes[0].name),
                         rule.ssa_block
                             .as_ref()
                             .map(|block| block.instructions.clone())
@@ -536,9 +538,6 @@ impl DDlogGenerator {
                     // RHS (body) to LHS (head) attributes one-to-one. However, output relations such as the ones for inference
                     // rules, mappings are determined by the user so we want to honor those.
                     //
-                    println!("lhs_attributes: {:?}", lhs_attributes);
-                    println!("rhs_attributes: {:?}", rhs_attributes);
-                    println!("relation role {:?}", lhs_relation.role);
                     if lhs_relation.role == IRRelationRole::Intermediate {
                         for lhs_attr in lhs_attributes.iter() {
                             if let Some(rhs_attr) = rhs_attributes
@@ -720,7 +719,10 @@ impl DDlogGenerator {
             for node_type in &input_node_types {
                 if !Self::is_leaf_node(node_type) {
                     let pascal_name = Self::to_pascal_case(&node_type.name.sexp_name);
-                    if !RESERVED_WORDS.iter().any(|w| w.eq_ignore_ascii_case(&pascal_name)) {
+                    if !RESERVED_WORDS
+                        .iter()
+                        .any(|w| w.eq_ignore_ascii_case(&pascal_name))
+                    {
                         program.add_rule(Rule {
                             pos: Pos::nopos(),
                             module: ModuleName { path: vec![] },
@@ -1025,7 +1027,6 @@ impl DDlogGenerator {
         }
     }
 
-    /// Generate a DDLog-style string interpolation statement
     fn generate_ddlog_interpolation(
         &self,
         lhs_attribute: &str,
@@ -1033,8 +1034,10 @@ impl DDlogGenerator {
     ) -> String {
         // Map to store the operations for each SSA variable
         let mut instruction_map: HashMap<String, SSAOperation> = HashMap::new();
+        // Map to store literal values for variables
+        let mut literal_map: HashMap<String, String> = HashMap::new();
 
-        // Populate the map with SSA instructions
+        // Populate the maps with SSA instructions
         let mut final_var = String::new();
         for instr in &ssa_instructions {
             match instr {
@@ -1043,6 +1046,21 @@ impl DDlogGenerator {
                     operation,
                 } => {
                     instruction_map.insert(variable.clone(), operation.clone());
+
+                    // Store literal values for Load operations
+                    if operation.op_type == OperationType::Load {
+                        if let Some(operand) = operation.operands.first() {
+                            match operand {
+                                Operand::StringLiteral(s) => {
+                                    literal_map.insert(variable.clone(), format!("\"{}\"", s));
+                                }
+                                Operand::NumberLiteral(n) => {
+                                    literal_map.insert(variable.clone(), n.to_string());
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
 
                     // if it's the last instruction
                     if ssa_instructions.last().unwrap() == instr {
@@ -1055,35 +1073,77 @@ impl DDlogGenerator {
             }
         }
 
-        // Recursively resolve the operands into a DDLog-style concatenation statement
-        fn resolve_operands(var: &str, map: &HashMap<String, SSAOperation>) -> String {
+        // Recursively resolve the operands into a DDlog-style concatenation statement
+        fn resolve_operands(
+            var: &str,
+            map: &HashMap<String, SSAOperation>,
+            literals: &HashMap<String, String>,
+        ) -> String {
+            // First check if we have a literal value for this variable
+            if let Some(literal) = literals.get(var) {
+                return literal.clone();
+            }
+
+            println!("Resolving: {} {:?}", var, literals);
+
             if let Some(operation) = map.get(var) {
                 if operation.op_type == OperationType::Concat {
-                    let resolved_operands: Vec<String> = operation
-                        .operands
-                        .iter()
-                        .map(|operand| match operand {
-                            Operand::Identifier(id) => resolve_operands(id, map),
+                        let resolved_operands: Vec<String> = operation
+                            .operands
+                            .iter()
+                            .map(|operand| match operand {
+                                Operand::Identifier(id) => {
+                                    // First try to get literal value
+                                    if let Some(literal) = literals.get(id) {
+                                        literal.clone()
+                                    } else {
+                                        // Otherwise recursively resolve
+                                        resolve_operands(id, map, literals)
+                                    }
+                                },
+                                Operand::Reference(ref_val) => match ref_val {
+                                    Reference::Named(name) => {
+                                        // Check if we have a literal for this reference
+                                        if let Some(literal) = literals.get(name) {
+                                            literal.clone()
+                                        } else {
+                                            format!("{}", name)
+                                        }
+                                    },
+                                    Reference::Position(pos) => format!("${}", pos),
+                                },
+                                Operand::StringLiteral(s) => {
+                                    // Store the string literal in the literals map
+                                    let literal = format!("\"{}\"", s);
+                                    literal
+                                },
+                                Operand::NumberLiteral(n) => n.to_string(),
+                            })
+                            .collect();
+                        // Join with DDlog's string concatenation operator
+                        return resolved_operands.join(" ++ ");
+                } else if operation.op_type == OperationType::Load {
+                    if let Some(operand) = operation.operands.first() {
+                        match operand {
+                            Operand::Identifier(id) => return resolve_operands(id, map, literals),
                             Operand::Reference(ref_val) => match ref_val {
-                                Reference::Named(name) => format!("rhs_{}", name),
-                                Reference::Position(pos) => format!("${}", pos),
+                                Reference::Named(name) => return name.clone(),
+                                Reference::Position(pos) => return format!("${}", pos),
                             },
-                            Operand::StringLiteral(s) => format!("\"{}\"", s),
-                            Operand::NumberLiteral(n) => n.to_string(),
-                        })
-                        .collect();
-                    return resolved_operands.join(" ++ ");
+                            Operand::StringLiteral(s) => return format!("\"{}\"", s),
+                            Operand::NumberLiteral(n) => return n.to_string(),
+                        }
+                    }
                 }
             }
-            // If it's not an SSA variable (e.g., a static string), return as-is
+            // If it's not an SSA variable or literal, return as-is
             var.to_string()
         }
-
         // Generate the DDLog interpolation statement
         format!(
             "var {} = {}",
             lhs_attribute,
-            resolve_operands(&final_var, &instruction_map)
+            resolve_operands(&final_var, &instruction_map, &literal_map)
         )
     }
 
