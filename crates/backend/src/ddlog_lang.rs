@@ -408,6 +408,10 @@ pub enum DType {
     TFloat {
         pos: Pos,
     },
+    TVec {
+        pos: Pos,
+        element_type: Box<DType>,
+    },
     TStruct {
         pos: Pos,
         name: String,
@@ -474,6 +478,7 @@ impl Display for DType {
             DType::TSigned { width, .. } => write!(f, "signed<{}>", width),
             DType::TDouble { .. } => write!(f, "double"),
             DType::TFloat { .. } => write!(f, "float"),
+            DType::TVec { element_type, .. } => write!(f, "Vec<{}>", element_type),
             DType::TStruct { name, fields, .. } => {
                 let mut parts = vec![];
                 for (i, fld) in fields.iter().enumerate() {

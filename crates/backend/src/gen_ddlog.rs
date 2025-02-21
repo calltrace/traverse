@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
 
 use crate::ddlog_lang::{
-    Atom, DType, DatalogProgram, Delay, Expr, ExprNode, Field, ModuleName, Pos, Relation,
-    RelationRole, RelationSemantics, Rule, RuleLHS, RuleRHS,
+    ArgType, Atom, DType, DatalogProgram, Delay, Expr, ExprNode, Field, FuncArg, Function,
+    ModuleName, Pos, Relation, RelationRole, RelationSemantics, Rule, RuleLHS, RuleRHS,
 };
 
 use ir::{
@@ -628,8 +628,329 @@ impl DDlogGenerator {
                     primary_key: None,
                 }
             };
+
+            // Add control flow analysis relations
+            let start_instruction_rel = Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelInternal,
+                semantics: RelationSemantics::RelSet,
+                name: "StartInstruction".to_string(),
+                rtype: DType::TStruct {
+                    pos: Pos::nopos(),
+                    name: "StartInstruction".to_string(),
+                    fields: vec![
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "node_id".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "next_node_id".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                    ],
+                },
+                primary_key: None,
+            };
+
+            let end_instruction_rel = Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelInternal,
+                semantics: RelationSemantics::RelSet,
+                name: "EndInstruction".to_string(),
+                rtype: DType::TStruct {
+                    pos: Pos::nopos(),
+                    name: "EndInstruction".to_string(),
+                    fields: vec![
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "node_id".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "next_node_id".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                    ],
+                },
+                primary_key: None,
+            };
+
+            let instruction_rel = Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelInternal,
+                semantics: RelationSemantics::RelSet,
+                name: "Instruction".to_string(),
+                rtype: DType::TStruct {
+                    pos: Pos::nopos(),
+                    name: "Instruction".to_string(),
+                    fields: vec![
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "node_id".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "next_node_id".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                    ],
+                },
+                primary_key: None,
+            };
+
+            let block_boundary_rel = Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelInternal,
+                semantics: RelationSemantics::RelSet,
+                name: "BlockBoundary".to_string(),
+                rtype: DType::TStruct {
+                    pos: Pos::nopos(),
+                    name: "BlockBoundary".to_string(),
+                    fields: vec![
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "pos".to_string(),
+                            ftype: DType::TVec {
+                                pos: Pos::nopos(),
+                                element_type: Box::new(DType::TInt { pos: Pos::nopos() }),
+                            },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "start".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "end".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "nodes".to_string(),
+                            ftype: DType::TVec {
+                                pos: Pos::nopos(),
+                                element_type: Box::new(DType::TInt { pos: Pos::nopos() }),
+                            },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "last".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                    ],
+                },
+                primary_key: None,
+            };
+
+            let reaches_rel = Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelInternal,
+                semantics: RelationSemantics::RelSet,
+                name: "Reaches".to_string(),
+                rtype: DType::TStruct {
+                    pos: Pos::nopos(),
+                    name: "Reaches".to_string(),
+                    fields: vec![
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "from".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "to".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                    ],
+                },
+                primary_key: None,
+            };
+
+            let path_rel = Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelInternal,
+                semantics: RelationSemantics::RelSet,
+                name: "Path".to_string(),
+                rtype: DType::TStruct {
+                    pos: Pos::nopos(),
+                    name: "Path".to_string(),
+                    fields: vec![
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "pos".to_string(),
+                            ftype: DType::TVec {
+                                pos: Pos::nopos(),
+                                element_type: Box::new(DType::TInt { pos: Pos::nopos() }),
+                            },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "last".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                    ],
+                },
+                primary_key: None,
+            };
+
+            let path_expr_rel = Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelInternal,
+                semantics: RelationSemantics::RelSet,
+                name: "PathExpr".to_string(),
+                rtype: DType::TStruct {
+                    pos: Pos::nopos(),
+                    name: "PathExpr".to_string(),
+                    fields: vec![
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "expr".to_string(),
+                            ftype: DType::TString { pos: Pos::nopos() },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "node_id".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                    ],
+                },
+                primary_key: None,
+            };
+            //
+            // Add WithIntermediaryEndInstruction relation
+            let with_intermediary_end_instruction_rel = Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelOutput,
+                semantics: RelationSemantics::RelSet,
+                name: "WithIntermediaryEndInstruction".to_string(),
+                rtype: DType::TStruct {
+                    pos: Pos::nopos(),
+                    name: "WithIntermediaryEndInstruction".to_string(),
+                    fields: vec![
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "ei_node_id".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "ei_next".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                    ],
+                },
+                primary_key: None,
+            };
+
+            // Add BlockBoundary relation
+            let block_boundary_rel = Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelOutput,
+                semantics: RelationSemantics::RelSet,
+                name: "BlockBoundary".to_string(),
+                rtype: DType::TStruct {
+                    pos: Pos::nopos(),
+                    name: "BlockBoundary".to_string(),
+                    fields: vec![
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "pos".to_string(),
+                            ftype: DType::TVec {
+                                pos: Pos::nopos(),
+                                element_type: Box::new(DType::TInt { pos: Pos::nopos() }),
+                            },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "start".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "end".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "nodes".to_string(),
+                            ftype: DType::TVec {
+                                pos: Pos::nopos(),
+                                element_type: Box::new(DType::TInt { pos: Pos::nopos() }),
+                            },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "last".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                    ],
+                },
+                primary_key: None,
+            };
+
+            // Add Blocks relation
+            let blocks_rel = Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelOutput,
+                semantics: RelationSemantics::RelSet,
+                name: "Blocks".to_string(),
+                rtype: DType::TStruct {
+                    pos: Pos::nopos(),
+                    name: "Blocks".to_string(),
+                    fields: vec![Field {
+                        pos: Pos::nopos(),
+                        name: "pos".to_string(),
+                        ftype: DType::TVec {
+                            pos: Pos::nopos(),
+                            element_type: Box::new(DType::TString { pos: Pos::nopos() }),
+                        },
+                    }],
+                },
+                primary_key: None,
+            };
+
+            // Define QualifiedEdge relation
+            let qualified_edge_rel = Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelOutput,
+                semantics: RelationSemantics::RelSet,
+                name: "QualifiedEdge".to_string(),
+                rtype: DType::TStruct {
+                    pos: Pos::nopos(),
+                    name: "QualifiedEdge".to_string(),
+                    fields: vec![
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "i".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "path".to_string(),
+                            ftype: DType::TString { pos: Pos::nopos() },
+                        },
+                    ],
+                },
+                primary_key: None,
+            };
+
             program.add_relation(node_rel);
             program.add_relation(ancestor_rel);
+            program.add_relation(start_instruction_rel);
+            program.add_relation(end_instruction_rel);
+            program.add_relation(instruction_rel);
+            program.add_relation(reaches_rel);
+            program.add_relation(path_rel);
+            program.add_relation(path_expr_rel);
+            program.add_relation(with_intermediary_end_instruction_rel);
+            program.add_relation(block_boundary_rel);
+            program.add_relation(blocks_rel);
+            program.add_relation(qualified_edge_rel);
 
             // Add base ancestor rule
             program.add_rule(Rule {
@@ -663,6 +984,349 @@ impl DDlogGenerator {
                         }),
                     },
                 }],
+            });
+
+            // Add WithIntermediaryEndInstruction rule
+            program.add_rule(Rule {
+                pos: Pos::nopos(),
+                module: ModuleName { path: vec![] },
+                lhs: vec![RuleLHS {
+                    pos: Pos::nopos(),
+                    atom: Atom {
+                        pos: Pos::nopos(),
+                        relation: "WithIntermediaryEndInstruction".to_string(),
+                        delay: Delay::zero(),
+                        diff: false,
+                        value: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "si_node_id, other_ei_node_id".to_string(),
+                        }),
+                    },
+                    location: None,
+                }],
+                rhs: vec![
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "StartInstruction".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "si_node_id, si_next".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "EndInstruction".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "ei_node_id, ei_next".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "EndInstruction".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "other_ei_node_id, other_ei_next".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "Reaches".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "si_node_id, ei_node_id".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "Reaches".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "si_node_id, other_ei_node_id".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "Reaches".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "ei_node_id, other_ei_node_id".to_string(),
+                            }),
+                        },
+                    },
+                ],
+            });
+
+            // Add BlockBoundary base rule
+            program.add_rule(Rule {
+                pos: Pos::nopos(),
+                module: ModuleName { path: vec![] },
+                lhs: vec![RuleLHS {
+                    pos: Pos::nopos(),
+                    atom: Atom {
+                        pos: Pos::nopos(),
+                        relation: "BlockBoundary".to_string(),
+                        delay: Delay::zero(),
+                        diff: false,
+                        value: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "pos, si_node_id, ei_node_id, nodes, si_next".to_string(),
+                        }),
+                    },
+                    location: None,
+                }],
+                rhs: vec![
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "StartInstruction".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "si_node_id, si_next".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "EndInstruction".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "ei_node_id, _".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "Reaches".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "si_node_id, ei_node_id".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "PathFromRoot".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "pos, si_node_id".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: false,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "WithIntermediaryEndInstruction".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "si_node_id, ei_node_id".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSCondition {
+                        pos: Pos::nopos(),
+                        expr: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "var nodes = vec_empty()".to_string(),
+                        }),
+                    },
+                ],
+            });
+
+            // Add BlockBoundary recursive rule
+            program.add_rule(Rule {
+                pos: Pos::nopos(),
+                module: ModuleName { path: vec![] },
+                lhs: vec![RuleLHS {
+                    pos: Pos::nopos(),
+                    atom: Atom {
+                        pos: Pos::nopos(),
+                        relation: "BlockBoundary".to_string(),
+                        delay: Delay::zero(),
+                        diff: false,
+                        value: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "pos, si_node_id, ei_node_id, nodes, q".to_string(),
+                        }),
+                    },
+                    location: None,
+                }],
+                rhs: vec![
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "BlockBoundary".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "pos, si_node_id, ei_node_id, other_nodes, other_last"
+                                    .to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "Statement".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "p, q".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSCondition {
+                        pos: Pos::nopos(),
+                        expr: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "p == other_last".to_string(),
+                        }),
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "Reaches".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "p, ei_node_id".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: false,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "WithIntermediaryEndInstruction".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "si_node_id, ei_node_id".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSCondition {
+                        pos: Pos::nopos(),
+                        expr: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "var nodes = vec_push_imm(other_nodes, p)".to_string(),
+                        }),
+                    },
+                ],
+            });
+
+            // Add Blocks rule
+            program.add_rule(Rule {
+                pos: Pos::nopos(),
+                module: ModuleName { path: vec![] },
+                lhs: vec![RuleLHS {
+                    pos: Pos::nopos(),
+                    atom: Atom {
+                        pos: Pos::nopos(),
+                        relation: "Blocks".to_string(),
+                        delay: Delay::zero(),
+                        diff: false,
+                        value: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "result".to_string(),
+                        }),
+                    },
+                    location: None,
+                }],
+                rhs: vec![
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "BlockBoundary".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "pos, start, _, _, _".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSCondition {
+                        pos: Pos::nopos(),
+                        expr: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name:
+                                "var result = vec_push_imm(vec_empty(), path_to_string(pos, start))"
+                                    .to_string(),
+                        }),
+                    },
+                ],
             });
 
             // Add transitive closure rule
@@ -709,6 +1373,116 @@ impl DDlogGenerator {
                             value: Expr::new(ExprNode::EVar {
                                 pos: Pos::nopos(),
                                 name: "parent_id, ancestor_id, _".to_string(),
+                            }),
+                        },
+                    },
+                ],
+            });
+            //
+            // Add path_to_string function
+            program.add_function(Function {
+                pos: Pos::nopos(),
+                name: "path_to_string".to_string(),
+                args: vec![
+                    FuncArg {
+                        pos: Pos::nopos(),
+                        name: "node_ids".to_string(),
+                        arg_type: ArgType {
+                            pos: Pos::nopos(),
+                            is_mut: false,
+                            arg_type: DType::TVec {
+                                pos: Pos::nopos(),
+                                element_type: Box::new(DType::TInt { pos: Pos::nopos() }),
+                            },
+                        },
+                    },
+                    FuncArg {
+                        pos: Pos::nopos(),
+                        name: "last".to_string(),
+                        arg_type: ArgType {
+                            pos: Pos::nopos(),
+                            is_mut: false,
+                            arg_type: DType::TInt { pos: Pos::nopos() },
+                        },
+                    },
+                ],
+                ftype: DType::TString { pos: Pos::nopos() },
+                def: Some(Expr::new(ExprNode::EVar {
+                    pos: Pos::nopos(),
+                    name: r#"
+                        var res = "";
+                        for (nid in node_ids) {
+                            if (nid != last) {
+                                res = res ++ nid ++ ".";
+                            } else {
+                                res = res ++ nid;
+                            }
+                        };
+                        res
+                    "#
+                    .trim()
+                    .to_string(),
+                })),
+            });
+
+            // Add QualifiedEdge rule
+            program.add_rule(Rule {
+                pos: Pos::nopos(),
+                module: ModuleName { path: vec![] },
+                lhs: vec![RuleLHS {
+                    pos: Pos::nopos(),
+                    atom: Atom {
+                        pos: Pos::nopos(),
+                        relation: "QualifiedEdge".to_string(),
+                        delay: Delay::zero(),
+                        diff: false,
+                        value: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "j, path".to_string(),
+                        }),
+                    },
+                    location: None,
+                }],
+                rhs: vec![
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "Edge".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "i, j".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "Path".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "vec, j".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "PathExpr".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "path, j".to_string(),
                             }),
                         },
                     },
@@ -1099,17 +1873,15 @@ impl DDlogGenerator {
                                     Operand::Identifier(id) => {
                                         concat_value.push(id.to_string());
                                     }
-                                    Operand::Reference(ref_name) => {
-                                        match ref_name {
-                                            Reference::Named(name) => {
-                                                concat_value.push(name.to_string());
-                                            }
-                                            Reference::Position(pos) => {
-                                                concat_value
-                                                    .push(format!("position not implemented {}", pos));
-                                            }
+                                    Operand::Reference(ref_name) => match ref_name {
+                                        Reference::Named(name) => {
+                                            concat_value.push(name.to_string());
                                         }
-                                    }
+                                        Reference::Position(pos) => {
+                                            concat_value
+                                                .push(format!("position not implemented {}", pos));
+                                        }
+                                    },
                                     _ => {}
                                 }
                             }
