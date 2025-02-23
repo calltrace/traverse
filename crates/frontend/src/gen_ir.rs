@@ -572,18 +572,57 @@ impl IrGenerator {
              */
             Lval::Emit(rel_name, captures, when_block, do_block) => {
                 let output_relation_name = format!("Emit{}", to_pascal_case(rel_name));
-                ir_program.relations.push(IRRelationType {
-                    name: output_relation_name.clone(),
-                    attributes: vec![Attribute {
+                
+                // Collect all attributes including provenance from referenced captures
+                let mut relation_attributes = IndexSet::new();
+                relation_attributes.insert(Attribute {
                         name: "val".to_string(),
                         attr_type: AttributeType::String,
-                    }],
+                    }
+                );
+
+                // Add provenance attributes from each capture
+                for capture_ref in captures {
+                    let capture_name = &capture_ref[1..];
+                    if let Some(symbol) = self.symbol_table.lookup_capture(capture_name) {
+                        if let Some(relation) = Self::lookup_relation(ir_program, &symbol.relationref.name, None) {
+                            for attr in &relation.attributes {
+                                relation_attributes.insert(Attribute {
+                                    name: format!("{}_provenance", normalize_string(&attr.name)),
+                                    attr_type: AttributeType::String,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                ir_program.relations.push(IRRelationType {
+                    name: output_relation_name.clone(),
+                    attributes: relation_attributes.into_iter().collect(),
                     role: IRRelationRole::Output,
                 });
 
+                // Create LHS attributes including both regular and provenance fields
+                let mut lhs_attributes = IndexSet::new();
+                lhs_attributes.insert("val".to_string());
+                
+                // For each capture, add corresponding provenance attribute
+                for capture_ref in captures {
+                    let capture_name = &capture_ref[1..];
+                    if let Some(symbol) = self.symbol_table.lookup_capture(capture_name) {
+                        if let Some(relation) = Self::lookup_relation(ir_program, &symbol.relationref.name, None) {
+                            for attr in &relation.attributes {
+                                lhs_attributes.insert(format!("lhs_{}_provenance", normalize_string(&attr.name)));
+                            }
+                        }
+                    }
+                }
+
+                println!("LHS attributes: {:?}", lhs_attributes);
+
                 let lhs_node = LHSNode {
                     relation_name: output_relation_name,
-                    output_attributes: IndexSet::from(["val".to_string()]),
+                    output_attributes: lhs_attributes,
                 };
 
                 let mut instructions: Vec<SSAInstruction> = vec![];
@@ -631,16 +670,32 @@ impl IrGenerator {
                         if let Some(relation) =
                             Self::lookup_relation(ir_program, referenced_rel, None)
                         {
+                            // Create regular attribute references
+                            let attributes = relation
+                                .attributes
+                                .iter()
+                                .cloned()
+                                .map(|s| format!("rhs_{}", s.name.to_lowercase()))
+                                .collect::<Vec<String>>();
+
                             let rhs_node = RHSNode {
                                 relation_name: referenced_rel.clone(),
-                                attributes: relation
-                                    .attributes
-                                    .iter()
-                                    .cloned()
-                                    .map(|s| format!("rhs_{}", s.name.to_lowercase()))
-                                    .collect::<Vec<String>>(),
+                                attributes,
                             };
+
                             rhs_nodes.push(RHSVal::RHSNode(rhs_node));
+                            //
+                            // Add Path relation node for each attribute that needs provenance
+                            for attr in &relation.attributes {
+                                let path_node = RHSNode {
+                                    relation_name: "Path".to_string(),
+                                    attributes: vec![
+                                        format!("rhs_{}_id", attr.name.to_lowercase()),
+                                        format!("rhs_{}_provenance", attr.name.to_lowercase()),
+                                    ],
+                                };
+                                rhs_nodes.push(RHSVal::RHSNode(path_node));
+                            }
                         } else {
                             return Err(Error::ResolveError(format!(
                                 "Referenced relation '{}' not found",

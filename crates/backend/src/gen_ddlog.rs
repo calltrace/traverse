@@ -367,7 +367,7 @@ impl DDlogGenerator {
                 };
 
                 let mut rhs_clauses = expand_rhs_val(&rule.rhs);
-                let rhs_attributes = self.collect_all_rhs_attributes(&ir, &rule.rhs);
+                let rhs_attributes = self.collect_all_rhs_attributes(&ir, &rule.rhs)?;
 
                 // Process SSA block to identify negations and modify relation names
                 if let Some(ssa_block) = &rule.ssa_block {
@@ -466,93 +466,73 @@ impl DDlogGenerator {
                 }
 
                 let mut conditions = Vec::new();
-                // HACK: the RI grammar should allow for disambiguating relations in terms of their
-                // role (e.g. emission, capturing)
-                if lhs_relation.name.starts_with("Emit") {
-                    let condition_exprs = Self::process_labeled_blocks_to_mapping_expr(
-                        rule.ssa_block.as_ref().unwrap(),
-                    );
+                // Process SSA blocks for all relations
+                if let Some(ssa_block) = &rule.ssa_block {
+                    // First process any labeled blocks for predicates
+                    let condition_exprs = Self::process_labeled_blocks_to_mapping_expr(ssa_block);
 
+                    // Create a set to track processed attributes and conditions
+                    let mut processed_attrs = HashSet::new();
+                    let mut unique_conditions = HashSet::new();
+
+                    // Add predicate conditions first
                     for condition_expr in condition_exprs {
+                        // Extract attribute name from condition if it's a mapping
+                        if let Some(attr_name) = condition_expr.split('=').next().map(|s| s.trim()) {
+                            if attr_name.starts_with("var lhs_") {
+                                let attr = attr_name.trim_start_matches("var lhs_");
+                                processed_attrs.insert(attr.to_string());
+                            }
+                        }
+
+                        // Only add condition if we haven't seen it before
+                        if unique_conditions.insert(condition_expr.clone()) {
+                            conditions.push(RuleRHS::RHSCondition {
+                                pos: Pos::nopos(),
+                                expr: Expr::new(ExprNode::EVar {
+                                    pos: Pos::nopos(),
+                                    name: condition_expr,
+                                }),
+                            });
+                        }
+                    }
+
+                    // Handle Emit-specific string interpolation
+                    if lhs_relation.name.starts_with("Emit") {
+                        let mapping_expr = self.generate_ddlog_interpolation(
+                            &format!("{}", lhs_relation.attributes[0].name),
+                            ssa_block.instructions.clone(),
+                        );
+
                         conditions.push(RuleRHS::RHSCondition {
                             pos: Pos::nopos(),
                             expr: Expr::new(ExprNode::EVar {
                                 pos: Pos::nopos(),
-                                name: condition_expr,
+                                name: mapping_expr,
                             }),
                         });
                     }
+                }
 
-                    let mapping_expr = self.generate_ddlog_interpolation(
-                        &format!("{}", lhs_relation.attributes[0].name),
-                        rule.ssa_block
-                            .as_ref()
-                            .map(|block| block.instructions.clone())
-                            .unwrap_or_default(),
-                    );
-
-                    conditions.push(RuleRHS::RHSCondition {
-                        pos: Pos::nopos(),
-                        expr: Expr::new(ExprNode::EVar {
-                            pos: Pos::nopos(),
-                            name: mapping_expr,
-                        }),
-                    });
-                } else {
-                    // Capture form and inferences
-                    if let Some(ssa_block) = &rule.ssa_block {
-                        // First process any labeled blocks for predicates
-                        let condition_exprs =
-                            Self::process_labeled_blocks_to_mapping_expr(ssa_block);
-
-                        // Create a set to track processed attributes and conditions
-                        let mut processed_attrs = HashSet::new();
-                        let mut unique_conditions = HashSet::new();
-
-                        // Add predicate conditions first
-                        for condition_expr in condition_exprs {
-                            // Extract attribute name from condition if it's a mapping
-                            if let Some(attr_name) =
-                                condition_expr.split('=').next().map(|s| s.trim())
-                            {
-                                if attr_name.starts_with("var lhs_") {
-                                    let attr = attr_name.trim_start_matches("var lhs_");
-                                    processed_attrs.insert(attr.to_string());
-                                }
-                            }
-
-                            // Only add condition if we haven't seen it before
-                            if unique_conditions.insert(condition_expr.clone()) {
-                                conditions.push(RuleRHS::RHSCondition {
+                // Handle intermediate relations attribute mapping
+                // Note: This is a temporary solution to handle attribute mapping as the existence
+                // of the RHS attribute counterpart if not verified. 
+                if lhs_relation.role == IRRelationRole::Intermediate || lhs_relation.role == IRRelationRole::Output {
+                    println!("Processing intermediate or output relation: {} {:?} {:?}", lhs_relation.name, lhs_relation.attributes, rhs_attributes);
+                    for lhs_attr in lhs_attributes.iter() {
+                        if let Some(rhs_attr) = rhs_attributes
+                            .iter()
+                            .find(|r| r.starts_with("rhs_") && r[4..] == *lhs_attr)
+                        {
+                            let mapping_expr = format!("var lhs_{} = {}", lhs_attr, rhs_attr);
+                            println!("Mapping expression: {}", mapping_expr);
+                            conditions.push(RuleRHS::RHSCondition {
+                                pos: Pos::nopos(),
+                                expr: Expr::new(ExprNode::EVar {
                                     pos: Pos::nopos(),
-                                    expr: Expr::new(ExprNode::EVar {
-                                        pos: Pos::nopos(),
-                                        name: condition_expr,
-                                    }),
-                                });
-                            }
-                        }
-                    }
-
-                    // Intermediate relations are defined by captures so we want to make the
-                    // RHS (body) to LHS (head) attributes one-to-one. However, output relations such as the ones for inference
-                    // rules, mappings are determined by the user so we want to honor those.
-                    //
-                    if lhs_relation.role == IRRelationRole::Intermediate {
-                        for lhs_attr in lhs_attributes.iter() {
-                            if let Some(rhs_attr) = rhs_attributes
-                                .iter()
-                                .find(|r| r.starts_with("rhs_") && r[4..] == *lhs_attr)
-                            {
-                                let mapping_expr = format!("var lhs_{} = {}", lhs_attr, rhs_attr);
-                                conditions.push(RuleRHS::RHSCondition {
-                                    pos: Pos::nopos(),
-                                    expr: Expr::new(ExprNode::EVar {
-                                        pos: Pos::nopos(),
-                                        name: mapping_expr,
-                                    }),
-                                });
-                            }
+                                    name: mapping_expr,
+                                }),
+                            });
                         }
                     }
                 }
@@ -570,6 +550,30 @@ impl DDlogGenerator {
 
         if self.embed_primitives {
             //
+            let root_node_rel = Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelInternal,
+                semantics: RelationSemantics::RelSet,
+                name: "RootNode".to_string(),
+                rtype: DType::TStruct {
+                    pos: Pos::nopos(),
+                    name: "RootNode".to_string(),
+                    fields: vec![
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "node_id".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "next_node_id".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                    ],
+                },
+                primary_key: None,
+            };
+
             let node_rel = {
                 let fields = vec![
                     Field {
@@ -821,6 +825,31 @@ impl DDlogGenerator {
                 },
                 primary_key: None,
             };
+
+            let edge_rel = Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelOutput,
+                semantics: RelationSemantics::RelSet,
+                name: "Edge".to_string(),
+                rtype: DType::TStruct {
+                    pos: Pos::nopos(),
+                    name: "Edge".to_string(),
+                    fields: vec![
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "from".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "to".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                    ],
+                },
+                primary_key: None,
+            };
+
             //
             // Add WithIntermediaryEndInstruction relation
             let with_intermediary_end_instruction_rel = Relation {
@@ -939,7 +968,36 @@ impl DDlogGenerator {
                 primary_key: None,
             };
 
+            // Add PathFromRoot relation
+            let path_from_root_rel = Relation {
+                pos: Pos::nopos(),
+                role: RelationRole::RelOutput,
+                semantics: RelationSemantics::RelSet,
+                name: "PathFromRoot".to_string(),
+                rtype: DType::TStruct {
+                    pos: Pos::nopos(),
+                    name: "PathFromRoot".to_string(),
+                    fields: vec![
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "vec".to_string(),
+                            ftype: DType::TVec {
+                                pos: Pos::nopos(),
+                                element_type: Box::new(DType::TInt { pos: Pos::nopos() }),
+                            },
+                        },
+                        Field {
+                            pos: Pos::nopos(),
+                            name: "last".to_string(),
+                            ftype: DType::TInt { pos: Pos::nopos() },
+                        },
+                    ],
+                },
+                primary_key: None,
+            };
+
             program.add_relation(node_rel);
+            program.add_relation(root_node_rel);
             program.add_relation(ancestor_rel);
             program.add_relation(start_instruction_rel);
             program.add_relation(end_instruction_rel);
@@ -947,12 +1005,121 @@ impl DDlogGenerator {
             program.add_relation(reaches_rel);
             program.add_relation(path_rel);
             program.add_relation(path_expr_rel);
+            program.add_relation(path_from_root_rel);
+            program.add_relation(edge_rel);
             program.add_relation(with_intermediary_end_instruction_rel);
             program.add_relation(block_boundary_rel);
             program.add_relation(blocks_rel);
             program.add_relation(qualified_edge_rel);
 
+            // Add Edge rule
+            program.add_rule(Rule {
+                pos: Pos::nopos(),
+                module: ModuleName { path: vec![] },
+                lhs: vec![RuleLHS {
+                    pos: Pos::nopos(),
+                    atom: Atom {
+                        pos: Pos::nopos(),
+                        relation: "Edge".to_string(),
+                        delay: Delay::zero(),
+                        diff: false,
+                        value: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "from, to".to_string(),
+                        }),
+                    },
+                    location: None,
+                }],
+                rhs: vec![
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "Node".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "child_id, parent_id, _".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSCondition {
+                        pos: Pos::nopos(),
+                        expr: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "var from = parent_id".to_string(),
+                        }),
+                    },
+                    RuleRHS::RHSCondition {
+                        pos: Pos::nopos(),
+                        expr: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "var to = child_id".to_string(),
+                        }),
+                    },
+                ],
+            });
+
             // Add base ancestor rule
+            // Add PathFromRoot rule
+            program.add_rule(Rule {
+                pos: Pos::nopos(),
+                module: ModuleName { path: vec![] },
+                lhs: vec![RuleLHS {
+                    pos: Pos::nopos(),
+                    atom: Atom {
+                        pos: Pos::nopos(),
+                        relation: "PathFromRoot".to_string(),
+                        delay: Delay::zero(),
+                        diff: false,
+                        value: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "vec, last".to_string(),
+                        }),
+                    },
+                    location: None,
+                }],
+                rhs: vec![
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "RootNode".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "i, j".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "Path".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "vec, last".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSCondition {
+                        pos: Pos::nopos(),
+                        expr: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "vec_contains(vec, i)".to_string(),
+                        }),
+                    },
+                ],
+            });
+
             program.add_rule(Rule {
                 pos: Pos::nopos(),
                 module: ModuleName { path: vec![] },
@@ -1230,12 +1397,13 @@ impl DDlogGenerator {
                         polarity: true,
                         atom: Atom {
                             pos: Pos::nopos(),
-                            relation: "Statement".to_string(),
+                 //           relation: "Statement".to_string(),
+                              relation: "Node".to_string(),
                             delay: Delay::zero(),
                             diff: false,
                             value: Expr::new(ExprNode::EVar {
                                 pos: Pos::nopos(),
-                                name: "p, q".to_string(),
+                                name: "p, q, _".to_string(),
                             }),
                         },
                     },
@@ -1537,24 +1705,21 @@ impl DDlogGenerator {
         Ok(program.into())
     }
 
-    fn collect_all_rhs_attributes(&self, ir: &IRProgram, val: &RHSVal) -> Vec<String> {
+    fn collect_all_rhs_attributes(&self, ir: &IRProgram, val: &RHSVal) -> Result<Vec<String>> {
         match val {
             RHSVal::RHSNode(node) => {
-                if self
-                    .lookup_relation(ir, &node.relation_name, None)
-                    .is_some()
-                {
-                    node.attributes.clone()
+                if let Some(relation) = self.lookup_relation(ir, &node.relation_name, None) {
+                    Ok(node.attributes.clone())
                 } else {
-                    Vec::new()
+                    Err(Error::RelationNotFound(node.relation_name.clone()))
                 }
             }
             RHSVal::NestedRHS(vals) => {
                 let mut collected_attributes = Vec::new();
                 for val in vals {
-                    collected_attributes.extend(self.collect_all_rhs_attributes(ir, val));
+                    collected_attributes.extend(self.collect_all_rhs_attributes(ir, val)?);
                 }
-                collected_attributes
+                Ok(collected_attributes)
             }
         }
     }
