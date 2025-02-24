@@ -582,6 +582,27 @@ impl IrGenerator {
                     attr_type: AttributeType::String,
                 });
 
+                if captures.is_empty() {
+                    return Err(Error::GenerationError(
+                        "Emit operation needs to have at least one associated capture reference"
+                            .to_string(),
+                    ));
+                }
+
+                // check that at least one of the defined capture references has an associated
+                // provenance
+                captures.iter()
+                    .find_map(|c| match c.as_ref() {
+                        Lval::Capture(_, provenance_type) => provenance_type.clone(),
+                        _ => None
+                    })
+                    .ok_or_else(|| {
+                        Error::GenerationError(
+                            "Emit operation needs to have at least one associated capture reference with provenance"
+                                .to_string()
+                        )
+                    })?;
+
                 // Add provenance attributes from each capture based on their provenance type
                 for capture_ref in captures {
                     if let Lval::Capture(capture_name, provenance_type) = &**capture_ref {
@@ -633,15 +654,8 @@ impl IrGenerator {
                                         }
                                     }
                                     Some(ProvenanceType::Default) | None => {
-                                        for attr in &relation.attributes {
-                                            relation_attributes.insert(Attribute {
-                                                name: format!(
-                                                    "{}_provenance",
-                                                    normalize_string(&attr.name)
-                                                ),
-                                                attr_type: AttributeType::String,
-                                            });
-                                        }
+                                        // by default or in case provenance is not
+                                        // specified, we do nothing
                                     }
                                 }
                             }
