@@ -15,6 +15,14 @@ pub enum Func {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum ProvenanceType {
+    Default,
+    Path,
+    Span,
+    Full,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Lval {
     Rulebook(LvalChildren),
     Fun(Func),
@@ -26,12 +34,12 @@ pub enum Lval {
     DoForm(LvalChildren),
     Logical(Box<Lval>, LvalChildren),
     PredicateOperator(String),
-    Emit(String, Vec<String>, Option<Box<Lval>>, Option<Box<Lval>>),
-    Capture(String),
+    Emit(String, LvalChildren, Option<Box<Lval>>, Option<Box<Lval>>),
+    Capture(String, Option<ProvenanceType>),
     CaptureForm(
         String,
         IndexMap<String, Box<Lval>>,
-        Vec<String>,
+        LvalChildren,
         Option<Box<Lval>>,
         Option<Box<Lval>>,
         Option<Box<Lval>>,
@@ -44,8 +52,8 @@ pub enum Lval {
     Predicate(String, Vec<String>),                 // (identifier, arguments)
     PrefixPredicate(String, Box<Lval>),
     PredicateExpr(Box<Lval>),
-    Computation(String, Box<Lval>),                 // (variable, qexpr)
-    RulesBlock(Vec<Box<Lval>>),             // (relation_name, rules)
+    Computation(String, Box<Lval>), // (variable, qexpr)
+    RulesBlock(Vec<Box<Lval>>),     // (relation_name, rules)
 }
 
 impl Lval {
@@ -74,6 +82,10 @@ impl Lval {
 
     pub fn computation(variable: &str, qexpr: Box<Lval>) -> Box<Lval> {
         Box::new(Lval::Computation(variable.to_string(), qexpr))
+    }
+
+    pub fn logical(op: Box<Lval>, operands: Vec<Box<Lval>>) -> Box<Lval> {
+        Box::new(Lval::Logical(op, operands))
     }
 
     fn lval_expr_print(cell: &[Box<Lval>]) -> String {
@@ -111,16 +123,12 @@ impl Lval {
         Box::new(Lval::Sym(s.into()))
     }
 
-    pub fn logical(op: Box<Lval>, operands: Vec<Box<Lval>>) -> Box<Lval> {
-        Box::new(Lval::Logical(op, operands))
+    pub fn capture(s: &str, provenance: Option<ProvenanceType>) -> Box<Lval> {
+        Box::new(Lval::Capture(s.into(), provenance))
     }
 
     pub fn predicate_operator(operator: &str) -> Box<Lval> {
         Box::new(Lval::PredicateOperator(operator.into()))
-    }
-
-    pub fn capture(s: &str) -> Box<Lval> {
-        Box::new(Lval::Capture(s.into()))
     }
 
     pub fn sexpr() -> Box<Lval> {
@@ -133,7 +141,7 @@ impl Lval {
 
     pub fn emit(
         node_type: &str,
-        captures: Vec<String>,
+        captures: LvalChildren,
         when_form: Option<Box<Lval>>,
         do_form: Option<Box<Lval>>,
     ) -> Box<Lval> {
@@ -148,7 +156,7 @@ impl Lval {
     pub fn capture_form(
         node_type: &str,
         attributes: IndexMap<String, Box<Lval>>,
-        capture_refs: Vec<String>,
+        capture_refs: LvalChildren,
         nested_captures: Option<Box<Lval>>,
         when: Option<Box<Lval>>,
         q_expr: Option<Box<Lval>>,
@@ -222,9 +230,9 @@ impl Lval {
     }
     pub fn len(&self) -> Result<usize> {
         match *self {
-            Lval::Sexpr(ref children) | Lval::Qexpr(ref children) | Lval::Rulebook(ref children) => {
-                Ok(children.len())
-            }
+            Lval::Sexpr(ref children)
+            | Lval::Qexpr(ref children)
+            | Lval::Rulebook(ref children) => Ok(children.len()),
             _ => Err(Error::NoChildren),
         }
     }
@@ -370,9 +378,14 @@ impl fmt::Display for Lval {
                     do_block.as_ref().map(|b| b.to_string()).unwrap_or_default()
                 )
             }
-            Lval::Capture(capture) => {
-                write!(f, "{}", capture)
-            }
+            Lval::Capture(capture, provenance) => match provenance {
+                None => write!(f, "@{}", capture),
+                Some(ProvenanceType::Default) => write!(f, "@:{}", capture),
+                Some(ProvenanceType::Path) => write!(f, "@:path:{}", capture),
+                Some(ProvenanceType::Span) => write!(f, "@:span:{}", capture),
+                Some(ProvenanceType::Full) => write!(f, "@:full:{}", capture),
+            },
+
             Lval::DoForm(cell) => write!(f, "(do {})", Lval::lval_expr_print(cell)),
             Lval::Sexpr(cell) => write!(f, "({})", Lval::lval_expr_print(cell)),
             Lval::Qexpr(cell) => write!(f, "{{{}}}", Lval::lval_expr_print(cell)),

@@ -1,6 +1,6 @@
 use indexmap::IndexMap;
 
-use crate::dsl::Lval;
+use crate::dsl::{Lval, ProvenanceType};
 use crate::syntax::{SyntaxHighlighter, SyntaxTheme};
 
 pub struct Formatter {
@@ -230,7 +230,15 @@ impl Formatter {
                 result.push('}');
                 result
             }
-            Lval::Capture(name) => name.to_string(),
+            Lval::Capture(name, provenance) => {
+                match provenance {
+                    Some(ProvenanceType::Default) => format!("@:{}", name),
+                    Some(ProvenanceType::Path) => format!("@:path:{}", name),
+                    Some(ProvenanceType::Span) => format!("@:span:{}", name),
+                    Some(ProvenanceType::Full) => format!("@:full:{}", name),
+                    None => format!("@{}", name),
+                }
+            }
             Lval::PredicateOperator(op) => op.clone(),
             Lval::String(s) => s.to_string(),
             Lval::Sym(s) => s.clone(),
@@ -254,11 +262,7 @@ impl Formatter {
             }
             Lval::Inference(relation, params, paths) => {
                 let mut result = String::from("(infer");
-                result.push_str(&format!(
-                    " {} ({})\n",
-                    relation,
-                    params.join(", ")
-                ));
+                result.push_str(&format!(" {} ({})\n", relation, params.join(", ")));
 
                 self.indent_level += 1;
                 if !paths.is_empty() {
@@ -314,7 +318,7 @@ fn format_attributes(attributes: &IndexMap<String, Box<Lval>>, indent: String) -
         .join("\n")
 }
 
-fn format_captures(captures: &[String], indent: String) -> String {
+fn format_captures(captures: &[Box<Lval>], indent: String) -> String {
     captures
         .iter()
         .map(|capture| format!("{}{}", indent, capture))

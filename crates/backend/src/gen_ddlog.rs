@@ -474,7 +474,8 @@ impl DDlogGenerator {
                     // Add predicate conditions first
                     for condition_expr in condition_exprs {
                         // Extract attribute name from condition if it's a mapping
-                        if let Some(attr_name) = condition_expr.split('=').next().map(|s| s.trim()) {
+                        if let Some(attr_name) = condition_expr.split('=').next().map(|s| s.trim())
+                        {
                             if attr_name.starts_with("var lhs_") {
                                 let attr = attr_name.trim_start_matches("var lhs_");
                                 processed_attrs.insert(attr.to_string());
@@ -512,8 +513,10 @@ impl DDlogGenerator {
 
                 // Handle intermediate relations attribute mapping
                 // Note: This is a temporary solution to handle attribute mapping as the existence
-                // of the RHS attribute counterpart if not verified. 
-                if lhs_relation.role == IRRelationRole::Intermediate || lhs_relation.role == IRRelationRole::Output {
+                // of the RHS attribute counterpart if not verified.
+                if lhs_relation.role == IRRelationRole::Intermediate
+                    || lhs_relation.role == IRRelationRole::Output
+                {
                     for lhs_attr in lhs_attributes.iter() {
                         if let Some(rhs_attr) = rhs_attributes
                             .iter()
@@ -1000,6 +1003,7 @@ impl DDlogGenerator {
             program.add_relation(path_rel);
             program.add_relation(path_expr_rel);
             program.add_relation(path_from_root_rel);
+
             program.add_relation(edge_rel);
             program.add_relation(with_intermediary_end_instruction_rel);
             program.add_relation(block_boundary_rel);
@@ -1058,6 +1062,104 @@ impl DDlogGenerator {
 
             // Add base ancestor rule
             // Add PathFromRoot rule
+            // Add base Path rule
+            program.add_rule(Rule {
+                pos: Pos::nopos(),
+                module: ModuleName { path: vec![] },
+                lhs: vec![RuleLHS {
+                    pos: Pos::nopos(),
+                    atom: Atom {
+                        pos: Pos::nopos(),
+                        relation: "Path".to_string(),
+                        delay: Delay::zero(),
+                        diff: false,
+                        value: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "vec_push_imm(vec_push_imm(vec_empty(), i), j), j".to_string(),
+                        }),
+                    },
+                    location: None,
+                }],
+                rhs: vec![RuleRHS::RHSLiteral {
+                    pos: Pos::nopos(),
+                    polarity: true,
+                    atom: Atom {
+                        pos: Pos::nopos(),
+                        relation: "Edge".to_string(),
+                        delay: Delay::zero(),
+                        diff: false,
+                        value: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "i, j".to_string(),
+                        }),
+                    },
+                }],
+            });
+
+            // Add recursive Path rule
+            program.add_rule(Rule {
+                pos: Pos::nopos(),
+                module: ModuleName { path: vec![] },
+                lhs: vec![RuleLHS {
+                    pos: Pos::nopos(),
+                    atom: Atom {
+                        pos: Pos::nopos(),
+                        relation: "Path".to_string(),
+                        delay: Delay::zero(),
+                        diff: false,
+                        value: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "vec_push_imm(other_vec, j), j".to_string(),
+                        }),
+                    },
+                    location: None,
+                }],
+                rhs: vec![
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "Path".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "other_vec, last".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "Edge".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "i, j".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSCondition {
+                        pos: Pos::nopos(),
+                        expr: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "last == i".to_string(),
+                        }),
+                    },
+                    RuleRHS::RHSCondition {
+                        pos: Pos::nopos(),
+                        expr: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "not vec_contains(other_vec, j)".to_string(),
+                        }),
+                    },
+                ],
+            });
+
             program.add_rule(Rule {
                 pos: Pos::nopos(),
                 module: ModuleName { path: vec![] },
@@ -1391,8 +1493,8 @@ impl DDlogGenerator {
                         polarity: true,
                         atom: Atom {
                             pos: Pos::nopos(),
-                 //           relation: "Statement".to_string(),
-                              relation: "Node".to_string(),
+                            //           relation: "Statement".to_string(),
+                            relation: "Node".to_string(),
                             delay: Delay::zero(),
                             diff: false,
                             value: Expr::new(ExprNode::EVar {
@@ -1650,6 +1752,49 @@ impl DDlogGenerator {
                     },
                 ],
             });
+            
+            // Add PathExpr rule
+            program.add_rule(Rule {
+                pos: Pos::nopos(),
+                module: ModuleName { path: vec![] },
+                lhs: vec![RuleLHS {
+                    pos: Pos::nopos(),
+                    atom: Atom {
+                        pos: Pos::nopos(),
+                        relation: "PathExpr".to_string(),
+                        delay: Delay::zero(),
+                        diff: false,
+                        value: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "expr, last".to_string(),
+                        }),
+                    },
+                    location: None,
+                }],
+                rhs: vec![
+                    RuleRHS::RHSLiteral {
+                        pos: Pos::nopos(),
+                        polarity: true,
+                        atom: Atom {
+                            pos: Pos::nopos(),
+                            relation: "Path".to_string(),
+                            delay: Delay::zero(),
+                            diff: false,
+                            value: Expr::new(ExprNode::EVar {
+                                pos: Pos::nopos(),
+                                name: "vec, last".to_string(),
+                            }),
+                        },
+                    },
+                    RuleRHS::RHSCondition {
+                        pos: Pos::nopos(),
+                        expr: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
+                            name: "var expr = path_to_string(vec, last)".to_string(),
+                        }),
+                    },
+                ],
+            });
 
             // Create Node rules for each tree-sitter node type
             for node_type in &input_node_types {
@@ -1701,9 +1846,12 @@ impl DDlogGenerator {
 
     fn collect_all_rhs_attributes(&self, ir: &IRProgram, rule: &IRRule) -> Result<Vec<String>> {
         // First get the LHS relation and its attributes
-        let lhs_relation = self.lookup_relation(ir, &rule.lhs.relation_name, None)
+        let lhs_relation = self
+            .lookup_relation(ir, &rule.lhs.relation_name, None)
             .ok_or_else(|| Error::RelationNotFound(rule.lhs.relation_name.clone()))?;
-        let lhs_attributes: HashSet<String> = lhs_relation.attributes.iter()
+        let lhs_attributes: HashSet<String> = lhs_relation
+            .attributes
+            .iter()
             .map(|attr| attr.name.clone())
             .collect();
 
@@ -1711,7 +1859,8 @@ impl DDlogGenerator {
         fn collect_from_rhs_val(val: &RHSVal, lhs_attrs: &HashSet<String>) -> Vec<String> {
             match val {
                 RHSVal::RHSNode(node) => {
-                    node.attributes.iter()
+                    node.attributes
+                        .iter()
                         .filter(|attr| {
                             // Keep attribute if it matches an LHS attribute (without prefix)
                             if let Some(attr_name) = attr.strip_prefix("rhs_") {
@@ -1722,12 +1871,11 @@ impl DDlogGenerator {
                         })
                         .cloned()
                         .collect()
-                },
-                RHSVal::NestedRHS(vals) => {
-                    vals.iter()
-                        .flat_map(|v| collect_from_rhs_val(v, lhs_attrs))
-                        .collect()
                 }
+                RHSVal::NestedRHS(vals) => vals
+                    .iter()
+                    .flat_map(|v| collect_from_rhs_val(v, lhs_attrs))
+                    .collect(),
             }
         }
 

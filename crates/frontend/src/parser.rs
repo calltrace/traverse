@@ -1,4 +1,4 @@
-use crate::dsl::Lval;
+use crate::dsl::{Lval, ProvenanceType};
 use indexmap::IndexMap;
 use pest::{iterators::Pair, Parser};
 use pest_derive::Parser;
@@ -178,8 +178,8 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
             let mut do_q_exprs: Vec<Box<Lval>> = vec![];
             for child in inner {
                 let child = lval_read(child.clone())?;
-                if let Lval::Capture(capture_ref_name) = *child {
-                    capture_refs.push(capture_ref_name);
+                if let Lval::Capture(_, _) = *child {
+                    capture_refs.push(child);
                 } else if let Lval::WhenForm(condition, _) = *child {
                     when = Some(condition);
                 } else if let Lval::DoForm(children) = *child {
@@ -216,7 +216,37 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
             }
             Ok(Lval::logical(operator, operands))
         }*/
-        Rule::capture => Ok(Lval::capture(parsed.as_str())),
+        Rule::capture => {
+            let mut inner = parsed.into_inner();
+            let mut provenance = None;
+            let mut capture_name = String::new();
+
+            // Parse the capture components
+            for part in inner {
+                match part.as_rule() {
+                    Rule::provenance_spec => {
+                        let mut spec_inner = part.into_inner();
+                        if let Some(prov_type) = spec_inner.next() {
+                            provenance = Some(match prov_type.as_str() {
+                                "path" => ProvenanceType::Path,
+                                "span" => ProvenanceType::Span,
+                                "full" => ProvenanceType::Full,
+                                _ => ProvenanceType::Default,
+                            });
+                        } else {
+                            provenance = Some(ProvenanceType::Default);
+                        }
+                    }
+                    _ => {
+                        // This will be the capture name
+                        capture_name = part.as_str().to_string();
+                    }
+                }
+            }
+
+            // If no provenance was specified, use None
+            Ok(Lval::capture(&capture_name, provenance))
+        },
         Rule::capture_form => {
             let mut inner = parsed.into_inner();
             let node_type = inner.next().unwrap().as_str().to_string();
@@ -235,8 +265,8 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
                             attributes.insert(key_str.clone(), value.clone());
                         }
                     }
-                } else if let Lval::Capture(capture_ref_name) = *lval_child {
-                    capture_refs.push(capture_ref_name);
+                } else if let Lval::Capture(_, _) = *lval_child {
+                    capture_refs.push(lval_child);
                 } else if let Lval::CaptureForm(_, _, _, _, _, _) = *lval_child {
                     nested_captures.push(lval_child);
                 } else if let Lval::WhenForm(condition, _) = *lval_child {
