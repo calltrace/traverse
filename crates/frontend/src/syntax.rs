@@ -130,6 +130,21 @@ impl SyntaxHighlighter {
                 // Handle variables starting with @ or ?
                 '@' | '?' => {
                     let mut end = i + 1;
+                    
+                    // Handle provenance specification
+                    if let Some(&(_, ':')) = chars.peek() {
+                        // Consume first ':'
+                        chars.next();
+                        // Consume provenance type and second ':'
+                        while let Some(&(j, c)) = chars.peek() {
+                            end = j + 1;
+                            chars.next();
+                            if c == ':' {
+                                break;
+                            }
+                        }
+                    }
+                    
                     while let Some(&(j, c)) = chars.peek() {
                         if !is_variable_char(c) {
                             break;
@@ -137,6 +152,7 @@ impl SyntaxHighlighter {
                         end = j + 1;
                         chars.next();
                     }
+                    
                     tokens.push(Token {
                         token_type: TokenType::Variable,
                         text: input[i..end].to_string(),
@@ -309,6 +325,15 @@ mod tests {
         
         assert!(highlighted.contains("color: #6A9955"));  // comment
         assert!(highlighted.contains("color: #569CD6"));  // emit keyword
+    }
+
+    #[test]
+    fn test_variable_with_provenance_highlighting() {
+        let highlighter = SyntaxHighlighter::default();
+        let input = "(emit TestNode (key1 @:path:var1))";
+        let highlighted = highlighter.highlight(input);
+        
+        assert!(highlighted.contains("color: #9CDCFE"));  // @:path:var1 should be highlighted as a variable
     }
 
     #[test]

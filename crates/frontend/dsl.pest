@@ -36,16 +36,20 @@ string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
 // @:path:name    - capture with path provenance
 // @:span:name    - capture with source span provenance
 // @:full:name    - capture with full provenance (node + path + span)
-capture = @{
-    "@" ~ provenance_spec? ~ (ASCII_ALPHANUMERIC | "_")+
+capture = {
+    "@" ~ provenance_spec? ~ capture_name
+}
+
+capture_name = @{
+    (ASCII_ALPHANUMERIC | "_")+
 }
 
 provenance_spec = {
-    ":" ~ provenance_type? ~ ":"?
+    ":" ~ provenance_type? ~ ":"
 }
 
 provenance_type = {
-    "path" | "span" | "full"
+    "path" | "span" | "full" | "default"
 }
 
 // Define quantifiers for repetition in expressions, such as `(node)*`, `(node)?`, `(node)+`.

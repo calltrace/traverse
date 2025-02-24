@@ -217,7 +217,7 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
             Ok(Lval::logical(operator, operands))
         }*/
         Rule::capture => {
-            let mut inner = parsed.into_inner();
+            let inner = parsed.into_inner();
             let mut provenance = None;
             let mut capture_name = String::new();
 
