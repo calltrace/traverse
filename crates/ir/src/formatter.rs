@@ -1,6 +1,6 @@
 
 use crate::{
-    AttributeType, IRProgram, IRRule, LHSNode, Operand, OperationType, RHSNode, RHSVal, Reference, RelationRole, RelationType, SSAInstruction, SSAInstructionBlock, SSAOperation
+    AttributeType, IRProgram, IRRule, LHSNode, Operand, OperationType, RHSNode, RHSVal, Reference, RelationCategory, RelationRole, RelationType, SSAInstruction, SSAInstructionBlock, SSAOperation
 };
 
 /// Formats an IR program with configurable indentation, spacing and optional syntax highlighting.
@@ -105,13 +105,32 @@ impl IRFormatter {
             .collect::<Vec<_>>()
             .join(", ");
 
+        let metadata = match &relation.category {
+            Some(category) => format!("{}, {}", 
+                self.format_relation_role(&relation.role),
+                self.format_relation_category(category)
+            ),
+            None => self.format_relation_role(&relation.role).to_string()
+        };
+
         format!(
             "{}{}({}) : {};",
             indent,
             relation.name,
             attributes,
-            self.format_relation_role(&relation.role)
+            metadata
         )
+    }
+
+    fn format_relation_category(&self, category: &RelationCategory) -> &'static str {
+        match category {
+            RelationCategory::Structural => "Structural",
+            RelationCategory::Domain => "Domain",
+            RelationCategory::Internal => "Internal",
+            RelationCategory::Analysis => "Analysis",
+            RelationCategory::Transformation => "Transformation",
+            RelationCategory::Utility => "Utility",
+        }
     }
 
     fn format_attribute_type(&self, attr_type: &AttributeType) -> &'static str {
@@ -366,6 +385,7 @@ output(result) => input(value) {
                     },
                 ],
                 role: RelationRole::Input,
+            category: Some(RelationCategory::Structural),
             }],
             rules: vec![],
         };
@@ -374,7 +394,7 @@ output(result) => input(value) {
         let formatted = formatter.format(&program);
 
         let expected = r#"relations {
-    test_relation(x: Number, y: String) : Input;
+    test_relation(x: Number, y: String) : Input, Structural;
 }
 
 rules {}"#;

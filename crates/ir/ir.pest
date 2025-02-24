@@ -10,8 +10,8 @@ ir = { SOI ~ ( (relations_section ~ WHITESPACE* ~ datalog_rules_section*) | COMM
 // Defines the relations section, which declares all input, output, and intermediate relations.
 relations_section = { "relations" ~ WHITESPACE* ~ "{" ~ WHITESPACE* ~ relation* ~ WHITESPACE* ~ "}" }
 
-// Defines a single relation with attributes and its role (Input, Output, or Intermediate).
-relation = { identifier ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ attributes ~ WHITESPACE* ~ ")" ~ WHITESPACE* ~ ":" ~ WHITESPACE* ~ role ~ ";" }
+// Defines a single relation with attributes and its metadata.
+relation = { identifier ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ attributes ~ WHITESPACE* ~ ")" ~ WHITESPACE* ~ ":" ~ WHITESPACE* ~ relation_metadata ~ ";" }
 
 // Defines a list of attributes within a relation, separated by commas.
 attributes = { attribute ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ attribute)* }
@@ -24,6 +24,12 @@ attribute_type = { "String" | "Number" | "Boolean" | "Date" | "Float" }
 
 // Defines the role of a relation, such as Input, Intermediate, or Output.
 role = { "Input" | "Intermediate" | "Output" | "Internal" }
+
+// Defines the category/purpose of a relation
+category = { "Structural" | "Domain" | "Internal" | "Analysis" | "Transformation" | "Utility" }
+
+// Defines relation metadata including role and category
+relation_metadata = { role ~ WHITESPACE* ~ ("," ~ WHITESPACE* ~ category)? }
 
 // Defines the section containing Datalog rules.
 datalog_rules_section = { "rules" ~ WHITESPACE* ~ "{" ~ WHITESPACE* ~ datalog_rule* ~ WHITESPACE* ~ "}" }

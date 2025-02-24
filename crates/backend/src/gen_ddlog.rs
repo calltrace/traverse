@@ -351,13 +351,9 @@ impl DDlogGenerator {
                             pos: Pos::nopos(),
                             name: lhs_attributes
                                 .iter()
-                                .cloned()
-                                .map(|s| {
-                                    if lhs_relation.role == IRRelationRole::Intermediate {
-                                        format!("lhs_{}", s)
-                                    } else {
-                                        s
-                                    }
+                                .map(|s| match &lhs_relation.category {
+                                    Some(ir::RelationCategory::Structural) => format!("lhs_{}", s),
+                                    _ => s.to_string(),
                                 })
                                 .collect::<Vec<_>>()
                                 .join(", "),
@@ -367,7 +363,7 @@ impl DDlogGenerator {
                 };
 
                 let mut rhs_clauses = expand_rhs_val(&rule.rhs);
-                let rhs_attributes = self.collect_all_rhs_attributes(&ir, &rule.rhs)?;
+                let rhs_attributes = self.collect_all_rhs_attributes(&ir, rule)?;
 
                 // Process SSA block to identify negations and modify relation names
                 if let Some(ssa_block) = &rule.ssa_block {
@@ -500,7 +496,7 @@ impl DDlogGenerator {
                     // Handle Emit-specific string interpolation
                     if lhs_relation.name.starts_with("Emit") {
                         let mapping_expr = self.generate_ddlog_interpolation(
-                            &format!("{}", lhs_relation.attributes[0].name),
+                            &format!("lhs_{}", lhs_relation.attributes[0].name),
                             ssa_block.instructions.clone(),
                         );
 
@@ -518,14 +514,12 @@ impl DDlogGenerator {
                 // Note: This is a temporary solution to handle attribute mapping as the existence
                 // of the RHS attribute counterpart if not verified. 
                 if lhs_relation.role == IRRelationRole::Intermediate || lhs_relation.role == IRRelationRole::Output {
-                    println!("Processing intermediate or output relation: {} {:?} {:?}", lhs_relation.name, lhs_relation.attributes, rhs_attributes);
                     for lhs_attr in lhs_attributes.iter() {
                         if let Some(rhs_attr) = rhs_attributes
                             .iter()
                             .find(|r| r.starts_with("rhs_") && r[4..] == *lhs_attr)
                         {
                             let mapping_expr = format!("var lhs_{} = {}", lhs_attr, rhs_attr);
-                            println!("Mapping expression: {}", mapping_expr);
                             conditions.push(RuleRHS::RHSCondition {
                                 pos: Pos::nopos(),
                                 expr: Expr::new(ExprNode::EVar {
@@ -1705,23 +1699,40 @@ impl DDlogGenerator {
         Ok(program.into())
     }
 
-    fn collect_all_rhs_attributes(&self, ir: &IRProgram, val: &RHSVal) -> Result<Vec<String>> {
-        match val {
-            RHSVal::RHSNode(node) => {
-                if let Some(relation) = self.lookup_relation(ir, &node.relation_name, None) {
-                    Ok(node.attributes.clone())
-                } else {
-                    Err(Error::RelationNotFound(node.relation_name.clone()))
+    fn collect_all_rhs_attributes(&self, ir: &IRProgram, rule: &IRRule) -> Result<Vec<String>> {
+        // First get the LHS relation and its attributes
+        let lhs_relation = self.lookup_relation(ir, &rule.lhs.relation_name, None)
+            .ok_or_else(|| Error::RelationNotFound(rule.lhs.relation_name.clone()))?;
+        let lhs_attributes: HashSet<String> = lhs_relation.attributes.iter()
+            .map(|attr| attr.name.clone())
+            .collect();
+
+        // Helper function to collect attributes from RHSVal
+        fn collect_from_rhs_val(val: &RHSVal, lhs_attrs: &HashSet<String>) -> Vec<String> {
+            match val {
+                RHSVal::RHSNode(node) => {
+                    node.attributes.iter()
+                        .filter(|attr| {
+                            // Keep attribute if it matches an LHS attribute (without prefix)
+                            if let Some(attr_name) = attr.strip_prefix("rhs_") {
+                                lhs_attrs.contains(attr_name)
+                            } else {
+                                false
+                            }
+                        })
+                        .cloned()
+                        .collect()
+                },
+                RHSVal::NestedRHS(vals) => {
+                    vals.iter()
+                        .flat_map(|v| collect_from_rhs_val(v, lhs_attrs))
+                        .collect()
                 }
-            }
-            RHSVal::NestedRHS(vals) => {
-                let mut collected_attributes = Vec::new();
-                for val in vals {
-                    collected_attributes.extend(self.collect_all_rhs_attributes(ir, val)?);
-                }
-                Ok(collected_attributes)
             }
         }
+
+        // Collect RHS attributes that correspond to LHS attributes
+        Ok(collect_from_rhs_val(&rule.rhs, &lhs_attributes))
     }
 
     fn lookup_relation<'a>(

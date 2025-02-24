@@ -1,5 +1,6 @@
 use crate::{
-    AttributeType, IRProgram, IRRule, LHSNode, Operand, OperationType, RHSNode, RHSVal, Reference, RelationRole, RelationType, SSAInstruction, SSAOperation
+    AttributeType, IRProgram, IRRule, LHSNode, Operand, OperationType, RHSNode, RHSVal, Reference,
+    RelationRole, RelationType, SSAInstruction, SSAOperation,
 };
 use std::fmt::{self, Display};
 
@@ -136,6 +137,18 @@ impl Highlight for RelationType {
             content: format!("{:?}", self.role),
             color: HighlightColor::Role,
         });
+
+        // Category (if present)
+        if let Some(category) = &self.category {
+            result.push(Highlighted {
+                content: ", ".to_string(),
+                color: HighlightColor::Delimiter,
+            });
+            result.push(Highlighted {
+                content: format!("{:?}", category),
+                color: HighlightColor::Role,
+            });
+        }
 
         result.push(Highlighted {
             content: ";\n".to_string(),

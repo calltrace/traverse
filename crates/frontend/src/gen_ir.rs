@@ -329,6 +329,7 @@ impl IrGenerator {
                         name: relation_name,
                         attributes: attributes.into_iter().collect(),
                         role: IRRelationRole::Input,
+                        category: Some(ir::RelationCategory::Internal),
                     });
                 }
             }
@@ -600,6 +601,7 @@ impl IrGenerator {
                     name: output_relation_name.clone(),
                     attributes: relation_attributes.into_iter().collect(),
                     role: IRRelationRole::Output,
+                    category: Some(ir::RelationCategory::Structural)
                 });
 
                 // Create LHS attributes including both regular and provenance fields
@@ -617,8 +619,6 @@ impl IrGenerator {
                         }
                     }
                 }
-
-                println!("LHS attributes: {:?}", lhs_attributes);
 
                 let lhs_node = LHSNode {
                     relation_name: output_relation_name,
@@ -688,10 +688,10 @@ impl IrGenerator {
                             // Add Path relation node for each attribute that needs provenance
                             for attr in &relation.attributes {
                                 let path_node = RHSNode {
-                                    relation_name: "Path".to_string(),
+                                    relation_name: "PathExpr".to_string(),
                                     attributes: vec![
-                                        format!("rhs_{}_id", attr.name.to_lowercase()),
                                         format!("rhs_{}_provenance", attr.name.to_lowercase()),
+                                        format!("rhs_{}_id", attr.name.to_lowercase()),
                                     ],
                                 };
                                 rhs_nodes.push(RHSVal::RHSNode(path_node));
@@ -1016,6 +1016,7 @@ impl IrGenerator {
                 name: internal_relation_name.clone(),
                 attributes: normalized_relation_attrs.into_iter().collect(),
                 role: IRRelationRole::Internal,
+                category: Some(ir::RelationCategory::Structural),
             };
 
             (internal_relation_name, internal_relation)
@@ -1224,7 +1225,7 @@ impl IrGenerator {
         ) -> Result<()> {
             if let Lval::Inference(relation_name, params, inference_paths) = lval {
                 // Create or validate output relation
-                ensure_output_relation_exists(relation_name, params, ir_program)?;
+                ensure_output_relation_exists(relation_name, ir::RelationCategory::Domain, params, ir_program)?;
 
                 // Process each inference path
                 for path in inference_paths {
@@ -1250,6 +1251,7 @@ impl IrGenerator {
 
         fn ensure_output_relation_exists(
             relation_name: &str,
+            relation_category: ir::RelationCategory,
             params: &[String],
             ir_program: &mut IRProgram,
         ) -> Result<()> {
@@ -1277,6 +1279,7 @@ impl IrGenerator {
                     name: to_pascal_case(relation_name),
                     attributes,
                     role: IRRelationRole::Output,
+                    category: Some(relation_category),
                 });
             }
             Ok(())

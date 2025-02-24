@@ -145,10 +145,21 @@ pub enum RelationRole {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RelationCategory {
+    Structural,
+    Domain,
+    Internal,
+    Analysis,
+    Transformation,
+    Utility,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RelationType {
     pub name: String,
     pub attributes: Vec<Attribute>,
     pub role: RelationRole,
+    pub category: Option<RelationCategory>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -325,18 +336,41 @@ impl fmt::Display for RelationType {
             .iter()
             .map(|attr| attr.to_string())
             .collect();
-        write!(
-            f,
-            "{}({}) : {};",
-            self.name,
-            attributes.join(", "),
-            match self.role {
-                RelationRole::Input => "Input",
-                RelationRole::Output => "Output",
-                RelationRole::Intermediate => "Intermediate",
-                RelationRole::Internal => "Internal",
-            }
-        )
+        
+        let role = match self.role {
+            RelationRole::Input => "Input",
+            RelationRole::Output => "Output",
+            RelationRole::Intermediate => "Intermediate",
+            RelationRole::Internal => "Internal",
+        };
+
+        let category = self.category.as_ref().map(|c| match c {
+            RelationCategory::Structural => "Structural",
+            RelationCategory::Domain => "Domain", 
+            RelationCategory::Internal => "Internal",
+            RelationCategory::Analysis => "Analysis",
+            RelationCategory::Transformation => "Transformation",
+            RelationCategory::Utility => "Utility",
+        });
+
+        if let Some(cat) = category {
+            write!(
+                f,
+                "{}({}) : {}, {};",
+                self.name,
+                attributes.join(", "),
+                role,
+                cat
+            )
+        } else {
+            write!(
+                f,
+                "{}({}) : {};",
+                self.name,
+                attributes.join(", "),
+                role
+            )
+        }
     }
 }
 
@@ -580,12 +614,23 @@ mod parser {
                     .map(parse_attribute)
                     .collect();
 
-                let role = parse_relation_role(inner.next().unwrap().as_str());
+                let metadata = inner.next().unwrap().into_inner();
+                let mut role = None;
+                let mut category = None;
+
+                for meta in metadata {
+                    match meta.as_rule() {
+                        Rule::role => role = Some(parse_relation_role(meta.as_str())),
+                        Rule::category => category = Some(parse_relation_category(meta.as_str())),
+                        _ => unreachable!(),
+                    }
+                }
 
                 RelationType {
                     name,
                     attributes,
-                    role,
+                    role: role.expect("Relation role is required"),
+                    category,
                 }
             }
             _ => unreachable!(),
@@ -623,6 +668,18 @@ mod parser {
             "Intermediate" => RelationRole::Intermediate,
             "Internal" => RelationRole::Internal,
             _ => panic!("Unsupported relation role: {}", role),
+        }
+    }
+
+    fn parse_relation_category(category: &str) -> RelationCategory {
+        match category {
+            "Structural" => RelationCategory::Structural,
+            "Domain" => RelationCategory::Domain,
+            "Internal" => RelationCategory::Internal,
+            "Analysis" => RelationCategory::Analysis,
+            "Transformation" => RelationCategory::Transformation,
+            "Utility" => RelationCategory::Utility,
+            _ => panic!("Unsupported relation category: {}", category),
         }
     }
 
