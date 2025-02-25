@@ -2307,12 +2307,14 @@ impl From<std::io::Error> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 pub type IrToDdlogResult = Result<Box<DatalogProgram>>;
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use frontend::dsl::Lval;
     use frontend::gen_ir::IrGenerator;
+    use indexmap::IndexMap;
 
     #[test]
     fn test_compiler_end_to_end_single_capture() {
@@ -2321,16 +2323,18 @@ mod tests {
         // Define a simple CaptureForm Lval
         let lval = Lval::CaptureForm(
             "TestNode".to_string(),
-            HashMap::from([
+            IndexMap::from([
                 ("attr1".to_string(), Lval::num(42)),
                 ("attr2".to_string(), Lval::sym("value")),
             ]),
+            vec![],
             None, // No nested captures
             None, // No q-expressions
+            None,
         );
 
         // convert to IR
-        let irgen = IrGenerator::new();
+        let mut irgen = IrGenerator::new();
         let ir_program = irgen.lval_to_ir(&lval);
 
         // Use the Compiler fluent API
@@ -2364,24 +2368,28 @@ mod tests {
         // Define a CaptureForm with a nested CaptureForm
         let lval = Lval::CaptureForm(
             "ParentNode".to_string(),
-            HashMap::from([
+            IndexMap::from([
                 ("parent_attr1".to_string(), Lval::num(10)),
                 ("parent_attr2".to_string(), Lval::sym("parent_value")),
             ]),
+            vec![],
             Some(Box::new(Lval::CaptureForm(
                 "ChildNode".to_string(),
-                HashMap::from([
+                IndexMap::from([
                     ("child_attr1".to_string(), Lval::num(20)),
                     ("child_attr2".to_string(), Lval::sym("child_value")),
                 ]),
+                vec![],
+                None,
                 None,
                 None,
             ))),
             None,
+            None,
         );
 
         // Create IR generator and generate IR
-        let irgen = IrGenerator::new();
+        let mut irgen = IrGenerator::new();
         let ir_program = irgen.lval_to_ir(&lval).expect("IR generation failed");
 
         // Generate DDlog program
@@ -2425,16 +2433,18 @@ mod tests {
         // Define a simple CaptureForm Lval
         let lval = Lval::CaptureForm(
             "TestNode".to_string(),
-            HashMap::from([
+            IndexMap::from([
                 ("attr1".to_string(), Lval::num(42)),
                 ("attr2".to_string(), Lval::sym("value")),
             ]),
+            vec![],
+            None,
             None, // No nested captures
             None, // No q-expressions
         );
 
         // Create IR generator and generate IR
-        let irgen = IrGenerator::new();
+        let mut irgen = IrGenerator::new();
         let ir_program = irgen.lval_to_ir(&lval).expect("IR generation failed");
 
         // Generate DDlog program
@@ -2502,24 +2512,28 @@ mod tests {
         // Define a CaptureForm with a nested CaptureForm
         let lval = Lval::CaptureForm(
             "ParentNode".to_string(),
-            HashMap::from([
+            IndexMap::from([
                 ("parent_attr1".to_string(), Lval::num(10)),
                 ("parent_attr2".to_string(), Lval::sym("parent_value")),
             ]),
+            vec![],
             Some(Box::new(Lval::CaptureForm(
                 "ChildNode".to_string(),
-                HashMap::from([
+                IndexMap::from([
                     ("child_attr1".to_string(), Lval::num(20)),
                     ("child_attr2".to_string(), Lval::sym("child_value")),
                 ]),
+                vec![],
                 None,
                 None,
+                None
             ))),
+            None,
             None,
         );
 
         // Create IR generator and generate IR
-        let irgen = IrGenerator::new();
+        let mut irgen = IrGenerator::new();
         let ir_program = irgen.lval_to_ir(&lval).expect("IR generation failed");
 
         // Generate DDlog program
@@ -2598,16 +2612,18 @@ mod tests {
         // Define a simple CaptureForm Lval
         let lval = Lval::CaptureForm(
             "TestNode".to_string(),
-            HashMap::from([
+            IndexMap::from([
                 ("attr1".to_string(), Lval::num(42)),
                 ("attr2".to_string(), Lval::sym("value")),
             ]),
+            vec![],
+            None,
             None, // No nested captures
             None, // No q-expressions
         );
 
         // Create IR generator and generate IR
-        let irgen = IrGenerator::new();
+        let mut irgen = IrGenerator::new();
         let ir_program = irgen.lval_to_ir(&lval).expect("IR generation failed");
 
         // Generate DDlog program

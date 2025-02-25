@@ -77,7 +77,7 @@ impl<'a, T: language::Language> TreeSitterToDDLog<'a, T> {
         self
     }
 
-    pub fn extract_commands<F>(
+    pub fn extract_commands(
         &self,
         create_insert_command: Option<&InsertCommandFn>,
     ) -> Vec<DDLogCommand> {
@@ -89,17 +89,15 @@ impl<'a, T: language::Language> TreeSitterToDDLog<'a, T> {
         let mut commands = vec![DDLogCommand::Start];
         let mut next_id = 1;
 
-        fn traverse<F>(
+        fn traverse(
             source_code: &str,
             node: Node,
             parent_id: Option<usize>,
             facts: &mut Vec<DDLogCommand>,
             next_id: &mut usize,
-            create_insert_command: Option<&F>,
+            create_insert_command: Option<&InsertCommandFn>,
             excluded_relations: &Option<HashSet<String>>,
-        ) where
-            F: Fn(&str, &Node, usize, Option<usize>) -> Option<DDLogCommand>,
-        {
+        ) {
             let kind = node.kind().to_string();
             let relation = to_pascal_case(&kind);
 
@@ -128,10 +126,8 @@ impl<'a, T: language::Language> TreeSitterToDDLog<'a, T> {
             let current_id = *next_id;
             *next_id += 1;
 
-            if create_insert_command.is_some() {
-                if let Some(fact) = create_insert_command
-                    .and_then(|cmd| cmd(source_code, &node, current_id, parent_id))
-                {
+            if let Some(cmd_fn) = create_insert_command {
+                if let Some(fact) = cmd_fn(source_code, &node, current_id, parent_id) {
                     facts.push(fact);
                 }
             } else {
@@ -156,19 +152,6 @@ impl<'a, T: language::Language> TreeSitterToDDLog<'a, T> {
                         excluded_relations,
                     );
                 }
-            }
-
-            fn to_pascal_case(s: &str) -> String {
-                s.split('_')
-                    .filter(|part| !part.is_empty())
-                    .map(|part| {
-                        let mut chars = part.chars();
-                        match chars.next() {
-                            None => String::new(),
-                            Some(c) => c.to_ascii_uppercase().to_string() + chars.as_str(),
-                        }
-                    })
-                    .collect()
             }
         }
 
@@ -227,6 +210,19 @@ impl Display for DDLogCommand {
     }
 }
 
+fn to_pascal_case(s: &str) -> String {
+    s.split('_')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(c) => c.to_ascii_uppercase().to_string() + chars.as_str(),
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,31 +246,31 @@ mod tests {
         let solidity = Solidity;
         let parser = TreeSitterToDDLog::new(source_code, &solidity);
 
-        let create_insert_command =
+        let create_insert_command: InsertCommandFn =
             |source: &str, node: &Node, id: usize, parent_id: Option<usize>| {
-                let kind = to_pascal_case(node.kind());
-                let field_name = if node.child_count() == 0 {
-                    source
-                        .get(node.start_byte()..node.end_byte())
-                        .map(|s| s.to_string())
-                } else {
-                    None
-                };
-
-                Some(DDLogCommand::Insert {
-                    fact_type: kind,
+                Some(DDLogCommand::create_fact(
+                    to_pascal_case(node.kind()),
                     id,
-                    parent_id: parent_id.unwrap_or(0),
-                    field_name,
-                })
+                    parent_id.unwrap_or(0),
+                    if node.child_count() == 0 {
+                        source
+                            .get(node.start_byte()..node.end_byte())
+                            .map(|s| s.to_string())
+                    } else {
+                        None
+                    },
+                ))
             };
 
-        let commands = parser.extract_commands(create_insert_command);
+        let commands = parser.extract_commands(Some(&create_insert_command));
         assert_eq!(commands[0], DDLogCommand::Start);
-        assert_eq!(commands.last().unwrap(), &DDLogCommand::Commit);
+        assert_eq!(commands.last().unwrap(), &DDLogCommand::CommitDumpChanges);
 
         let found_contract = commands.iter().any(|cmd| match cmd {
-            DDLogCommand::Insert { fact_type, .. } if fact_type == "ContractDefinition" => true,
+            DDLogCommand::Insert(rule) => rule
+                .lhs
+                .iter()
+                .any(|lhs| lhs.atom.relation == "ContractDefinition"),
             _ => false,
         });
         assert!(found_contract);
@@ -293,31 +289,31 @@ mod tests {
         let mermaid = Mermaid;
         let parser = TreeSitterToDDLog::new(source_code, &mermaid);
 
-        let create_insert_command =
+        let create_insert_command: InsertCommandFn =
             |source: &str, node: &Node, id: usize, parent_id: Option<usize>| {
-                let kind = to_pascal_case(node.kind());
-                let field_name = if node.child_count() == 0 {
-                    source
-                        .get(node.start_byte()..node.end_byte())
-                        .map(|s| s.to_string())
-                } else {
-                    None
-                };
-
-                Some(DDLogCommand::Insert {
-                    fact_type: kind,
+                Some(DDLogCommand::create_fact(
+                    to_pascal_case(node.kind()),
                     id,
-                    parent_id: parent_id.unwrap_or(0),
-                    field_name,
-                })
+                    parent_id.unwrap_or(0),
+                    if node.child_count() == 0 {
+                        source
+                            .get(node.start_byte()..node.end_byte())
+                            .map(|s| s.to_string())
+                    } else {
+                        None
+                    },
+                ))
             };
 
-        let commands = parser.extract_commands(create_insert_command);
+        let commands = parser.extract_commands(Some(&create_insert_command));
         assert_eq!(commands[0], DDLogCommand::Start);
-        assert_eq!(commands.last().unwrap(), &DDLogCommand::Commit);
+        assert_eq!(commands.last().unwrap(), &DDLogCommand::CommitDumpChanges);
 
         let found_sequence = commands.iter().any(|cmd| match cmd {
-            DDLogCommand::Insert { fact_type, .. } if fact_type == "SequenceStmt" => true,
+            DDLogCommand::Insert(rule) => rule
+                .lhs
+                .iter()
+                .any(|lhs| lhs.atom.relation == "SequenceStmt"),
             _ => false,
         });
         assert!(found_sequence);

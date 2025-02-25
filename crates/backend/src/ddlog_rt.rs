@@ -338,13 +338,13 @@ DoubledRun(t) :- TestRun(d),
         let build_result = build_ddlog_crate(dir.path(), project_name);
         assert!(build_result.is_ok());
 
-        let dat_content = r#"
-        start;
-        insert TestRun(1);
-        commit dump_changes;
-        "#;
+        let commands = vec![
+            DDLogCommand::Start,
+            DDLogCommand::create_fact("TestRun".to_string(), 1, 0, Some("1".to_string())),
+            DDLogCommand::CommitDumpChanges,
+        ];
 
-        let run_output = run_ddlog_crate(dir.path(), project_name, dat_content)
+        let run_output = run_ddlog_crate(dir.path(), project_name, &commands)
             .expect("Failed to run ddlog crate");
 
         assert!(
