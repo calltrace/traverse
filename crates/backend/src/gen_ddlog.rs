@@ -1794,6 +1794,13 @@ impl DDlogGenerator {
                         pos: Pos::nopos(),
                         expr: Expr::new(ExprNode::EVar {
                             pos: Pos::nopos(),
+                            name: "vec_contains(vec, 0)".to_string(),
+                        }),
+                    },
+                    RuleRHS::RHSCondition {
+                        pos: Pos::nopos(),
+                        expr: Expr::new(ExprNode::EVar {
+                            pos: Pos::nopos(),
                             name: "var expr = path_to_string(vec, last)".to_string(),
                         }),
                     },
