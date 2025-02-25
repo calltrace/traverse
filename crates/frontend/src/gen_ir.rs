@@ -839,11 +839,12 @@ impl IrGenerator {
                                             Some(ProvenanceType::Default) | None => "".to_string(),
                                         }
                                     };
+
                                     let path_node = RHSNode {
                                         relation_name: "PathExpr".to_string(),
                                         attributes: vec![
                                             provenance_attr_name,
-                                            format!("rhs_{}_id", mapping.symbol.to_lowercase()),
+                                            format!("rhs_{}_id", mapping.symbol.to_lowercase().trim_end_matches("_id")),
                                         ],
                                     };
                                     rhs_nodes.push(RHSVal::RHSNode(path_node));
@@ -931,7 +932,7 @@ impl IrGenerator {
 
                 // Generate internal relation
                 let (internal_relation_name, internal_relation) =
-                    generate_internal_relation(rel_name, &outbound_attrs);
+                    generate_internal_relation(input_relation, &outbound_attrs);
 
                 // Register internal relation
                 ir_program.relations.push(internal_relation.clone());
@@ -1249,17 +1250,29 @@ impl IrGenerator {
         }
 
         fn generate_internal_relation(
-            rel_name: &str,
+            input_relation: &IRRelationType,
             outbound_attrs: &VecDeque<Attribute>,
         ) -> (String, IRRelationType) {
-            // normalize attributes
+            // normalize attributes and determine their types based on input relations
             let normalized_relation_attrs = {
                 let unique_relation_attrs: IndexSet<_> = outbound_attrs.iter().cloned().collect();
                 unique_relation_attrs
                     .iter()
-                    .map(|attr| Attribute {
-                        name: normalize_string(&attr.name),
-                        attr_type: attr.attr_type.clone(),
+                    .map(|attr| {
+                        // Look up the attribute type from the input relation
+                        let attr_type = 
+                            // Find matching attribute in input relation
+                            input_relation
+                                .attributes
+                                .iter()
+                                .find(|a| normalize_string(&a.name) == normalize_string(&attr.name)) 
+                                .map(|a| a.attr_type.clone())
+                                .unwrap_or(AttributeType::String); // Default to String if not found
+
+                        Attribute {
+                            name: normalize_string(&attr.name),
+                            attr_type,
+                        }
                     })
                     .collect::<Vec<_>>()
             };
@@ -1270,7 +1283,7 @@ impl IrGenerator {
                 .collect::<Vec<_>>()
                 .join("_");
 
-            let hash_input = format!("{}_{}", rel_name, combined_attrs);
+            let hash_input = format!("{}_{}", input_relation.name, combined_attrs);
             let hash = {
                 use std::hash::{Hash, Hasher};
                 let mut hasher = std::collections::hash_map::DefaultHasher::new();
