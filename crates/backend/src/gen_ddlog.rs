@@ -941,6 +941,7 @@ impl DDlogGenerator {
             };
 
             // Define QualifiedEdge relation
+            /*
             let qualified_edge_rel = Relation {
                 pos: Pos::nopos(),
                 role: RelationRole::RelOutput,
@@ -964,6 +965,7 @@ impl DDlogGenerator {
                 },
                 primary_key: None,
             };
+            */
 
             // Add PathFromRoot relation
             let path_from_root_rel = Relation {
@@ -1008,7 +1010,7 @@ impl DDlogGenerator {
             program.add_relation(with_intermediary_end_instruction_rel);
             program.add_relation(block_boundary_rel);
             program.add_relation(blocks_rel);
-            program.add_relation(qualified_edge_rel);
+            //program.add_relation(qualified_edge_rel);
 
             // Add Edge rule
             program.add_rule(Rule {
@@ -1690,6 +1692,7 @@ impl DDlogGenerator {
             });
 
             // Add QualifiedEdge rule
+            /*
             program.add_rule(Rule {
                 pos: Pos::nopos(),
                 module: ModuleName { path: vec![] },
@@ -1752,6 +1755,7 @@ impl DDlogGenerator {
                     },
                 ],
             });
+            */
             
             // Add PathExpr rule
             program.add_rule(Rule {
