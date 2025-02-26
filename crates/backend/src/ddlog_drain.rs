@@ -1,15 +1,15 @@
-/// ddlog_drain: an iterator-based consume for DDlog output relation lines.
+/// # DDlog Drain
 ///
-/// Example lines:
-/// ```text
-/// Edge{.from = 92, .to = 93}: +1
-/// EmitMermaidLineActivate:
-/// EmitMermaidLineActivate{.val = "activate", .x = 42}: -1
-/// ```
+/// An iterator-based parser and consumer for DDlog output relation lines.
+///
+/// This module provides functionality to parse and process DDlog output relations
+/// in a streaming fashion. It converts textual DDlog output into structured Rust
+/// data types that can be easily manipulated in application code.
+///
+///
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
-use std::str::FromStr;
 
 use nom::{
     branch::alt,
@@ -86,13 +86,13 @@ impl DdlogFact {
 
 #[derive(Debug)]
 pub enum DdlogDrainError {
-    NomError(String),
+    ParseError(String),
 }
 
 impl fmt::Display for DdlogDrainError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DdlogDrainError::NomError(e) => write!(f, "DDlog parse error: {}", e),
+            DdlogDrainError::ParseError(e) => write!(f, "DDlog parse error: {}", e),
         }
     }
 }
@@ -131,7 +131,7 @@ where
                 }
                 Err(e) => {
                     let msg = format!("Failed to parse line {:?}: {:?}", trimmed, e);
-                    return Some(Err(DdlogDrainError::NomError(msg)));
+                    return Some(Err(DdlogDrainError::ParseError(msg)));
                 }
             }
         }
@@ -198,7 +198,12 @@ fn parse_attribute_value(input: &str) -> IResult<&str, AttributeValue> {
         map(
             delimited(char('"'), opt(is_not("\"")), char('"')),
             |maybe_str: Option<&str>| {
-                AttributeValue::String(format!("\"{}\"", maybe_str.unwrap_or("")))
+                match maybe_str {
+                    Some(s) if s.chars().all(|c| c == '.' || c.is_ascii_digit()) => AttributeValue::Path(s.to_string()),
+                    Some(s) => AttributeValue::String(s.to_string()),
+                    None => AttributeValue::String("".to_string()),
+                }
+                
             },
         ),
         // Number values
@@ -214,22 +219,7 @@ fn parse_attribute_value(input: &str) -> IResult<&str, AttributeValue> {
                 }
             },
         ),
-        // Path values (contains dots)
-        map(
-            take_while1(|c: char| c == '.' || c.is_ascii_digit()),
-            |s: &str| {
-                if s.contains('.') {
-                    AttributeValue::Path(s.to_string())
-                } else {
-                    // Try to parse as number first
-                    match s.parse::<i64>() {
-                        Ok(n) => AttributeValue::Number(n),
-                        Err(_) => AttributeValue::String(s.to_string()),
-                    }
-                }
-            },
-        ),
-        // Other values (fallback)
+       // Other values (fallback)
         map(
             take_while1(|c: char| ![',', '}', ' '].contains(&c)),
             |s: &str| AttributeValue::String(s.to_string()),
@@ -283,7 +273,7 @@ mod tests {
         assert_eq!(fact3.diff, Some(-1));
         assert_eq!(
             fact3.get_attribute_string("val"),
-            Some("\"activate Counter\"".to_string())
+            Some("activate Counter".to_string())
         );
         assert_eq!(fact3.get_attribute_string("x"), Some("42".to_string()));
 
@@ -318,15 +308,15 @@ EmitMermaidLineSignalLine{.val = "CounterCaller->>Counter: increment", .ce_id_pa
         assert_eq!(fact2.attributes.len(), 3);
         assert_eq!(
             fact2.get_attribute_string("val"),
-            Some("\"activate Counter\"".to_string())
+            Some("activate Counter".to_string())
         );
         assert_eq!(
             fact2.get_attribute_string("ce_id_path"),
-            Some("\"0.47.49.75.82.83.84.85.86\"".to_string())
+            Some("0.47.49.75.82.83.84.85.86".to_string())
         );
         assert_eq!(
             fact2.get_attribute_string("callee_contract_path"),
-            Some("\"0.6\"".to_string())
+            Some("0.6".to_string())
         );
         assert_eq!(fact2.diff, Some(1));
 
@@ -336,15 +326,15 @@ EmitMermaidLineSignalLine{.val = "CounterCaller->>Counter: increment", .ce_id_pa
         assert_eq!(fact3.attributes.len(), 3);
         assert_eq!(
             fact3.get_attribute_string("val"),
-            Some("\"activate Counter\"".to_string())
+            Some("activate Counter".to_string())
         );
         assert_eq!(
             fact3.get_attribute_string("ce_id_path"),
-            Some("\"0.47.49.75.82.91.92.93.94\"".to_string())
+            Some("0.47.49.75.82.91.92.93.94".to_string())
         );
         assert_eq!(
             fact3.get_attribute_string("callee_contract_path"),
-            Some("\"0.6\"".to_string())
+            Some("0.6".to_string())
         );
         assert_eq!(fact3.diff, Some(1));
 
@@ -360,11 +350,11 @@ EmitMermaidLineSignalLine{.val = "CounterCaller->>Counter: increment", .ce_id_pa
         assert_eq!(fact5.attributes.len(), 2);
         assert_eq!(
             fact5.get_attribute_string("val"),
-            Some("\"participant Counter\"".to_string())
+            Some("participant Counter".to_string())
         );
         assert_eq!(
             fact5.get_attribute_string("callee_contract_path"),
-            Some("\"0.6\"".to_string())
+            Some("0.6".to_string())
         );
         assert_eq!(fact5.diff, Some(1));
 
@@ -380,11 +370,11 @@ EmitMermaidLineSignalLine{.val = "CounterCaller->>Counter: increment", .ce_id_pa
         assert_eq!(fact7.attributes.len(), 2);
         assert_eq!(
             fact7.get_attribute_string("val"),
-            Some("\"participant CounterCaller\"".to_string())
+            Some("participant CounterCaller".to_string())
         );
         assert_eq!(
             fact7.get_attribute_string("caller_contract_path"),
-            Some("\"0.47\"".to_string())
+            Some("0.47".to_string())
         );
         assert_eq!(fact7.diff, Some(1));
 
@@ -400,23 +390,23 @@ EmitMermaidLineSignalLine{.val = "CounterCaller->>Counter: increment", .ce_id_pa
         assert_eq!(fact9.attributes.len(), 5);
         assert_eq!(
             fact9.get_attribute_string("val"),
-            Some("\"CounterCaller->>Counter: getCount\"".to_string())
+            Some("CounterCaller->>Counter: getCount".to_string())
         );
         assert_eq!(
             fact9.get_attribute_string("ce_id_path"),
-            Some("\"0.47.49.75.82.91.92.93.94\"".to_string())
+            Some("0.47.49.75.82.91.92.93.94".to_string())
         );
         assert_eq!(
             fact9.get_attribute_string("caller_contract_path"),
-            Some("\"0.47\"".to_string())
+            Some("0.47".to_string())
         );
         assert_eq!(
             fact9.get_attribute_string("callee_contract_path"),
-            Some("\"0.6\"".to_string())
+            Some("0.6".to_string())
         );
         assert_eq!(
             fact9.get_attribute_string("callee_func_path"),
-            Some("\"0.6.8.34\"".to_string())
+            Some("0.6.8.34".to_string())
         );
         assert_eq!(fact9.diff, Some(1));
 
@@ -426,23 +416,23 @@ EmitMermaidLineSignalLine{.val = "CounterCaller->>Counter: increment", .ce_id_pa
         assert_eq!(fact10.attributes.len(), 5);
         assert_eq!(
             fact10.get_attribute_string("val"),
-            Some("\"CounterCaller->>Counter: increment\"".to_string())
+            Some("CounterCaller->>Counter: increment".to_string())
         );
         assert_eq!(
             fact10.get_attribute_string("ce_id_path"),
-            Some("\"0.47.49.75.82.83.84.85.86\"".to_string())
+            Some("0.47.49.75.82.83.84.85.86".to_string())
         );
         assert_eq!(
             fact10.get_attribute_string("caller_contract_path"),
-            Some("\"0.47\"".to_string())
+            Some("0.47".to_string())
         );
         assert_eq!(
             fact10.get_attribute_string("callee_contract_path"),
-            Some("\"0.6\"".to_string())
+            Some("0.6".to_string())
         );
         assert_eq!(
             fact10.get_attribute_string("callee_func_path"),
-            Some("\"0.6.8.14\"".to_string())
+            Some("0.6.8.14".to_string())
         );
         assert_eq!(fact10.diff, Some(1));
 
@@ -457,7 +447,6 @@ EmitMermaidLineSignalLine{.val = "CounterCaller->>Counter: increment", .ce_id_pa
         let mut drain = DdlogDrain::new(vec![line].into_iter());
 
         let fact = drain.next().unwrap().unwrap();
-        println!("{:?}", fact);
         assert_eq!(fact.relation_name, "TestRelation");
 
         // Test string attribute
@@ -465,7 +454,7 @@ EmitMermaidLineSignalLine{.val = "CounterCaller->>Counter: increment", .ce_id_pa
         assert!(matches!(string_attr, AttributeValue::String(_)));
         assert_eq!(
             string_attr.as_string(),
-            Some(&"\"hello world\"".to_string())
+            Some(&"hello world".to_string())
         );
         assert_eq!(string_attr.as_number(), None);
         assert_eq!(string_attr.as_path(), None);
@@ -485,7 +474,7 @@ EmitMermaidLineSignalLine{.val = "CounterCaller->>Counter: increment", .ce_id_pa
         assert_eq!(path_attr.as_path(), Some(&"0.1.2.3".to_string()));
 
         // Test to_string_value() for backward compatibility
-        assert_eq!(string_attr.to_string_value(), "\"hello world\"");
+        assert_eq!(string_attr.to_string_value(), "hello world");
         assert_eq!(number_attr.to_string_value(), "42");
         assert_eq!(path_attr.to_string_value(), "0.1.2.3");
     }
