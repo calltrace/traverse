@@ -103,6 +103,7 @@ dependencies = [
  "pest_derive",
  "pretty_env_logger",
  "reedline",
+ "regex",
  "rustyline",
  "serde",
  "serde_derive",
