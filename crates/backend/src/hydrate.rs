@@ -21,7 +21,7 @@ use std::cmp::Ordering;
 ///
 /// 1. Collect facts from DDlog output (parsed by ddlog_drain)
 /// 2. Organize these facts into logical buckets based on their relation names
-/// 3. Order facts within each bucket using lexicographical ordering of path attributes
+/// 3. Order facts within each bucket using numerical ordering of path attributes
 /// 4. Group buckets into pools based on relation name patterns
 /// 5. Prioritize buckets according to user-defined relation priorities
 /// 6. Generate final output by dumping pools and their buckets in priority order
@@ -62,18 +62,14 @@ fn compare_path_segments(path1: &str, path2: &str) -> Ordering {
 
         match (num1, num2) {
             (Ok(n1), Ok(n2)) => {
-                // Both are numbers, compare numerically
                 if n1 != n2 {
                     return n1.cmp(&n2);
                 }
-                // If equal, continue to next segment
             }
             _ => {
-                // At least one is not a number, compare as strings
                 if seg1 != &seg2 {
                     return seg1.cmp(&seg2);
                 }
-                // If equal, continue to next segment
             }
         }
     }
@@ -90,7 +86,8 @@ fn compare_path_segments(path1: &str, path2: &str) -> Ordering {
 #[derive(Debug, Clone)]
 pub struct BucketConfig {
     priorities: HashMap<String, u32>,
-    path_attribute: String,
+    path_attributes: HashMap<String, String>,
+    default_path_attribute: String,
     default_priority: u32,
 }
 
@@ -98,7 +95,8 @@ impl BucketConfig {
     pub fn new() -> Self {
         BucketConfig {
             priorities: HashMap::new(),
-            path_attribute: "path".to_string(),
+            path_attributes: HashMap::new(),
+            default_path_attribute: "path".to_string(),
             default_priority: 0,
         }
     }
@@ -109,7 +107,13 @@ impl BucketConfig {
     }
 
     pub fn with_path_attribute(mut self, attribute: &str) -> Self {
-        self.path_attribute = attribute.to_string();
+        self.default_path_attribute = attribute.to_string();
+        self
+    }
+
+    pub fn with_relation_path_attribute(mut self, relation: &str, attribute: &str) -> Self {
+        self.path_attributes
+            .insert(relation.to_string(), attribute.to_string());
         self
     }
 
@@ -123,6 +127,13 @@ impl BucketConfig {
             .priorities
             .get(relation)
             .unwrap_or(&self.default_priority)
+    }
+
+    fn get_path_attribute(&self, relation: &str) -> String {
+        self.path_attributes
+            .get(relation)
+            .cloned()
+            .unwrap_or_else(|| self.default_path_attribute.clone())
     }
 }
 
@@ -140,7 +151,6 @@ struct OrderedFact {
 
 impl OrderedFact {
     fn new(fact: DdlogFact, path_attribute: &str) -> Self {
-        // First try to get the path attribute directly
         let path = fact
             .attributes
             .get(path_attribute)
@@ -156,24 +166,20 @@ impl OrderedFact {
     }
 }
 
-// Implement PartialEq for OrderedFact based on path
 impl PartialEq for OrderedFact {
     fn eq(&self, other: &Self) -> bool {
         self.path == other.path
     }
 }
 
-// Implement Eq for OrderedFact
 impl Eq for OrderedFact {}
 
-// Implement PartialOrd for OrderedFact based on lexicographical ordering of path
 impl PartialOrd for OrderedFact {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-// Implement Ord for OrderedFact based on numerical ordering of path segments
 impl Ord for OrderedFact {
     fn cmp(&self, other: &Self) -> Ordering {
         compare_path_segments(&self.path, &other.path)
@@ -183,24 +189,36 @@ impl Ord for OrderedFact {
 #[derive(Debug, Clone)]
 struct Bucket {
     relation: String,
-    priority: u32,
+    config: BucketConfig,
     facts: Vec<OrderedFact>,
 }
 
 impl Bucket {
-    fn new(relation: String, priority: u32) -> Self {
+    fn new(relation: String, config: BucketConfig) -> Self {
         Bucket {
             relation,
-            priority,
+            config,
             facts: Vec::new(),
         }
     }
 
-    fn add_fact(&mut self, fact: OrderedFact) {
+    fn priority(&self) -> u32 {
+        self.config.get_priority(&self.relation)
+    }
+
+    fn path_attribute(&self) -> String {
+        self.config.get_path_attribute(&self.relation)
+    }
+
+    fn add_fact(&mut self, fact: DdlogFact) {
+        // Create an OrderedFact using the bucket's path attribute
+        let path_attr = self.path_attribute();
+        let ordered_fact = OrderedFact::new(fact, &path_attr);
+
         // Insert the fact and then sort the vector to maintain lexicographical ordering
         // We could use binary search and insert at the right position for better performance,
         // but this is simpler and works well for small collections
-        self.facts.push(fact);
+        self.facts.push(ordered_fact);
         self.facts.sort(); // This uses the Ord implementation for OrderedFact
     }
 
@@ -208,9 +226,11 @@ impl Bucket {
         let mut result = String::new();
 
         result.push_str(&format!(
-            "# Bucket: {} (priority: {})
+            "# Bucket: {} (priority: {}, path_attribute: {})
 ",
-            self.relation, self.priority
+            self.relation,
+            self.priority(),
+            self.path_attribute()
         ));
 
         for fact in &self.facts {
@@ -260,7 +280,7 @@ impl Pool {
     }
 
     fn sort_buckets_by_priority(&mut self) {
-        self.buckets.sort_by(|a, b| b.priority.cmp(&a.priority));
+        self.buckets.sort_by(|a, b| b.priority().cmp(&a.priority()));
     }
 }
 
@@ -278,30 +298,28 @@ impl Display for Pool {
 
 #[derive(Debug)]
 pub struct Hydrator {
-    config: BucketConfig,
+    global_config: BucketConfig,
     buckets: HashMap<String, Bucket>,
 }
 
 impl Hydrator {
     pub fn new(config: BucketConfig) -> Self {
         Hydrator {
-            config,
+            global_config: config,
             buckets: HashMap::new(),
         }
     }
 
     pub fn process_fact(&mut self, fact: DdlogFact) {
         let relation = fact.relation_name.clone();
-        let priority = self.config.get_priority(&relation);
 
-        let ordered_fact = OrderedFact::new(fact, &self.config.path_attribute);
-
+        // Get or create a bucket with its own config
         let bucket = self
             .buckets
             .entry(relation.clone())
-            .or_insert_with(|| Bucket::new(relation, priority));
+            .or_insert_with(|| Bucket::new(relation, self.global_config.clone()));
 
-        bucket.add_fact(ordered_fact);
+        bucket.add_fact(fact);
     }
 
     pub fn process_drain<I>(&mut self, drain: DdlogDrain<I>)
@@ -348,6 +366,106 @@ impl Hydrator {
 mod tests {
     use super::*;
     use crate::ddlog_drain::{AttributeValue, DdlogDrain};
+
+    #[test]
+    fn test_relation_specific_path_attributes() {
+        // Create facts with different relations using different path attribute names
+        let mut fact1 = DdlogFact {
+            relation_name: "Relation1".to_string(),
+            attributes: HashMap::new(),
+            diff: Some(1),
+        };
+        fact1.attributes.insert(
+            "path".to_string(),
+            AttributeValue::Path("0.2.0".to_string()),
+        );
+        fact1
+            .attributes
+            .insert("value".to_string(), AttributeValue::String("A".to_string()));
+
+        let mut fact2 = DdlogFact {
+            relation_name: "Relation1".to_string(),
+            attributes: HashMap::new(),
+            diff: Some(1),
+        };
+        fact2.attributes.insert(
+            "path".to_string(),
+            AttributeValue::Path("0.1.0".to_string()),
+        );
+        fact2
+            .attributes
+            .insert("value".to_string(), AttributeValue::String("B".to_string()));
+
+        let mut fact3 = DdlogFact {
+            relation_name: "Relation2".to_string(),
+            attributes: HashMap::new(),
+            diff: Some(1),
+        };
+        fact3.attributes.insert(
+            "custom_path".to_string(),
+            AttributeValue::Path("0.3.0".to_string()),
+        );
+        fact3
+            .attributes
+            .insert("value".to_string(), AttributeValue::String("C".to_string()));
+
+        let mut fact4 = DdlogFact {
+            relation_name: "Relation2".to_string(),
+            attributes: HashMap::new(),
+            diff: Some(1),
+        };
+        fact4.attributes.insert(
+            "custom_path".to_string(),
+            AttributeValue::Path("0.2.0".to_string()),
+        );
+        fact4
+            .attributes
+            .insert("value".to_string(), AttributeValue::String("D".to_string()));
+
+        // Configure hydrator with relation-specific path attributes
+        let config = BucketConfig::new()
+            .with_path_attribute("path") // Default path attribute
+            .with_relation_path_attribute("Relation2", "custom_path");
+
+        let mut hydrator = Hydrator::new(config);
+
+        // Process facts
+        hydrator.process_fact(fact1);
+        hydrator.process_fact(fact2);
+        hydrator.process_fact(fact3);
+        hydrator.process_fact(fact4);
+
+        // Check that facts are ordered correctly within each bucket
+        let bucket1 = hydrator.buckets().get("Relation1").unwrap();
+        let bucket2 = hydrator.buckets().get("Relation2").unwrap();
+
+        // Relation1 uses "path" attribute
+        assert_eq!(bucket1.facts[0].path, "0.1.0");
+        assert_eq!(bucket1.facts[1].path, "0.2.0");
+
+        // Relation2 uses "custom_path" attribute
+        assert_eq!(bucket2.facts[0].path, "0.2.0");
+        assert_eq!(bucket2.facts[1].path, "0.3.0");
+
+        // Verify that buckets have the correct path attributes
+        assert_eq!(bucket1.path_attribute(), "path");
+        assert_eq!(bucket2.path_attribute(), "custom_path");
+
+        // Check the output to ensure the ordering is maintained
+        let output = hydrator.dump();
+
+        // Find positions of values in the output
+        let a_pos = output.find("value = A").unwrap();
+        let b_pos = output.find("value = B").unwrap();
+        let c_pos = output.find("value = C").unwrap();
+        let d_pos = output.find("value = D").unwrap();
+
+        // Within Relation1: B (0.1.0) should come before A (0.2.0)
+        assert!(b_pos < a_pos);
+
+        // Within Relation2: D (0.2.0) should come before C (0.3.0)
+        assert!(d_pos < c_pos);
+    }
 
     #[test]
     fn test_numerical_path_ordering() {
@@ -399,15 +517,12 @@ mod tests {
         hydrator.process_fact(fact2);
         hydrator.process_fact(fact3);
 
-        // Get the bucket and check the order of facts
         let bucket = hydrator.buckets().get("TestRelation").unwrap();
 
-        // Facts should be ordered numerically by path: 0.2.0, 0.10.0, 0.100.0
         assert_eq!(bucket.facts[0].path, "0.2.0");
         assert_eq!(bucket.facts[1].path, "0.10.0");
         assert_eq!(bucket.facts[2].path, "0.100.0");
 
-        // Check the output to ensure the ordering is maintained
         let output = hydrator.dump();
         let a_pos = output.find("value = A").unwrap();
         let b_pos = output.find("value = B").unwrap();
@@ -446,14 +561,12 @@ mod tests {
         assert!(output.contains("data2"));
         assert!(output.contains("data3"));
 
-        // Test pool creation
         let pool = hydrator.create_pool();
         let pool_output = format!("{}", pool);
         assert!(pool_output.contains("# Pool"));
         assert!(pool_output.contains("Bucket: Relation1"));
         assert!(pool_output.contains("Bucket: Relation2"));
 
-        // Check priority ordering
         let rel1_pos = pool_output.find("Bucket: Relation1").unwrap();
         let rel2_pos = pool_output.find("Bucket: Relation2").unwrap();
         assert!(rel1_pos < rel2_pos);
@@ -506,7 +619,6 @@ mod tests {
 
     #[test]
     fn test_attribute_value_types() {
-        // Create facts with different attribute value types
         let mut fact1 = DdlogFact {
             relation_name: "TestRelation".to_string(),
             attributes: HashMap::new(),
@@ -557,12 +669,10 @@ mod tests {
 
         let output = hydrator.dump();
 
-        // Check that all facts are present
         assert!(output.contains("value = test"));
         assert!(output.contains("value = number path"));
         assert!(output.contains("value = string path"));
 
-        // Check ordering based on path values
         let test_pos = output.find("value = test").unwrap();
         let number_pos = output.find("value = number path").unwrap();
         let string_pos = output.find("value = string path").unwrap();
@@ -593,26 +703,21 @@ mod tests {
         let mut hydrator = Hydrator::new(config);
         hydrator.process_drain(drain);
 
-        // Create pool and check structure
         let pool = hydrator.create_pool();
         let pool_output = format!("{}", pool);
 
-        // Check that the pool was created correctly
         assert!(pool_output.contains("# Pool"));
 
-        // Check that buckets are in the pool
         assert!(pool_output.contains("Bucket: TestRelation"));
         assert!(pool_output.contains("Bucket: EmitMermaidLineActivate"));
         assert!(pool_output.contains("Bucket: EmitMermaidLineSignal"));
         assert!(pool_output.contains("Bucket: OtherRelation"));
 
-        // Check that all data is present
         assert!(pool_output.contains("test data"));
         assert!(pool_output.contains("activate Counter"));
         assert!(pool_output.contains("signal data"));
         assert!(pool_output.contains("other data"));
 
-        // Check priority ordering - higher priority buckets should come first
         let activate_pos = pool_output.find("Bucket: EmitMermaidLineActivate").unwrap();
         let signal_pos = pool_output.find("Bucket: EmitMermaidLineSignal").unwrap();
         let test_pos = pool_output.find("Bucket: TestRelation").unwrap();
@@ -625,7 +730,6 @@ mod tests {
 
     #[test]
     fn test_numerical_path_ordering_primitives() {
-        // Test cases for numerical ordering
         let test_cases = [
             ("0.2.3", "0.10.2"),  // 2 < 10 numerically
             ("1.1.1", "1.2.1"),   // 1 < 2 numerically
@@ -638,13 +742,8 @@ mod tests {
         ];
 
         for (path1, path2) in test_cases {
-            // For each test case, verify the ordering is as expected
             let result = compare_path_segments(path1, path2);
 
-            // Print the comparison result for debugging
-            println!("Comparing {} and {}: {:?}", path1, path2, result);
-
-            // Assert the expected ordering
             match (path1, path2) {
                 ("0.2.3", "0.10.2") => assert_eq!(result, Ordering::Less),
                 ("1.1.1", "1.2.1") => assert_eq!(result, Ordering::Less),
@@ -665,10 +764,8 @@ mod tests {
 
     #[test]
     fn test_lexicographical_ordering() {
-        // Test with facts that should be ordered lexicographically
         let mut hydrator = Hydrator::new(BucketConfig::new().with_path_attribute("path"));
 
-        // Add facts in a non-lexicographical order
         let mut fact1 = DdlogFact {
             relation_name: "TestRelation".to_string(),
             attributes: HashMap::new(),
@@ -713,15 +810,12 @@ mod tests {
         hydrator.process_fact(fact2);
         hydrator.process_fact(fact3);
 
-        // Get the bucket and check the order of facts
         let bucket = hydrator.buckets().get("TestRelation").unwrap();
 
-        // Facts should be ordered by path: 0.1.0, 0.2.0, 0.3.0
         assert_eq!(bucket.facts[0].path, "0.1.0");
         assert_eq!(bucket.facts[1].path, "0.2.0");
         assert_eq!(bucket.facts[2].path, "0.3.0");
 
-        // Check the output to ensure the ordering is maintained
         let output = hydrator.dump();
         let a_pos = output.find("value = A").unwrap();
         let b_pos = output.find("value = B").unwrap();
@@ -729,5 +823,54 @@ mod tests {
 
         assert!(a_pos < b_pos);
         assert!(b_pos < c_pos);
+    }
+
+    #[test]
+    fn test_bucket_specific_config() {
+        let global_config = BucketConfig::new()
+            .with_path_attribute("default_path")
+            .with_relation_path_attribute("Relation1", "path1")
+            .with_relation_path_attribute("Relation2", "path2")
+            .with_priority("Relation1", 10)
+            .with_priority("Relation2", 20);
+
+        let mut hydrator = Hydrator::new(global_config);
+
+        let mut fact1 = DdlogFact {
+            relation_name: "Relation1".to_string(),
+            attributes: HashMap::new(),
+            diff: Some(1),
+        };
+        fact1
+            .attributes
+            .insert("path1".to_string(), AttributeValue::Path("1.0".to_string()));
+
+        let mut fact2 = DdlogFact {
+            relation_name: "Relation2".to_string(),
+            attributes: HashMap::new(),
+            diff: Some(1),
+        };
+        fact2
+            .attributes
+            .insert("path2".to_string(), AttributeValue::Path("2.0".to_string()));
+
+        hydrator.process_fact(fact1);
+        hydrator.process_fact(fact2);
+
+        let bucket1 = hydrator.buckets().get("Relation1").unwrap();
+        let bucket2 = hydrator.buckets().get("Relation2").unwrap();
+
+        assert_eq!(bucket1.path_attribute(), "path1");
+        assert_eq!(bucket2.path_attribute(), "path2");
+
+        assert_eq!(bucket1.priority(), 10);
+        assert_eq!(bucket2.priority(), 20);
+
+        let pool = hydrator.create_pool();
+        let pool_output = format!("{}", pool);
+
+        let rel1_pos = pool_output.find("Bucket: Relation1").unwrap();
+        let rel2_pos = pool_output.find("Bucket: Relation2").unwrap();
+        assert!(rel2_pos < rel1_pos);
     }
 }
