@@ -5,9 +5,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use backend::ddlog_rt::{build_ddlog_crate, generate_rust_project, validate};
 use backend::ddlog_drain::DdlogDrain;
-use backend::hydrate::{BucketConfig, Hydrator};
+use backend::ddlog_rt::{build_ddlog_crate, generate_rust_project, validate};
+use backend::hydrate::{BucketConfig, Hydrator, InputSource};
 use clap::Parser;
 use frontend::{gen_ir::IrGenerator, syntax::SyntaxTheme};
 use language::{Language, Solidity};
@@ -264,38 +264,49 @@ impl Repl {
             // Process the DDlog output through the hydration module if not disabled
             if !self.no_hydrate {
                 println!("Hydrating DDlog output...");
-                
+
                 // Configure the hydrator for Mermaid-style output
                 let hydrator_config = BucketConfig::new()
-                    .with_path_attribute("path")
-                    // Set priorities for Mermaid diagram elements (higher priority comes first)
-                    .with_priority("EmitMermaidLineCallerParticipantLine", 100)
-                    .with_priority("EmitMermaidLineCalleeParticipantLine", 90)
-                    .with_priority("EmitMermaidLineActivate", 80)
-                    .with_priority("EmitMermaidLineSignalLine", 70)
-                    // Add relation-specific path attributes if needed
-                    .with_relation_path_attribute("EmitMermaidLineSignalLine", "ce_id_path")
-                    .with_relation_path_attribute("EmitMermaidLineActivate", "ce_id_path");
-                
+                    .with_pool_shape("sequenceDiagram")
+                    .with_bucket(
+                        "participants",
+                        100,
+                        "path",
+                        "val",
+                        vec![
+                            InputSource::new("EmitMermaidLineCallerParticipantLine", 100),
+                            InputSource::new("EmitMermaidLineCalleeParticipantLine", 90),
+                        ],
+                    )
+                    .with_bucket(
+                        "flow",
+                        90,
+                        "ce_id_path",
+                        "val",
+                        vec![
+                            InputSource::new("EmitMermaidLineSignalLine", 100),
+                            InputSource::new("EmitMermaidLineActivate", 90),
+                        ],
+                    );
+
                 let mut hydrator = Hydrator::new(hydrator_config);
-                
+
                 // Create a drain from the DDlog output lines
                 let lines = ddlog_out.lines().map(|s| s.to_string());
                 let drain = DdlogDrain::new(lines);
-                
+
                 // Process the drained facts
                 hydrator.process_drain(drain);
-                
+
                 // Get the hydrated output
                 let hydrated_output = hydrator.dump();
-                
+
                 // Save the hydrated output to a file
                 let hydrated_file_path = format!("{}_hydrated.txt", self.project_name);
-                fs::write(&hydrated_file_path, &hydrated_output)
-                    .map_err(|e| ReplError::Io(e))?;
-                
+                fs::write(&hydrated_file_path, &hydrated_output).map_err(|e| ReplError::Io(e))?;
+
                 println!("Hydrated output saved to: {}", hydrated_file_path);
-                
+
                 // Print a preview of the hydrated output
                 let preview_lines: Vec<&str> = hydrated_output.lines().take(20).collect();
                 if !preview_lines.is_empty() {
@@ -303,7 +314,7 @@ impl Repl {
                     for line in preview_lines {
                         println!("{}", line);
                     }
-                    
+
                     if hydrated_output.lines().count() > 20 {
                         println!("... (more lines in the output file)");
                     }
@@ -369,7 +380,7 @@ struct Args {
     /// Skip executing the generated DDlog script
     #[arg(long = "no-execute", default_value = "false")]
     no_execute: bool,
-    
+
     /// Skip hydrating the DDlog output
     #[arg(long = "no-hydrate", default_value = "false")]
     no_hydrate: bool,

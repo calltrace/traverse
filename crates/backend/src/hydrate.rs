@@ -43,6 +43,21 @@ use std::fmt::Display;
 
 use crate::ddlog_drain::{AttributeValue, DdlogDrain, DdlogDrainError, DdlogFact};
 
+#[derive(Debug, Clone)]
+pub struct InputSource {
+    pub relation_name: String,
+    pub priority: u32,
+}
+
+impl InputSource {
+    pub fn new(relation_name: &str, priority: u32) -> Self {
+        InputSource {
+            relation_name: relation_name.to_string(),
+            priority,
+        }
+    }
+}
+
 // Helper function to compare path segments numerically
 fn compare_path_segments(path1: &str, path2: &str) -> Ordering {
     let segments1: Vec<&str> = path1.split('.').collect();
@@ -91,6 +106,10 @@ pub struct BucketConfig {
     default_path_attribute: String,
     default_value_attribute: String,
     default_priority: u32,
+    pool_shape: String,
+    bucket_relations: HashMap<String, Vec<InputSource>>,
+    relation_to_bucket: HashMap<String, String>,
+    relation_priorities: HashMap<String, u32>,
 }
 
 impl BucketConfig {
@@ -102,33 +121,86 @@ impl BucketConfig {
             default_path_attribute: "path".to_string(),
             default_value_attribute: "val".to_string(),
             default_priority: 0,
+            pool_shape: "default".to_string(),
+            bucket_relations: HashMap::new(),
+            relation_to_bucket: HashMap::new(),
+            relation_priorities: HashMap::new(),
         }
     }
+    ///
+    /// Single entry point for configuring buckets
+    ///
+    /// This method allows setting all bucket properties in one call:
+    /// - bucket_name: Name of the bucket
+    /// - priority: Priority of the bucket (higher values are processed first)
+    /// - path_attribute: Attribute name used for path-based ordering
+    /// - value_attribute: Attribute name used for values
+    /// - relations: List of relation names that should be placed in this bucket
+    ///
+    pub fn with_bucket(
+        mut self,
+        bucket_name: &str,
+        priority: u32,
+        path_attribute: &str,
+        value_attribute: &str,
+        input_sources: Vec<InputSource>,
+    ) -> Self {
+        // Set bucket priority
+        self.priorities.insert(bucket_name.to_string(), priority);
 
-    pub fn with_priority(mut self, relation: &str, priority: u32) -> Self {
-        self.priorities.insert(relation.to_string(), priority);
+        // Set bucket path attribute
+        self.path_attributes
+            .insert(bucket_name.to_string(), path_attribute.to_string());
+
+        // Set bucket value attribute
+        self.value_attributes
+            .insert(bucket_name.to_string(), value_attribute.to_string());
+
+        // Store the input sources for this bucket
+        self.bucket_relations
+            .insert(bucket_name.to_string(), input_sources.clone());
+
+        // Map each relation to this bucket and store relation priorities
+        for source in input_sources {
+            self.relation_to_bucket
+                .insert(source.relation_name.clone(), bucket_name.to_string());
+            self.relation_priorities
+                .insert(source.relation_name.clone(), source.priority);
+        }
+
         self
     }
 
-    pub fn with_path_attribute(mut self, attribute: &str) -> Self {
+    // Convenience method to create InputSource objects from relation names with the same priority
+    pub fn with_bucket_simple(
+        self,
+        bucket_name: &str,
+        priority: u32,
+        path_attribute: &str,
+        value_attribute: &str,
+        relations: Vec<&str>,
+    ) -> Self {
+        let input_sources: Vec<InputSource> = relations
+            .iter()
+            .map(|r| InputSource::new(r, priority))
+            .collect();
+
+        self.with_bucket(
+            bucket_name,
+            priority,
+            path_attribute,
+            value_attribute,
+            input_sources,
+        )
+    }
+
+    pub fn with_default_path_attribute(mut self, attribute: &str) -> Self {
         self.default_path_attribute = attribute.to_string();
         self
     }
 
-    pub fn with_relation_path_attribute(mut self, relation: &str, attribute: &str) -> Self {
-        self.path_attributes
-            .insert(relation.to_string(), attribute.to_string());
-        self
-    }
-
-    pub fn with_value_attribute(mut self, attribute: &str) -> Self {
+    pub fn with_default_value_attribute(mut self, attribute: &str) -> Self {
         self.default_value_attribute = attribute.to_string();
-        self
-    }
-
-    pub fn with_relation_value_attribute(mut self, relation: &str, attribute: &str) -> Self {
-        self.value_attributes
-            .insert(relation.to_string(), attribute.to_string());
         self
     }
 
@@ -137,25 +209,9 @@ impl BucketConfig {
         self
     }
 
-    fn get_priority(&self, relation: &str) -> u32 {
-        *self
-            .priorities
-            .get(relation)
-            .unwrap_or(&self.default_priority)
-    }
-
-    fn get_path_attribute(&self, relation: &str) -> String {
-        self.path_attributes
-            .get(relation)
-            .cloned()
-            .unwrap_or_else(|| self.default_path_attribute.clone())
-    }
-
-    fn get_value_attribute(&self, relation: &str) -> String {
-        self.value_attributes
-            .get(relation)
-            .cloned()
-            .unwrap_or_else(|| self.default_value_attribute.clone())
+    pub fn with_pool_shape(mut self, shape: &str) -> Self {
+        self.pool_shape = shape.to_string();
+        self
     }
 }
 
@@ -169,10 +225,11 @@ impl Default for BucketConfig {
 struct OrderedFact {
     fact: DdlogFact,
     path: String,
+    relation_priority: u32,
 }
 
 impl OrderedFact {
-    fn new(fact: DdlogFact, path_attribute: &str) -> Self {
+    fn new(fact: DdlogFact, path_attribute: &str, relation_priority: u32) -> Self {
         let path = fact
             .attributes
             .get(path_attribute)
@@ -184,7 +241,11 @@ impl OrderedFact {
             })
             .unwrap_or_default();
 
-        OrderedFact { fact, path }
+        OrderedFact {
+            fact,
+            path,
+            relation_priority,
+        }
     }
 }
 
@@ -201,49 +262,86 @@ impl PartialOrd for OrderedFact {
         Some(self.cmp(other))
     }
 }
-
 impl Ord for OrderedFact {
     fn cmp(&self, other: &Self) -> Ordering {
-        compare_path_segments(&self.path, &other.path)
+        // First compare by path
+        match compare_path_segments(&self.path, &other.path) {
+            Ordering::Equal => {
+                // If paths are equal, compare by relation priority (higher priority comes first)
+                other.relation_priority.cmp(&self.relation_priority)
+            }
+            ordering => ordering,
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 struct Bucket {
-    relation: String,
+    // The bucket name, which may represent multiple relations
+    name: String,
+    // The original relation names that contributed facts to this bucket
+    relations: Vec<String>,
     config: BucketConfig,
     facts: Vec<OrderedFact>,
 }
 
 impl Bucket {
-    fn new(relation: String, config: BucketConfig) -> Self {
+    fn new(name: String, config: BucketConfig) -> Self {
         Bucket {
-            relation,
+            name,
+            relations: Vec::new(),
             config,
             facts: Vec::new(),
         }
     }
 
     fn priority(&self) -> u32 {
-        self.config.get_priority(&self.relation)
+        // First try to get priority for the bucket name
+        if let Some(priority) = self.config.priorities.get(&self.name) {
+            return *priority;
+        }
+        // Fall back to default priority
+        self.config.default_priority
     }
 
     fn path_attribute(&self) -> String {
-        self.config.get_path_attribute(&self.relation)
+        // First try to get path attribute for the bucket name
+        if let Some(path_attr) = self.config.path_attributes.get(&self.name) {
+            return path_attr.clone();
+        }
+        // Fall back to default path attribute
+        self.config.default_path_attribute.clone()
     }
 
     fn value_attribute(&self) -> String {
-        self.config.get_value_attribute(&self.relation)
+        // First try to get value attribute for the bucket name
+        if let Some(value_attr) = self.config.value_attributes.get(&self.name) {
+            return value_attr.clone();
+        }
+        // Fall back to default value attribute
+        self.config.default_value_attribute.clone()
     }
 
     fn add_fact(&mut self, fact: DdlogFact) {
-        // Create an OrderedFact using the bucket's path attribute
-        let path_attr = self.path_attribute();
-        let ordered_fact = OrderedFact::new(fact, &path_attr);
+        // Add the relation to the list of relations if it's not already there
+        let relation_name = fact.relation_name.clone();
+        if !self.relations.contains(&relation_name) {
+            self.relations.push(relation_name.clone());
+        }
 
-        // Insert the fact and then sort the vector to maintain lexicographical ordering
-        // We could use binary search and insert at the right position for better performance,
-        // but this is simpler and works well for small collections
+        // Get the relation priority
+        let relation_priority = self
+            .config
+            .relation_priorities
+            .get(&relation_name)
+            .cloned()
+            .unwrap_or(self.config.default_priority);
+
+        // Create an OrderedFact using the bucket's path attribute and relation priority
+        let path_attr = self.path_attribute();
+        let ordered_fact = OrderedFact::new(fact, &path_attr, relation_priority);
+
+        // Insert the fact and then sort the vector to maintain ordering
         self.facts.push(ordered_fact);
         self.facts.sort(); // This uses the Ord implementation for OrderedFact
     }
@@ -252,13 +350,31 @@ impl Bucket {
         let mut result = String::new();
 
         result.push_str(&format!(
-            "# Bucket: {} (priority: {}, path_attribute: {}, value_attribute: {})
+            "%% Bucket: {} (priority: {}, path_attribute: {}, value_attribute: {})
 ",
-            self.relation,
+            self.name,
             self.priority(),
             self.path_attribute(),
             self.value_attribute()
         ));
+
+        // List all relations that contributed to this bucket
+        if !self.relations.is_empty() {
+            result.push_str("%% Relations: ");
+            for (i, relation) in self.relations.iter().enumerate() {
+                if i > 0 {
+                    result.push_str(", ");
+                }
+                let priority = self
+                    .config
+                    .relation_priorities
+                    .get(relation)
+                    .cloned()
+                    .unwrap_or(self.config.default_priority);
+                result.push_str(&format!("{}(priority: {})", relation, priority));
+            }
+            result.push_str("\n");
+        }
 
         for fact in &self.facts {
             let value_attr = self.value_attribute();
@@ -272,9 +388,16 @@ impl Bucket {
                     AttributeValue::Number(n) => "", // Skip numbers as values
                 });
 
-            result.push_str(&format!("# Fact: (path: {})\n", fact.path));
-            result.push_str(value);
-            result.push_str("\n");
+            let fact_path = if !fact.path.is_empty() {
+                &fact.path
+            } else {
+                "unspecified"
+            };
+
+            result.push_str(&format!(
+                "%% Fact: (relation: {}, priority: {}, path: {})\n{}\n",
+                fact.fact.relation_name, fact.relation_priority, fact_path, value
+            ));
         }
 
         result
@@ -283,12 +406,14 @@ impl Bucket {
 
 #[derive(Debug)]
 pub struct Pool {
+    shape: String,
     buckets: Vec<Bucket>,
 }
 
 impl Pool {
-    fn new() -> Self {
+    fn new(shape: String) -> Self {
         Pool {
+            shape,
             buckets: Vec::new(),
         }
     }
@@ -304,7 +429,8 @@ impl Pool {
 
 impl Display for Pool {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "# Pool")?;
+        writeln!(f, "%% Pool (shape: {})", self.shape)?;
+        writeln!(f, "{}", self.shape)?;
 
         for bucket in &self.buckets {
             write!(f, "{}", bucket.dump())?;
@@ -331,15 +457,28 @@ impl Hydrator {
     pub fn process_fact(&mut self, fact: DdlogFact) {
         let relation = fact.relation_name.clone();
 
-        if self.global_config.priorities.contains_key(&relation) {
-            // Get or create a bucket with its own config
-            let bucket = self
-                .buckets
-                .entry(relation.clone())
-                .or_insert_with(|| Bucket::new(relation, self.global_config.clone()));
+        // Determine which bucket this relation belongs to
+        let bucket_name = if let Some(bucket) = self.global_config.relation_to_bucket.get(&relation)
+        {
+            // This relation is mapped to a specific bucket
+            bucket.clone()
+        } else if self.global_config.priorities.contains_key(&relation) {
+            // This relation has its own priority, so it gets its own bucket
+            relation.clone()
+        } else {
+            // Unknown relation, ignore it
+            eprintln!("Ignoring fact for unknown relation: {}", relation);
+            return;
+        };
 
-            bucket.add_fact(fact);
-        }
+        // Get or create the bucket
+        let bucket = self
+            .buckets
+            .entry(bucket_name.clone())
+            .or_insert_with(|| Bucket::new(bucket_name, self.global_config.clone()));
+
+        // Add the fact to the bucket
+        bucket.add_fact(fact);
     }
 
     pub fn process_drain<I>(&mut self, drain: DdlogDrain<I>)
@@ -350,22 +489,26 @@ impl Hydrator {
             match result {
                 Ok(fact) => {
                     // Check if the relation is known before processing
-                    if !self
-                        .global_config
-                        .priorities
-                        .contains_key(&fact.relation_name)
-                    {
-                        eprintln!("Ignoring fact for unknown relation: {}", fact.relation_name);
+                    let relation_name = &fact.relation_name;
+                    let is_known = self.global_config.priorities.contains_key(relation_name)
+                        || self
+                            .global_config
+                            .relation_to_bucket
+                            .contains_key(relation_name);
+
+                    if !is_known {
+                        eprintln!("Ignoring fact for unknown relation: {}", relation_name);
+                    } else {
+                        self.process_fact(fact);
                     }
-                    self.process_fact(fact)
                 }
                 Err(e) => eprintln!("Error processing fact: {}", e),
             }
         }
     }
 
-    pub fn create_pool(&self) -> Pool {
-        let mut pool = Pool::new();
+    pub fn create_pool(&self, shape: String) -> Pool {
+        let mut pool = Pool::new(shape);
 
         // Clone buckets and add them to the pool
         for bucket in self.buckets.values() {
@@ -379,7 +522,7 @@ impl Hydrator {
     }
 
     pub fn dump(&self) -> String {
-        let pool = self.create_pool();
+        let pool = self.create_pool(self.global_config.pool_shape.clone());
         format!("{}", pool)
     }
 
@@ -500,7 +643,7 @@ mod tests {
     #[test]
     fn test_numerical_path_ordering() {
         // Test with paths that should be ordered numerically
-        let mut hydrator = Hydrator::new(BucketConfig::new().with_path_attribute("path"));
+        let mut hydrator = Hydrator::new(BucketConfig::new().with_default_path_attribute("path"));
 
         // Add facts with paths that should be ordered numerically
         let mut fact1 = DdlogFact {
@@ -572,9 +715,9 @@ mod tests {
         let drain = DdlogDrain::new(lines.into_iter());
 
         let config = BucketConfig::new()
-            .with_priority("Relation1", 10)
-            .with_priority("Relation2", 5)
-            .with_path_attribute("path");
+            .with_default_path_attribute("path")
+            .with_bucket("Relation1", 10, "path", "value", vec!["Relation1"])
+            .with_bucket("Relation2", 5, "path", "value", vec!["Relation2"]);
 
         let mut hydrator = Hydrator::new(config);
         hydrator.process_drain(drain);
@@ -591,9 +734,9 @@ mod tests {
         assert!(output.contains("data2"));
         assert!(output.contains("data3"));
 
-        let pool = hydrator.create_pool();
+        let pool = hydrator.create_pool("test".to_string());
         let pool_output = format!("{}", pool);
-        assert!(pool_output.contains("# Pool"));
+        assert!(pool_output.contains("Pool (shape: test)"));
         assert!(pool_output.contains("Bucket: Relation1"));
         assert!(pool_output.contains("Bucket: Relation2"));
 
@@ -611,7 +754,9 @@ mod tests {
         ];
         let drain = DdlogDrain::new(lines.into_iter());
 
-        let config = BucketConfig::new().with_path_attribute("path");
+        let config = BucketConfig::new()
+            .with_default_path_attribute("path")
+            .with_bucket("TestRelation", 0, "path", "value", vec!["TestRelation"]);
 
         let mut hydrator = Hydrator::new(config);
         hydrator.process_drain(drain);
@@ -634,7 +779,13 @@ mod tests {
         ];
         let drain = DdlogDrain::new(lines.into_iter());
 
-        let config = BucketConfig::new().with_path_attribute("custom_path");
+        let config = BucketConfig::new().with_bucket(
+            "TestRelation",
+            0,
+            "custom_path",
+            "value",
+            vec!["TestRelation"],
+        );
 
         let mut hydrator = Hydrator::new(config);
         hydrator.process_drain(drain);
@@ -690,7 +841,13 @@ mod tests {
             AttributeValue::String("string path".to_string()),
         );
 
-        let config = BucketConfig::new().with_path_attribute("path");
+        let config = BucketConfig::new().with_bucket(
+            "TestRelation",
+            0,
+            "path",
+            "value",
+            vec!["TestRelation"],
+        );
         let mut hydrator = Hydrator::new(config);
 
         hydrator.process_fact(fact1);
@@ -725,18 +882,30 @@ mod tests {
 
         let drain = DdlogDrain::new(lines.into_iter());
         let config = BucketConfig::new()
-            .with_priority("EmitMermaidLineActivate", 10)
-            .with_priority("EmitMermaidLineSignal", 8)
-            .with_priority("TestRelation", 5)
-            .with_priority("OtherRelation", 3);
+            .with_bucket(
+                "EmitMermaidLineActivate",
+                10,
+                "path",
+                "value",
+                vec!["EmitMermaidLineActivate"],
+            )
+            .with_bucket(
+                "EmitMermaidLineSignal",
+                8,
+                "path",
+                "value",
+                vec!["EmitMermaidLineSignal"],
+            )
+            .with_bucket("TestRelation", 5, "path", "value", vec!["TestRelation"])
+            .with_bucket("OtherRelation", 3, "path", "value", vec!["OtherRelation"]);
 
         let mut hydrator = Hydrator::new(config);
         hydrator.process_drain(drain);
 
-        let pool = hydrator.create_pool();
+        let pool = hydrator.create_pool("mermaid".to_string());
         let pool_output = format!("{}", pool);
 
-        assert!(pool_output.contains("# Pool"));
+        assert!(pool_output.contains("Pool (shape: mermaid)"));
 
         assert!(pool_output.contains("Bucket: TestRelation"));
         assert!(pool_output.contains("Bucket: EmitMermaidLineActivate"));
@@ -794,7 +963,11 @@ mod tests {
 
     #[test]
     fn test_lexicographical_ordering() {
-        let mut hydrator = Hydrator::new(BucketConfig::new().with_path_attribute("path"));
+        let mut hydrator = Hydrator::new(
+            BucketConfig::new()
+                .with_default_path_attribute("path")
+                .with_bucket("TestRelation", 0, "path", "value", vec!["TestRelation"]),
+        );
 
         let mut fact1 = DdlogFact {
             relation_name: "TestRelation".to_string(),
@@ -858,11 +1031,9 @@ mod tests {
     #[test]
     fn test_bucket_specific_config() {
         let global_config = BucketConfig::new()
-            .with_path_attribute("default_path")
-            .with_relation_path_attribute("Relation1", "path1")
-            .with_relation_path_attribute("Relation2", "path2")
-            .with_priority("Relation1", 10)
-            .with_priority("Relation2", 20);
+            .with_default_path_attribute("default_path")
+            .with_bucket("Relation1", 10, "path1", "value", vec!["Relation1"])
+            .with_bucket("Relation2", 20, "path2", "value", vec!["Relation2"]);
 
         let mut hydrator = Hydrator::new(global_config);
 
@@ -896,7 +1067,7 @@ mod tests {
         assert_eq!(bucket1.priority(), 10);
         assert_eq!(bucket2.priority(), 20);
 
-        let pool = hydrator.create_pool();
+        let pool = hydrator.create_pool("custom".to_string());
         let pool_output = format!("{}", pool);
 
         let rel1_pos = pool_output.find("Bucket: Relation1").unwrap();
@@ -905,12 +1076,55 @@ mod tests {
     }
 
     #[test]
+    fn test_pool_shape_config() {
+        // Test that the pool shape is correctly set from the BucketConfig
+        let config = BucketConfig::new()
+            .with_bucket("TestRelation", 10, "path", "value", vec!["TestRelation"])
+            .with_pool_shape("custom_shape");
+
+        let mut hydrator = Hydrator::new(config);
+
+        let mut fact = DdlogFact {
+            relation_name: "TestRelation".to_string(),
+            attributes: HashMap::new(),
+            diff: Some(1),
+        };
+        fact.attributes.insert(
+            "path".to_string(),
+            AttributeValue::Path("0.1.0".to_string()),
+        );
+        fact.attributes.insert(
+            "value".to_string(),
+            AttributeValue::String("test_value".to_string()),
+        );
+
+        hydrator.process_fact(fact);
+
+        // Check that the dump uses the configured pool shape
+        let output = hydrator.dump();
+        assert!(output.contains("Pool (shape: custom_shape)"));
+        assert!(output.contains("custom_shape"));
+
+        // Check that we can still override the shape when creating a pool directly
+        let pool = hydrator.create_pool("override_shape".to_string());
+        let pool_output = format!("{}", pool);
+        assert!(pool_output.contains("Pool (shape: override_shape)"));
+        assert!(pool_output.contains("override_shape"));
+    }
+
+    #[test]
     fn test_ignore_unknown_relations() {
         // Configure hydrator with specific relations
         let config = BucketConfig::new()
-            .with_priority("KnownRelation1", 10)
-            .with_priority("KnownRelation2", 5)
-            .with_path_attribute("path");
+            .with_default_path_attribute("path")
+            .with_bucket(
+                "KnownRelation1",
+                10,
+                "path",
+                "value",
+                vec!["KnownRelation1"],
+            )
+            .with_bucket("KnownRelation2", 5, "path", "value", vec!["KnownRelation2"]);
 
         let mut hydrator = Hydrator::new(config);
 
@@ -973,5 +1187,106 @@ mod tests {
         assert!(output.contains("Known1"));
         assert!(output.contains("Known2"));
         assert!(!output.contains("Unknown"));
+    }
+
+    #[test]
+    fn test_multiple_relations_per_bucket() {
+        // Configure hydrator with multiple relations mapped to the same bucket
+        let config = BucketConfig::new().with_bucket(
+            "MermaidBucket",
+            10,
+            "path",
+            "value",
+            vec![
+                "EmitMermaidLineActivate",
+                "EmitMermaidLineSignal",
+                "EmitMermaidLineDeactivate",
+            ],
+        );
+
+        let mut hydrator = Hydrator::new(config);
+
+        // Create facts for different relations that should go into the same bucket
+        let mut fact1 = DdlogFact {
+            relation_name: "EmitMermaidLineActivate".to_string(),
+            attributes: HashMap::new(),
+            diff: Some(1),
+        };
+        fact1.attributes.insert(
+            "path".to_string(),
+            AttributeValue::Path("0.1.0".to_string()),
+        );
+        fact1.attributes.insert(
+            "value".to_string(),
+            AttributeValue::String("activate Component".to_string()),
+        );
+
+        let mut fact2 = DdlogFact {
+            relation_name: "EmitMermaidLineSignal".to_string(),
+            attributes: HashMap::new(),
+            diff: Some(1),
+        };
+        fact2.attributes.insert(
+            "path".to_string(),
+            AttributeValue::Path("0.2.0".to_string()),
+        );
+        fact2.attributes.insert(
+            "value".to_string(),
+            AttributeValue::String("Component -> Other: signal".to_string()),
+        );
+
+        let mut fact3 = DdlogFact {
+            relation_name: "EmitMermaidLineDeactivate".to_string(),
+            attributes: HashMap::new(),
+            diff: Some(1),
+        };
+        fact3.attributes.insert(
+            "path".to_string(),
+            AttributeValue::Path("0.3.0".to_string()),
+        );
+        fact3.attributes.insert(
+            "value".to_string(),
+            AttributeValue::String("deactivate Component".to_string()),
+        );
+
+        // Process all facts
+        hydrator.process_fact(fact1);
+        hydrator.process_fact(fact2);
+        hydrator.process_fact(fact3);
+
+        // Verify that all facts went into a single bucket
+        assert_eq!(hydrator.buckets().len(), 1);
+        assert!(hydrator.buckets().contains_key("MermaidBucket"));
+
+        let bucket = hydrator.buckets().get("MermaidBucket").unwrap();
+        assert_eq!(bucket.facts.len(), 3);
+
+        // Verify that the bucket contains all three relations
+        assert_eq!(bucket.relations.len(), 3);
+        assert!(bucket
+            .relations
+            .contains(&"EmitMermaidLineActivate".to_string()));
+        assert!(bucket
+            .relations
+            .contains(&"EmitMermaidLineSignal".to_string()));
+        assert!(bucket
+            .relations
+            .contains(&"EmitMermaidLineDeactivate".to_string()));
+
+        // Verify the output contains all facts in the correct order
+        let output = hydrator.dump();
+        assert!(output.contains("Bucket: MermaidBucket"));
+        assert!(output.contains("Relations: "));
+        assert!(output.contains("activate Component"));
+        assert!(output.contains("Component -> Other: signal"));
+        assert!(output.contains("deactivate Component"));
+
+        // Check ordering by path
+        let activate_pos = output.find("activate Component").unwrap();
+        let signal_pos = output.find("Component -> Other: signal").unwrap();
+        let deactivate_pos = output.find("deactivate Component").unwrap();
+
+        assert!(activate_pos < signal_pos);
+        assert!(signal_pos < deactivate_pos);
     }
 }
