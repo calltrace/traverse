@@ -596,6 +596,7 @@ mod tests {
                 source_path: temp_dir.path().join("test.sol"),
                 source_type: SourceType::Solidity,
                 no_execute: true,
+                no_hydrate: true,
             };
             File::create(temp_dir.path().join("test.sol")).unwrap();
             let result = args.validate();
@@ -612,6 +613,7 @@ mod tests {
                 source_path: temp_dir.path().join("nonexistent.sol"),
                 source_type: SourceType::Solidity,
                 no_execute: true,
+                no_hydrate: true,
             };
             let result = args.validate();
             assert!(matches!(result, Err(ReplError::Io(_))));
