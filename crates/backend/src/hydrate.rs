@@ -87,7 +87,9 @@ fn compare_path_segments(path1: &str, path2: &str) -> Ordering {
 pub struct BucketConfig {
     priorities: HashMap<String, u32>,
     path_attributes: HashMap<String, String>,
+    value_attributes: HashMap<String, String>,
     default_path_attribute: String,
+    default_value_attribute: String,
     default_priority: u32,
 }
 
@@ -96,7 +98,9 @@ impl BucketConfig {
         BucketConfig {
             priorities: HashMap::new(),
             path_attributes: HashMap::new(),
+            value_attributes: HashMap::new(),
             default_path_attribute: "path".to_string(),
+            default_value_attribute: "val".to_string(),
             default_priority: 0,
         }
     }
@@ -113,6 +117,17 @@ impl BucketConfig {
 
     pub fn with_relation_path_attribute(mut self, relation: &str, attribute: &str) -> Self {
         self.path_attributes
+            .insert(relation.to_string(), attribute.to_string());
+        self
+    }
+
+    pub fn with_value_attribute(mut self, attribute: &str) -> Self {
+        self.default_value_attribute = attribute.to_string();
+        self
+    }
+
+    pub fn with_relation_value_attribute(mut self, relation: &str, attribute: &str) -> Self {
+        self.value_attributes
             .insert(relation.to_string(), attribute.to_string());
         self
     }
@@ -134,6 +149,13 @@ impl BucketConfig {
             .get(relation)
             .cloned()
             .unwrap_or_else(|| self.default_path_attribute.clone())
+    }
+
+    fn get_value_attribute(&self, relation: &str) -> String {
+        self.value_attributes
+            .get(relation)
+            .cloned()
+            .unwrap_or_else(|| self.default_value_attribute.clone())
     }
 }
 
@@ -210,6 +232,10 @@ impl Bucket {
         self.config.get_path_attribute(&self.relation)
     }
 
+    fn value_attribute(&self) -> String {
+        self.config.get_value_attribute(&self.relation)
+    }
+
     fn add_fact(&mut self, fact: DdlogFact) {
         // Create an OrderedFact using the bucket's path attribute
         let path_attr = self.path_attribute();
@@ -226,37 +252,29 @@ impl Bucket {
         let mut result = String::new();
 
         result.push_str(&format!(
-            "# Bucket: {} (priority: {}, path_attribute: {})
+            "# Bucket: {} (priority: {}, path_attribute: {}, value_attribute: {})
 ",
             self.relation,
             self.priority(),
-            self.path_attribute()
+            self.path_attribute(),
+            self.value_attribute()
         ));
 
         for fact in &self.facts {
-            let attrs = fact
+            let value_attr = self.value_attribute();
+            let value = fact
                 .fact
                 .attributes
-                .iter()
-                .map(|(k, v)| format!("{} = {}", k, v))
-                .collect::<Vec<_>>()
-                .join(", ");
+                .get(&value_attr)
+                .map_or("", |v| match v {
+                    AttributeValue::String(s) => s,
+                    AttributeValue::Path(p) => p,
+                    AttributeValue::Number(n) => "", // Skip numbers as values
+                });
 
-            result.push_str(&format!(
-                "{}{{{}}}:{}
-",
-                fact.fact.relation_name,
-                if attrs.is_empty() {
-                    "".to_string()
-                } else {
-                    format!(" {} ", attrs)
-                },
-                fact.fact.diff.map_or("".to_string(), |d| format!(
-                    " {}{}",
-                    if d >= 0 { "+" } else { "" },
-                    d
-                ))
-            ));
+            result.push_str(&format!("# Fact: (path: {})\n", fact.path));
+            result.push_str(value);
+            result.push_str("\n");
         }
 
         result
@@ -313,13 +331,15 @@ impl Hydrator {
     pub fn process_fact(&mut self, fact: DdlogFact) {
         let relation = fact.relation_name.clone();
 
-        // Get or create a bucket with its own config
-        let bucket = self
-            .buckets
-            .entry(relation.clone())
-            .or_insert_with(|| Bucket::new(relation, self.global_config.clone()));
+        if self.global_config.priorities.contains_key(&relation) {
+            // Get or create a bucket with its own config
+            let bucket = self
+                .buckets
+                .entry(relation.clone())
+                .or_insert_with(|| Bucket::new(relation, self.global_config.clone()));
 
-        bucket.add_fact(fact);
+            bucket.add_fact(fact);
+        }
     }
 
     pub fn process_drain<I>(&mut self, drain: DdlogDrain<I>)
@@ -328,7 +348,17 @@ impl Hydrator {
     {
         for result in drain {
             match result {
-                Ok(fact) => self.process_fact(fact),
+                Ok(fact) => {
+                    // Check if the relation is known before processing
+                    if !self
+                        .global_config
+                        .priorities
+                        .contains_key(&fact.relation_name)
+                    {
+                        eprintln!("Ignoring fact for unknown relation: {}", fact.relation_name);
+                    }
+                    self.process_fact(fact)
+                }
                 Err(e) => eprintln!("Error processing fact: {}", e),
             }
         }
@@ -872,5 +902,76 @@ mod tests {
         let rel1_pos = pool_output.find("Bucket: Relation1").unwrap();
         let rel2_pos = pool_output.find("Bucket: Relation2").unwrap();
         assert!(rel2_pos < rel1_pos);
+    }
+
+    #[test]
+    fn test_ignore_unknown_relations() {
+        // Configure hydrator with specific relations
+        let config = BucketConfig::new()
+            .with_priority("KnownRelation1", 10)
+            .with_priority("KnownRelation2", 5)
+            .with_path_attribute("path");
+
+        let mut hydrator = Hydrator::new(config);
+
+        // Create facts for known and unknown relations
+        let mut known_fact1 = DdlogFact {
+            relation_name: "KnownRelation1".to_string(),
+            attributes: HashMap::new(),
+            diff: Some(1),
+        };
+        known_fact1.attributes.insert(
+            "path".to_string(),
+            AttributeValue::Path("0.1.0".to_string()),
+        );
+        known_fact1.attributes.insert(
+            "value".to_string(),
+            AttributeValue::String("Known1".to_string()),
+        );
+
+        let mut known_fact2 = DdlogFact {
+            relation_name: "KnownRelation2".to_string(),
+            attributes: HashMap::new(),
+            diff: Some(1),
+        };
+        known_fact2.attributes.insert(
+            "path".to_string(),
+            AttributeValue::Path("0.2.0".to_string()),
+        );
+        known_fact2.attributes.insert(
+            "value".to_string(),
+            AttributeValue::String("Known2".to_string()),
+        );
+
+        let mut unknown_fact = DdlogFact {
+            relation_name: "UnknownRelation".to_string(),
+            attributes: HashMap::new(),
+            diff: Some(1),
+        };
+        unknown_fact.attributes.insert(
+            "path".to_string(),
+            AttributeValue::Path("0.3.0".to_string()),
+        );
+        unknown_fact.attributes.insert(
+            "value".to_string(),
+            AttributeValue::String("Unknown".to_string()),
+        );
+
+        // Process all facts
+        hydrator.process_fact(known_fact1);
+        hydrator.process_fact(known_fact2);
+        hydrator.process_fact(unknown_fact);
+
+        // Verify that only known relations were processed
+        assert_eq!(hydrator.buckets().len(), 2);
+        assert!(hydrator.buckets().contains_key("KnownRelation1"));
+        assert!(hydrator.buckets().contains_key("KnownRelation2"));
+        assert!(!hydrator.buckets().contains_key("UnknownRelation"));
+
+        // Verify the output doesn't contain the unknown relation
+        let output = hydrator.dump();
+        assert!(output.contains("Known1"));
+        assert!(output.contains("Known2"));
+        assert!(!output.contains("Unknown"));
     }
 }

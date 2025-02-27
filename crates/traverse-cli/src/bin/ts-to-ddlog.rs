@@ -22,7 +22,7 @@ fn run() -> io::Result<()> {
     let source_code = std::fs::read_to_string(&args.input)?;
     let language = language::Solidity;
     let converter = TreeSitterToDDLog::new(&source_code, &language);
-    let commands = converter.extract_commands::<backend::facts::InsertCommandFn>(None);
+    let commands = converter.extract_commands(None);
 
     match args.output {
         Some(path) => converter.save_to_file(&commands, path.to_str().unwrap()),

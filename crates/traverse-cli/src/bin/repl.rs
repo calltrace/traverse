@@ -6,6 +6,8 @@ use std::{
 };
 
 use backend::ddlog_rt::{build_ddlog_crate, generate_rust_project, validate};
+use backend::ddlog_drain::DdlogDrain;
+use backend::hydrate::{BucketConfig, Hydrator};
 use clap::Parser;
 use frontend::{gen_ir::IrGenerator, syntax::SyntaxTheme};
 use language::{Language, Solidity};
@@ -61,6 +63,7 @@ struct Repl {
     source_file: Box<Path>,
     source_type: SourceType,
     no_execute: bool,
+    no_hydrate: bool,
 }
 
 enum Command {
@@ -79,6 +82,7 @@ impl Repl {
         source_file: Box<Path>,
         source_type: SourceType,
         no_execute: bool,
+        no_hydrate: bool,
     ) -> Result<Self, ReplError> {
         let history = Box::new(
             FileBackedHistory::with_file(5, "history.txt".into())
@@ -100,6 +104,7 @@ impl Repl {
             source_file,
             source_type,
             no_execute,
+            no_hydrate,
         })
     }
 
@@ -108,7 +113,7 @@ impl Repl {
         let language = self.source_type.to_tree_sitter_language();
         let converter = TreeSitterToDDLog::new(&source_code, &language)
             .with_excluded_relations(HashSet::from(["SourceFile".to_string()]));
-        Ok(converter.extract_commands::<InsertCommandFn>(None))
+        Ok(converter.extract_commands(None))
     }
 
     fn parse_command(input: &str) -> Command {
@@ -255,11 +260,62 @@ impl Repl {
 
             println!("{}", ddlog_out);
             println!("DDlog project executed successfully");
+
+            // Process the DDlog output through the hydration module if not disabled
+            if !self.no_hydrate {
+                println!("Hydrating DDlog output...");
+                
+                // Configure the hydrator for Mermaid-style output
+                let hydrator_config = BucketConfig::new()
+                    .with_path_attribute("path")
+                    // Set priorities for Mermaid diagram elements (higher priority comes first)
+                    .with_priority("EmitMermaidLineCallerParticipantLine", 100)
+                    .with_priority("EmitMermaidLineCalleeParticipantLine", 90)
+                    .with_priority("EmitMermaidLineActivate", 80)
+                    .with_priority("EmitMermaidLineSignalLine", 70)
+                    // Add relation-specific path attributes if needed
+                    .with_relation_path_attribute("EmitMermaidLineSignalLine", "ce_id_path")
+                    .with_relation_path_attribute("EmitMermaidLineActivate", "ce_id_path");
+                
+                let mut hydrator = Hydrator::new(hydrator_config);
+                
+                // Create a drain from the DDlog output lines
+                let lines = ddlog_out.lines().map(|s| s.to_string());
+                let drain = DdlogDrain::new(lines);
+                
+                // Process the drained facts
+                hydrator.process_drain(drain);
+                
+                // Get the hydrated output
+                let hydrated_output = hydrator.dump();
+                
+                // Save the hydrated output to a file
+                let hydrated_file_path = format!("{}_hydrated.txt", self.project_name);
+                fs::write(&hydrated_file_path, &hydrated_output)
+                    .map_err(|e| ReplError::Io(e))?;
+                
+                println!("Hydrated output saved to: {}", hydrated_file_path);
+                
+                // Print a preview of the hydrated output
+                let preview_lines: Vec<&str> = hydrated_output.lines().take(20).collect();
+                if !preview_lines.is_empty() {
+                    println!("\nHydrated output preview (first 20 lines):");
+                    for line in preview_lines {
+                        println!("{}", line);
+                    }
+                    
+                    if hydrated_output.lines().count() > 20 {
+                        println!("... (more lines in the output file)");
+                    }
+                } else {
+                    println!("No hydrated output generated.");
+                }
+            } else {
+                println!("Skipping hydration (--no-hydrate was specified)");
+            }
         } else {
             println!("Skipping DDlog execution (--no-execute was specified)");
         }
-
-        // TODO: dump and collect emit output relation
 
         Ok(())
     }
@@ -313,6 +369,10 @@ struct Args {
     /// Skip executing the generated DDlog script
     #[arg(long = "no-execute", default_value = "false")]
     no_execute: bool,
+    
+    /// Skip hydrating the DDlog output
+    #[arg(long = "no-hydrate", default_value = "false")]
+    no_hydrate: bool,
 }
 
 impl Args {
@@ -388,6 +448,7 @@ fn main() -> Result<(), ReplError> {
         args.source_path.into(),
         args.source_type,
         args.no_execute,
+        args.no_hydrate,
     )?;
     repl.run()
 }
@@ -418,6 +479,7 @@ mod tests {
             source_file.into_boxed_path(),
             SourceType::Solidity,
             true,
+            true, // no_hydrate = true for tests
         )
         .unwrap()
     }
@@ -515,6 +577,7 @@ mod tests {
                 source_file.into_boxed_path(),
                 SourceType::Solidity,
                 true,
+                true, // no_hydrate = true for tests
             );
             assert!(result.is_ok());
         }
