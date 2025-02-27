@@ -149,7 +149,7 @@ pub fn build_ddlog_crate(base_dir: &Path, project_name: &str) -> Result<(), Stri
         project_name
     );
 
-    let cargo_status = Command::new("cargo")
+    let cargo_status = Command::new("RUSTFLAGS=\"-A warnings\" cargo")
         .args(["+1.76", "build"])
         .current_dir(project_dir)
         .stdout(Stdio::inherit())

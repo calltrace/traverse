@@ -467,7 +467,6 @@ impl Hydrator {
             relation.clone()
         } else {
             // Unknown relation, ignore it
-            eprintln!("Ignoring fact for unknown relation: {}", relation);
             return;
         };
 
@@ -496,9 +495,7 @@ impl Hydrator {
                             .relation_to_bucket
                             .contains_key(relation_name);
 
-                    if !is_known {
-                        eprintln!("Ignoring fact for unknown relation: {}", relation_name);
-                    } else {
+                    if is_known {
                         self.process_fact(fact);
                     }
                 }

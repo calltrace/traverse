@@ -155,7 +155,6 @@ impl Repl {
         let lval =
             frontend::parser::parse(input).map_err(|e| ReplError::Parse(format!("{:?}", e)))?;
 
-        println!("Parsed DSL:\n\n{:?}", lval);
         let formatted = frontend::formatter::Formatter::new(2)
             .with_syntax_highlighting(Some(SyntaxTheme::default()))
             .format_with_highlighting(&lval);
