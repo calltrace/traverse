@@ -1,6 +1,6 @@
 {
   "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/grammar.schema.json",
-  "name": "dsl",
+  "name": "traverse",
   "rules": {
     "rulebook": {
       "type": "REPEAT",
