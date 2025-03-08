@@ -527,9 +527,9 @@ impl IrGenerator {
                         }
                     }
 
-                    if let Some(do_block) = do_block {
-                        process_do_block(do_block, context, &mut instructions);
-                    }
+                if let Some(do_block) = do_block {
+                    process_do_block(do_block, context, &mut instructions, &self.symbol_table)?
+                }
 
                     // attach the instructions emitted for the constraints and qexprs to the top most capture rule
                     let ssa_block = if instructions.is_empty() {
@@ -758,12 +758,13 @@ impl IrGenerator {
                 }
 
                 if let Some(do_block) = do_block {
-                    process_do_block(do_block, context, &mut instructions);
+                    process_do_block(do_block, context, &mut instructions, &self.symbol_table)?
                 }
 
                 let mut rhs_nodes = Vec::new();
 
                 for capture_ref in captures {
+                    println!("Processing capture reference: {:?}", capture_ref);
                     if let Lval::Capture(capture_name, provenance_type) = &**capture_ref {
                         // Look up the capture's relation
                         let symbol =
@@ -776,6 +777,8 @@ impl IrGenerator {
                                     ))
                                 })?;
                         let referenced_rel = &symbol.relationref.name;
+
+                        println!("Emit RHS relation is : {}", referenced_rel);
 
                         if let Some(relation) =
                             Self::lookup_relation(ir_program, referenced_rel, None)
@@ -791,6 +794,7 @@ impl IrGenerator {
                                     false
                                 }
                             });
+                            println!("Does the relation already exist? {}", exists);
                             // if not, we need to look it up and add it to the body of the rule.
                             // Note: we're hydrating all the attributes of the intermediary relation, not
                             // only the captureref's ones.
@@ -924,6 +928,10 @@ impl IrGenerator {
 
                 // Get input relation attributes
                 let input_relation = get_input_relation(ir_program, rel_name)?;
+                
+                // Validate that all referenced attributes exist in the input relation
+                validate_attributes_exist(input_relation, attrs_map)?;
+                
                 let rhs_attrs = generate_rhs_attributes(input_relation, attrs_map);
 
                 // Build RHS value with lineage
@@ -1097,6 +1105,8 @@ impl IrGenerator {
                         attr_name.to_string(),
                     );
 
+                    println!("Added capture mapping: {} -> {} -> {}", capture_name, rel_name, attr_name);
+
                     // Add the main attribute
                     outbound_attrs.push_front(create_attribute(capture_name));
 
@@ -1203,6 +1213,32 @@ impl IrGenerator {
                 })
         }
 
+        /// Validates that all attributes referenced in the attrs_map exist in the input relation.
+        /// Returns Ok(()) if all attributes are valid, or an Error if any attribute is not found.
+        fn validate_attributes_exist(
+            input_relation: &IRRelationType,
+            attrs_map: &IndexMap<String, Box<Lval>>,
+        ) -> Result<()> {
+            // Create a set of attribute names from the input relation for efficient lookup
+            let relation_attrs: HashSet<String> = input_relation
+                .attributes
+                .iter()
+                .map(|attr| attr.name.clone())
+                .collect();
+
+            // Check each attribute in the attrs_map
+            for (attr_name, _) in attrs_map {
+                if !relation_attrs.contains(attr_name) {
+                    return Err(Error::ResolveError(format!(
+                        "Attribute '{}' referenced in capture form does not exist in relation '{}'",
+                        attr_name, input_relation.name
+                    )));
+                }
+            }
+
+            Ok(())
+        }
+
         fn generate_rhs_attributes(
             input_relation: &IRRelationType,
             attrs_map: &IndexMap<String, Box<Lval>>,
@@ -1213,7 +1249,7 @@ impl IrGenerator {
                 .map(|attr| {
                     if let Some(attr_val) = attrs_map.get(&attr.name) {
                         if let Lval::Capture(capture_name, _provenance) = attr_val.as_ref() {
-                            format!("rhs_{}", normalize_string(&capture_name))
+                            format!("rhs_{}", normalize_string(capture_name))
                         } else {
                             format!("unused_{}", normalize_string(&attr.name))
                         }
@@ -1787,6 +1823,7 @@ impl IrGenerator {
             do_block: &Lval,
             context: &mut SSAContext,
             instructions: &mut Vec<SSAInstruction>,
+            symbol_table: &SymbolTable,
         ) -> Result<()> {
             if let Lval::DoForm(actions) = &do_block {
                 for action in actions {
@@ -1796,16 +1833,17 @@ impl IrGenerator {
                                 if let Some(Lval::Sym(operation)) = lvals.first().map(|v| &**v) {
                                     match operation.as_str() {
                                         "format" => {
-                                            process_format_operation(lvals, context, instructions)?;
+                                            process_format_operation(lvals, context, instructions, symbol_table)?;
                                         }
                                         "concat" => {
-                                            process_concat_operation(lvals, context, instructions)?;
+                                            process_concat_operation(lvals, context, instructions, symbol_table)?;
                                         }
                                         "replace" => {
                                             process_replace_operation(
                                                 lvals,
                                                 context,
                                                 instructions,
+                                                symbol_table,
                                             )?;
                                         }
                                         "lowercase" | "uppercase" => {
@@ -1814,10 +1852,11 @@ impl IrGenerator {
                                                 lvals,
                                                 context,
                                                 instructions,
+                                                symbol_table,
                                             )?;
                                         }
                                         "trim" => {
-                                            process_trim_operation(lvals, context, instructions)?;
+                                            process_trim_operation(lvals, context, instructions, symbol_table)?;
                                         }
                                         _ => {
                                             return Err(Error::GenerationError(format!(
@@ -1844,8 +1883,9 @@ impl IrGenerator {
             lvals: &[Box<Lval>],
             context: &mut SSAContext,
             instructions: &mut Vec<SSAInstruction>,
+            symbol_table: &SymbolTable,
         ) -> Result<()> {
-            let operands = parse_string_operands(&lvals[1..])?;
+            let operands = parse_string_operands(&lvals[1..], context, symbol_table)?;
             generate_string_concat_instructions(operands, context, instructions);
             Ok(())
         }
@@ -1854,13 +1894,14 @@ impl IrGenerator {
             lvals: &[Box<Lval>],
             context: &mut SSAContext,
             instructions: &mut Vec<SSAInstruction>,
+            symbol_table: &SymbolTable,
         ) -> Result<()> {
             if lvals.len() < 3 {
                 return Err(Error::GenerationError(
                     "concat requires at least 2 operands".to_string(),
                 ));
             }
-            let operands = parse_string_operands(&lvals[1..])?;
+            let operands = parse_string_operands(&lvals[1..], context, symbol_table)?;
             generate_string_concat_instructions(operands, context, instructions);
             Ok(())
         }
@@ -1869,6 +1910,7 @@ impl IrGenerator {
             lvals: &[Box<Lval>],
             context: &mut SSAContext,
             instructions: &mut Vec<SSAInstruction>,
+            symbol_table: &SymbolTable,
         ) -> Result<()> {
             if lvals.len() != 4 {
                 return Err(Error::GenerationError(
@@ -1876,9 +1918,9 @@ impl IrGenerator {
                 ));
             }
 
-            let target = parse_single_operand(&lvals[1])?;
-            let pattern = parse_single_operand(&lvals[2])?;
-            let replacement = parse_single_operand(&lvals[3])?;
+            let target = parse_single_operand(&lvals[1], context, symbol_table)?;
+            let pattern = parse_single_operand(&lvals[2], context, symbol_table)?;
+            let replacement = parse_single_operand(&lvals[3], context, symbol_table)?;
 
             let result_var = context.generate_temp_var();
             instructions.push(SSAInstruction::Assignment {
@@ -1900,6 +1942,7 @@ impl IrGenerator {
             lvals: &[Box<Lval>],
             context: &mut SSAContext,
             instructions: &mut Vec<SSAInstruction>,
+            symbol_table: &SymbolTable,
         ) -> Result<()> {
             if lvals.len() != 2 {
                 return Err(Error::GenerationError(format!(
@@ -1908,7 +1951,7 @@ impl IrGenerator {
                 )));
             }
 
-            let input = parse_single_operand(&lvals[1])?;
+            let input = parse_single_operand(&lvals[1], context, symbol_table)?;
             let result_var = context.generate_temp_var();
 
             instructions.push(SSAInstruction::Assignment {
@@ -1929,6 +1972,7 @@ impl IrGenerator {
             lvals: &[Box<Lval>],
             context: &mut SSAContext,
             instructions: &mut Vec<SSAInstruction>,
+            symbol_table: &SymbolTable,
         ) -> Result<()> {
             if lvals.len() != 2 {
                 return Err(Error::GenerationError(
@@ -1936,7 +1980,7 @@ impl IrGenerator {
                 ));
             }
 
-            let input = parse_single_operand(&lvals[1])?;
+            let input = parse_single_operand(&lvals[1], context, symbol_table)?;
             let result_var = context.generate_temp_var();
 
             instructions.push(SSAInstruction::Assignment {
@@ -1949,14 +1993,14 @@ impl IrGenerator {
             Ok(())
         }
 
-        fn parse_string_operands(lvals: &[Box<Lval>]) -> Result<Vec<StringPart>> {
+        fn parse_string_operands(lvals: &[Box<Lval>], context: &SSAContext, symbol_table: &SymbolTable) -> Result<Vec<StringPart>> {
             lvals
                 .iter()
-                .map(|lval| parse_single_operand(lval))
+                .map(|lval| parse_single_operand(&**lval, context, symbol_table))
                 .collect()
         }
 
-        fn parse_single_operand(lval: &Lval) -> Result<StringPart> {
+        fn parse_single_operand(lval: &Lval, context: &SSAContext, symbol_table: &SymbolTable) -> Result<StringPart> {
             match lval {
                 Lval::Sym(operand) => {
                     if let Some('$') = operand.chars().next() {
@@ -1965,8 +2009,27 @@ impl IrGenerator {
                         Ok(StringPart::Static(operand.clone()))
                     }
                 }
-                Lval::Capture(capture, _provenance) => {
-                    Ok(StringPart::Dynamic(format!("rhs_{}", &capture)))
+                Lval::Capture(capture_name, _provenance) => {
+                    // Validate that the capture exists in the symbol table
+                    let symbol = symbol_table.lookup_capture(capture_name).ok_or_else(|| {
+                        Error::ResolveError(format!(
+                            "Referenced capture '{}' not found in do block",
+                            capture_name
+                        ))
+                    })?;
+                    
+                    // Look up the attribute mapping in the SSA context
+                    if let Some(mappings) = context.get_capture_mappings(capture_name) {
+                        if let Some(mapping) = mappings.first() {
+                            // Use the attribute identifier from the mapping instead of the capture name
+                            println!("Using attribute '{}' for capture '{}'", mapping.symbol, capture_name);
+                            return Ok(StringPart::Dynamic(format!("rhs_{}", normalize_string(&mapping.symbol))));
+                        }
+                    }
+                    
+                    // Fallback to using the capture name if no mapping is found
+                    println!("No attribute mapping found for capture '{}', using capture name", capture_name);
+                    Ok(StringPart::Dynamic(format!("rhs_{}", capture_name)))
                 }
                 Lval::String(s) => Ok(StringPart::Static(s[1..s.len() - 1].to_string())),
                 _ => Err(Error::GenerationError(format!(
@@ -1975,6 +2038,8 @@ impl IrGenerator {
                 ))),
             }
         }
+
+
 
         fn generate_string_concat_instructions(
             operands: Vec<StringPart>,
