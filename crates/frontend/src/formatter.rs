@@ -282,14 +282,21 @@ impl Formatter {
 
                 self.indent_level += 1;
                 if !predicates.is_empty() {
-                    for pred in predicates {
-                        result.push_str(&format!("{}", self.format(pred)));
+                    // Format the first predicate without additional indentation
+                    if let Some(first_pred) = predicates.first() {
+                        result.push_str(&format!("{}", self.format(first_pred)));
+                        result.push('\n');
+                    }
+                    
+                    // Format the remaining predicates with additional indentation
+                    for pred in predicates.iter().skip(1) {
+                        result.push_str(&format!("{}  {}", self.indent(), self.format(pred)));
                         result.push('\n');
                     }
                 }
 
                 if let Some(comp) = computation {
-                    result.push_str(&format!("{}{}", self.indent(), self.format(comp)));
+                    result.push_str(&format!("{}  {}", self.indent(), self.format(comp)));
                     result.push('\n');
                 }
                 self.indent_level -= 1;

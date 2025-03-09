@@ -58,6 +58,7 @@ struct Repl {
     source_type: SourceType,
     no_execute: bool,
     no_hydrate: bool,
+    enable_tracing: bool,
 }
 
 enum Command {
@@ -77,6 +78,7 @@ impl Repl {
         source_type: SourceType,
         no_execute: bool,
         no_hydrate: bool,
+        enable_tracing: bool,
     ) -> Result<Self, ReplError> {
         let history = Box::new(
             FileBackedHistory::with_file(5, "history.txt".into())
@@ -99,6 +101,7 @@ impl Repl {
             source_type,
             no_execute,
             no_hydrate,
+            enable_tracing,
         })
     }
 
@@ -143,7 +146,8 @@ impl Repl {
             .with_project_name(self.project_name.clone())
             .with_input_ts_grammars(self.input_ts_grammars.clone())
             .with_intermediate_ts_grammars(self.intermediate_ts_grammars.clone())
-            .with_source_file(self.source_file.clone());
+            .with_source_file(self.source_file.clone())
+            .with_tracing(self.enable_tracing);
 
         // Apply execution and hydration settings
         let compiler = if self.no_execute {
@@ -313,6 +317,10 @@ struct Args {
     /// Skip hydrating the DDlog output
     #[arg(long = "no-hydrate", default_value = "false")]
     no_hydrate: bool,
+
+    /// Enable tracing for compilation and execution
+    #[arg(long = "trace", default_value = "false")]
+    enable_tracing: bool,
 }
 
 impl Args {
@@ -379,6 +387,7 @@ fn main() -> Result<(), ReplError> {
         args.source_type,
         args.no_execute,
         args.no_hydrate,
+        args.enable_tracing,
     )?;
     repl.run()
 }
@@ -410,6 +419,7 @@ mod tests {
             SourceType::Solidity,
             true,
             true, // no_hydrate = true for tests
+            false,
         )
         .unwrap()
     }
@@ -446,7 +456,6 @@ mod tests {
     mod repl_initialization_tests {
         use super::*;
 
-        #[test]
         fn test_repl_creation_with_valid_params() {
             let (_temp_dir, source_file) = setup_test_environment();
             let result = Repl::new(
@@ -456,7 +465,8 @@ mod tests {
                 source_file.into_boxed_path(),
                 SourceType::Solidity,
                 true,
-                true, // no_hydrate = true for tests
+                true,  // no_hydrate = true for tests
+                false, // enable_tracing = false for tests
             );
             assert!(result.is_ok());
         }
@@ -464,6 +474,25 @@ mod tests {
 
     mod args_validation_tests {
         use super::*;
+
+        #[test]
+        fn test_args_with_tracing_enabled() {
+            let temp_dir = TempDir::new().unwrap();
+            let args = Args {
+                project_name: "test".to_string(),
+                input_parser_homes: vec![temp_dir.path().to_path_buf()],
+                intermediate_parser_homes: vec![temp_dir.path().to_path_buf()],
+                source_path: temp_dir.path().join("test.sol"),
+                source_type: SourceType::Solidity,
+                no_execute: false,
+                no_hydrate: false,
+                enable_tracing: true,
+            };
+            File::create(temp_dir.path().join("test.sol")).unwrap();
+            let result = args.validate();
+            assert!(result.is_ok());
+            assert!(args.enable_tracing);
+        }
 
         #[test]
         fn test_args_validation_with_valid_paths() {
@@ -476,6 +505,7 @@ mod tests {
                 source_type: SourceType::Solidity,
                 no_execute: true,
                 no_hydrate: true,
+                enable_tracing: false,
             };
             File::create(temp_dir.path().join("test.sol")).unwrap();
             let result = args.validate();
@@ -493,6 +523,7 @@ mod tests {
                 source_type: SourceType::Solidity,
                 no_execute: true,
                 no_hydrate: true,
+                enable_tracing: false,
             };
             let result = args.validate();
             assert!(result.is_err());

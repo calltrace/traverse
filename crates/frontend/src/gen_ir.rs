@@ -764,7 +764,6 @@ impl IrGenerator {
                 let mut rhs_nodes = Vec::new();
 
                 for capture_ref in captures {
-                    println!("Processing capture reference: {:?}", capture_ref);
                     if let Lval::Capture(capture_name, provenance_type) = &**capture_ref {
                         // Look up the capture's relation
                         let symbol =
@@ -777,8 +776,6 @@ impl IrGenerator {
                                     ))
                                 })?;
                         let referenced_rel = &symbol.relationref.name;
-
-                        println!("Emit RHS relation is : {}", referenced_rel);
 
                         if let Some(relation) =
                             Self::lookup_relation(ir_program, referenced_rel, None)
@@ -794,7 +791,7 @@ impl IrGenerator {
                                     false
                                 }
                             });
-                            println!("Does the relation already exist? {}", exists);
+                            //
                             // if not, we need to look it up and add it to the body of the rule.
                             // Note: we're hydrating all the attributes of the intermediary relation, not
                             // only the captureref's ones.
@@ -1104,8 +1101,6 @@ impl IrGenerator {
                         rel_name.to_string(),
                         attr_name.to_string(),
                     );
-
-                    println!("Added capture mapping: {} -> {} -> {}", capture_name, rel_name, attr_name);
 
                     // Add the main attribute
                     outbound_attrs.push_front(create_attribute(capture_name));
@@ -2022,13 +2017,11 @@ impl IrGenerator {
                     if let Some(mappings) = context.get_capture_mappings(capture_name) {
                         if let Some(mapping) = mappings.first() {
                             // Use the attribute identifier from the mapping instead of the capture name
-                            println!("Using attribute '{}' for capture '{}'", mapping.symbol, capture_name);
                             return Ok(StringPart::Dynamic(format!("rhs_{}", normalize_string(&mapping.symbol))));
                         }
                     }
                     
                     // Fallback to using the capture name if no mapping is found
-                    println!("No attribute mapping found for capture '{}', using capture name", capture_name);
                     Ok(StringPart::Dynamic(format!("rhs_{}", capture_name)))
                 }
                 Lval::String(s) => Ok(StringPart::Static(s[1..s.len() - 1].to_string())),

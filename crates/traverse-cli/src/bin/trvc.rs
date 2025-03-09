@@ -1,23 +1,25 @@
 /// Traverse Compiler CLI (trvc)
-/// 
+///
 /// This module implements the command-line interface for the Traverse compiler.
 /// It provides a user-friendly way to compile Traverse DSL programs into DDlog,
 /// execute them against source files, and process the results.
-/// 
+///
 /// The CLI follows a standard workflow:
 /// 1. Parse and validate command-line arguments
 /// 2. Read input files
 /// 3. Configure and run the compiler
 /// 4. Process and save outputs
-/// 
+///
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::io::{self, Read};
+use std::path::{Path, PathBuf};
 use std::process;
 
 use clap::Parser;
 use compiler::compile::{Compiler, CompilerError};
-use language::{Language, Solidity, Mermaid};
+use language::{Language, Mermaid, Solidity};
+use tracing;
+use tracing_subscriber;
 
 #[derive(Debug, clap::ValueEnum, Clone)]
 pub enum SourceType {
@@ -34,7 +36,6 @@ impl SourceType {
     }
 }
 
-
 #[derive(Parser, Debug)]
 #[command(
     name = "trvc",
@@ -45,7 +46,7 @@ impl SourceType {
 )]
 struct Args {
     /// Path to the DSL input file
-    #[arg(short = 'i', long = "input", value_name = "FILE")]
+    #[arg(short = 'f', long = "input", value_name = "FILE")]
     input_path: PathBuf,
 
     /// Project name for the generated DDlog project
@@ -53,7 +54,7 @@ struct Args {
     project_name: String,
 
     /// Paths to input parser home directories
-    #[arg(short = 'g', long = "input-parser-home", value_name = "DIR")]
+    #[arg(short = 'i', long = "input-parser-home", value_name = "DIR")]
     input_parser_homes: Vec<PathBuf>,
 
     /// Paths to intermediate parser home directories
@@ -75,6 +76,10 @@ struct Args {
     /// Skip hydrating the DDlog output
     #[arg(long = "no-hydrate", default_value = "false")]
     no_hydrate: bool,
+
+    /// Enable tracing for debugging
+    #[arg(long = "trace", default_value = "false")]
+    enable_tracing: bool,
 
     /// Output file for the hydrated result (if hydration is enabled)
     #[arg(short = 'o', long = "output", value_name = "FILE")]
@@ -112,7 +117,7 @@ impl Args {
         if !self.input_path.exists() {
             return Err(CompilerError::Io(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("Input file does not exist: {}", self.input_path.display()),
+                format!("Input path does not exist: {}", self.input_path.display()),
             )));
         }
 
@@ -139,16 +144,24 @@ fn main() {
     }
 
     // Read the input file
-    let mut input_content = String::new();
+    let mut input_file_content = String::new();
     match fs::File::open(&args.input_path) {
         Ok(mut file) => {
-            if let Err(err) = file.read_to_string(&mut input_content) {
-                eprintln!("Error reading input file: {}", err);
+            if let Err(err) = file.read_to_string(&mut input_file_content) {
+                eprintln!(
+                    "Error reading input file {}: {}",
+                    &args.input_path.display(),
+                    err
+                );
                 process::exit(1);
             }
         }
         Err(err) => {
-            eprintln!("Error opening input file: {}", err);
+            eprintln!(
+                "Error opening input file {}: {}",
+                args.input_path.display(),
+                err
+            );
             process::exit(1);
         }
     }
@@ -158,7 +171,8 @@ fn main() {
         .with_project_name(args.project_name.clone())
         .with_input_ts_grammars(args.input_parser_homes)
         .with_intermediate_ts_grammars(args.intermediate_parser_homes)
-        .with_source_file(args.source_path.into_boxed_path());
+        .with_source_file(args.source_path.into_boxed_path())
+        .with_tracing(args.enable_tracing);
 
     // Apply optional configurations
     if args.no_execute {
@@ -173,28 +187,41 @@ fn main() {
 
     // Run the compilation process
     println!("Compiling Traverse program...");
-    match compiler.compile(&input_content, &language) {
+    match compiler.compile(&input_file_content, &language) {
         Ok(result) => {
             // Print compilation results
-            println!("
+            println!(
+                "
 DSL:
-{}", result.compilation.dsl);
-            println!("
+{}",
+                result.compilation.dsl
+            );
+            println!(
+                "
 IR:
-{}", result.compilation.ir);
-            
+{}",
+                result.compilation.ir
+            );
+
             // Print a summary of the DDlog code (first few lines)
-            let ddlog_preview: String = result.compilation.ddlog
+            let ddlog_preview: String = result
+                .compilation
+                .ddlog
                 .lines()
                 .take(10)
                 .collect::<Vec<_>>()
-                .join("
-");
-            println!("
+                .join(
+                    "
+",
+                );
+            println!(
+                "
 DDlog (preview):
 {}
-...", ddlog_preview);
-            
+...",
+                ddlog_preview
+            );
+
             // Save the DDlog to a file
             let ddlog_file = format!("{}.dl", args.project_name);
             if let Err(err) = fs::write(&ddlog_file, &result.compilation.ddlog) {
@@ -205,9 +232,11 @@ DDlog (preview):
 
             // Handle DDlog execution results if available
             if let Some(ddlog_output) = result.ddlog_output {
-                println!("
-DDlog execution completed successfully");
-                
+                println!(
+                    "
+DDlog execution completed successfully"
+                );
+
                 // Save DDlog output to a file
                 let ddlog_output_file = format!("{}.output.txt", args.project_name);
                 if let Err(err) = fs::write(&ddlog_output_file, &ddlog_output) {
@@ -219,14 +248,16 @@ DDlog execution completed successfully");
 
             // Handle hydrated output if available
             if let Some(hydrated) = result.hydrated_output {
-                println!("
-Hydration completed successfully");
-                
-                // Determine output path for hydrated result
-                let output_path = args.output_path.unwrap_or_else(|| 
-                    PathBuf::from(format!("{}_hydrated.txt", args.project_name))
+                println!(
+                    "
+Hydration completed successfully"
                 );
-                
+
+                // Determine output path for hydrated result
+                let output_path = args.output_path.unwrap_or_else(|| {
+                    PathBuf::from(format!("{}_hydrated.txt", args.project_name))
+                });
+
                 // Save hydrated output to file
                 if let Err(err) = fs::write(&output_path, &hydrated) {
                     eprintln!("Warning: Failed to save hydrated output to file: {}", err);
@@ -235,8 +266,10 @@ Hydration completed successfully");
                 }
             }
 
-            println!("
-Compilation completed successfully!");
+            println!(
+                "
+Compilation completed successfully!"
+            );
         }
         Err(err) => {
             eprintln!("Compilation failed: {}", err);

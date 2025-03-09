@@ -1,28 +1,31 @@
 /// Module that implements the compiler for the Traverse language.
-/// 
+///
 /// This module provides a complete compilation pipeline for Traverse, transforming source code
 /// into executable DDlog programs. The compiler follows a multi-stage process:
-/// 
+///
 /// 1. Parsing: Converts Traverse source code into an AST representation
 /// 2. IR Generation: Transforms the AST into an intermediate representation (IR)
 /// 3. DDlog Generation: Converts the IR into DDlog code
 /// 4. Execution: Compiles and runs the generated DDlog program
 /// 5. Hydration: Processes the DDlog output into structured data
 ///
+/// The compiler can be configured to enable or disable tracing, which logs detailed information
+/// about the compilation and execution process using the `tracing` crate.
+///
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use backend::facts::{DDLogCommand, InsertCommandFn, TreeSitterToDDLog};
 use backend::ddlog_drain::DdlogDrain;
 use backend::ddlog_rt::{build_ddlog_crate, generate_rust_project, validate};
+use backend::facts::{DDLogCommand, InsertCommandFn, TreeSitterToDDLog};
 use backend::hydrate::{BucketConfig, Hydrator, InputSource};
 use language::Language;
 
-use frontend::gen_ir::IrGenerator;
-use frontend::syntax::SyntaxTheme;
-use frontend::parser;
 use frontend::formatter::Formatter;
+use frontend::gen_ir::IrGenerator;
+use frontend::parser;
+use frontend::syntax::SyntaxTheme;
 
 #[derive(Debug)]
 pub enum CompilerError {
@@ -70,7 +73,9 @@ pub struct Compiler {
     source_file: Option<Box<Path>>,
     no_execute: bool,
     no_hydrate: bool,
+    enable_tracing: bool,
     hydrator_config: Option<BucketConfig>,
+    hydrator_config_file: Option<PathBuf>,
 }
 
 impl Default for Compiler {
@@ -88,7 +93,9 @@ impl Compiler {
             source_file: None,
             no_execute: false,
             no_hydrate: false,
+            enable_tracing: false,
             hydrator_config: None,
+            hydrator_config_file: None,
         }
     }
 
@@ -133,20 +140,35 @@ impl Compiler {
         self
     }
 
+    /// Enable or disable tracing for the compilation process
+    pub fn with_tracing(mut self, enable: bool) -> Self {
+        self.enable_tracing = enable;
+        self
+    }
+
     pub fn with_hydrator_config(mut self, config: BucketConfig) -> Self {
         self.hydrator_config = Some(config);
         self
     }
 
+    /// Set the path to the hydration configuration file
+    pub fn with_hydrator_config_file(mut self, path: PathBuf) -> Self {
+        self.hydrator_config_file = Some(path);
+        self
+    }
+
     /// Parse the source file and extract DDLog commands
-    pub fn parse_source_file(&self, language: &impl Language) -> Result<Vec<DDLogCommand>, CompilerError> {
+    pub fn parse_source_file(
+        &self,
+        language: &impl Language,
+    ) -> Result<Vec<DDLogCommand>, CompilerError> {
         let source_file = self.source_file.as_ref().ok_or_else(|| {
             CompilerError::Io(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "Source file not specified",
             ))
         })?;
-        
+
         let source_code = std::fs::read_to_string(source_file).map_err(CompilerError::Io)?;
         let converter = TreeSitterToDDLog::new(&source_code, language)
             .with_excluded_relations(HashSet::from(["SourceFile".to_string()]));
@@ -166,7 +188,7 @@ impl Compiler {
         let mut ir_generator = IrGenerator::new()
             .with_input_relations(false)
             .with_input_treesitter_grammars(self.input_ts_grammars.clone());
-        
+
         let dl_ir = ir_generator
             .lval_to_ir(&lval)
             .map_err(|e| CompilerError::IrGeneration(format!("{:?}", e)))?;
@@ -175,19 +197,23 @@ impl Compiler {
         let formatted_ir = ir::format_program(&dl_ir.to_string(), true, 2, false)
             .map_err(|e| CompilerError::IrGeneration(format!("{:?}", e)))?;
 
+        if self.enable_tracing {
+            println!("IR: {}", formatted_ir);
+        }
+
         // Generate DDlog from the IR
         let ddlog_generator = backend::gen_ddlog::DDlogGenerator::new()
             .with_input_relations(false)
             .with_input_treesitter_grammars(self.input_ts_grammars.clone())
             .embed_primitives();
-        
+
         let ddlog = ddlog_generator
             .generate(*dl_ir)
             .map_err(|e| CompilerError::DdlogGeneration(format!("{}", e)))?;
 
         // Validate the generated DDlog
         let ddlog_str = ddlog.to_string();
-        if let Err(e) = validate(&ddlog_str) {
+        if let Err(e) = validate(&ddlog_str, self.enable_tracing) {
             return Err(CompilerError::DdlogValidation(e.to_string()));
         }
 
@@ -199,7 +225,11 @@ impl Compiler {
         })
     }
 
-    pub fn compile(&self, input: &str, language: &impl Language) -> Result<ExecutionResult, CompilerError> {
+    pub fn compile(
+        &self,
+        input: &str,
+        language: &impl Language,
+    ) -> Result<ExecutionResult, CompilerError> {
         let project_name = self.project_name.clone().ok_or_else(|| {
             CompilerError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -223,45 +253,115 @@ impl Compiler {
 
         // Generate and build the Rust project for DDlog
         generate_rust_project(&base_dir, &project_name, &compilation_result.ddlog);
-        
-        if let Err(e) = build_ddlog_crate(&base_dir, &project_name) {
-            return Err(CompilerError::DdlogExecution(format!("Failed to build DDlog project: {}", e)));
+
+        if let Err(e) = build_ddlog_crate(&base_dir, &project_name, self.enable_tracing) {
+            return Err(CompilerError::DdlogExecution(format!(
+                "Failed to build DDlog project: {}",
+                e
+            )));
         }
 
-        let ddlog_output = backend::ddlog_rt::run_ddlog_crate(&base_dir, &project_name, &cmds)
-            .map_err(|e| CompilerError::DdlogExecution(format!("Failed to run DDlog project: {}", e)))?;
+        let ddlog_output = backend::ddlog_rt::run_ddlog_crate(
+            &base_dir,
+            &project_name,
+            &cmds,
+            self.enable_tracing,
+        )
+        .map_err(|e| {
+            CompilerError::DdlogExecution(format!("Failed to run DDlog project: {}", e))
+        })?;
 
         let hydrated_output = if !self.no_hydrate {
-            let hydrator_config = self.hydrator_config.clone().unwrap_or_else(|| {
-                BucketConfig::new()
-                    .with_pool_shape("sequenceDiagram")
-                    .with_bucket(
-                        "participants",
-                        100,
-                        "path",
-                        "val",
-                        vec![
-                            InputSource::new("EmitMermaidLineCallerParticipantLine", 100),
-                            InputSource::new("EmitMermaidLineCalleeParticipantLine", 90),
-                        ],
-                    )
-                    .with_bucket(
-                        "flow",
-                        90,
-                        "ce_id_path",
-                        "val",
-                        vec![
-                            InputSource::new("EmitMermaidLineSignalLine", 100),
-                            InputSource::new("EmitMermaidLineActivate", 90),
-                        ],
-                    )
-            });
+            let hydrator_config = if let Some(config) = self.hydrator_config.clone() {
+                config
+            } else if let Some(config_path) = &self.hydrator_config_file {
+                match BucketConfig::from_yaml_file(config_path) {
+                    Ok(config) => config,
+                    Err(e) => {
+                        return Err(CompilerError::DdlogExecution(format!(
+                            "Failed to load hydration config from {}: {}",
+                            config_path.display(),
+                            e
+                        )));
+                    }
+                }
+            } else {
+                // Try to load from default path
+                let default_path = PathBuf::from("hydration.yaml");
+                if default_path.exists() {
+                    match BucketConfig::from_yaml_file(&default_path) {
+                        Ok(config) => config,
+                        Err(_) => {
+                            // Fall back to hardcoded default if file exists but can't be parsed
+                            BucketConfig::new()
+                                .with_pool_shape("sequenceDiagram")
+                                .with_bucket(
+                                    "participants",
+                                    100,
+                                    "path",
+                                    "val",
+                                    vec![
+                                        InputSource::new(
+                                            "EmitMermaidLineCallerParticipantLine",
+                                            100,
+                                        ),
+                                        InputSource::new(
+                                            "EmitMermaidLineCalleeParticipantLine",
+                                            90,
+                                        ),
+                                    ],
+                                )
+                                .with_bucket(
+                                    "flow",
+                                    90,
+                                    "ce_id_path",
+                                    "val",
+                                    vec![
+                                        InputSource::new("EmitMermaidLineSignalLine", 100),
+                                        InputSource::new("EmitMermaidLineActivateLine", 90),
+                                        InputSource::new("EmitMermaidLineReturnSignalLine", 80),
+                                        InputSource::new("EmitMermaidLineDeactivateLine", 70),
+                                    ],
+                                )
+                        }
+                    }
+                } else {
+                    // Use hardcoded default if no file exists
+                    BucketConfig::new()
+                        .with_pool_shape("sequenceDiagram")
+                        .with_bucket(
+                            "participants",
+                            100,
+                            "path",
+                            "val",
+                            vec![
+                                InputSource::new("EmitMermaidLineCallerParticipantLine", 100),
+                                InputSource::new("EmitMermaidLineCalleeParticipantLine", 90),
+                            ],
+                        )
+                        .with_bucket(
+                            "flow",
+                            90,
+                            "ce_id_path",
+                            "val",
+                            vec![
+                                InputSource::new("EmitMermaidLineSignalLine", 100),
+                                InputSource::new("EmitMermaidLineActivateLine", 90),
+                                InputSource::new("EmitMermaidLineReturnSignalLine", 80),
+                                InputSource::new("EmitMermaidLineDeactivateLine", 70),
+                            ],
+                        )
+                }
+            };
+
+            // save config
+            hydrator_config.to_yaml_file("config.yaml").unwrap();
 
             let mut hydrator = Hydrator::new(hydrator_config);
-            
+
             let lines = ddlog_output.lines().map(|s| s.to_string());
             let drain = DdlogDrain::new(lines);
-            
+
             hydrator.process_drain(drain);
             Some(hydrator.dump())
         } else {

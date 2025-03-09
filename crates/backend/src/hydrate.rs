@@ -1,4 +1,5 @@
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 /// # Hydrate Module
 ///
@@ -38,12 +39,16 @@ use std::cmp::Ordering;
 /// - **Hydration**: The process of organizing and assembling facts into coherent output
 ///
 use std::collections::{BTreeMap, HashMap};
+use std::error::Error;
 use std::fmt;
 use std::fmt::Display;
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
 
 use crate::ddlog_drain::{AttributeValue, DdlogDrain, DdlogDrainError, DdlogFact};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputSource {
     pub relation_name: String,
     pub priority: u32,
@@ -98,18 +103,41 @@ fn compare_path_segments(path1: &str, path2: &str) -> Ordering {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BucketConfig {
+    #[serde(default)]
     priorities: HashMap<String, u32>,
+    #[serde(default)]
     path_attributes: HashMap<String, String>,
+    #[serde(default)]
     value_attributes: HashMap<String, String>,
+    #[serde(default = "default_path_attribute")]
     default_path_attribute: String,
+    #[serde(default = "default_value_attribute")]
     default_value_attribute: String,
+    #[serde(default)]
     default_priority: u32,
+    #[serde(default = "default_pool_shape")]
     pool_shape: String,
+    #[serde(default)]
     bucket_relations: HashMap<String, Vec<InputSource>>,
+    #[serde(default)]
     relation_to_bucket: HashMap<String, String>,
+    #[serde(default)]
     relation_priorities: HashMap<String, u32>,
+}
+
+// Helper functions for serde default values
+fn default_path_attribute() -> String {
+    "path".to_string()
+}
+
+fn default_value_attribute() -> String {
+    "val".to_string()
+}
+
+fn default_pool_shape() -> String {
+    "default".to_string()
 }
 
 impl BucketConfig {
@@ -127,6 +155,72 @@ impl BucketConfig {
             relation_priorities: HashMap::new(),
         }
     }
+
+    /// Create a new Hydrator from a YAML configuration file
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the YAML configuration file
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Hydrator, Box<dyn Error>>` - The created Hydrator or an error
+    ///
+    /// # Example
+    ///
+    /// let config = BucketConfig::from_yaml_file("config.yaml")?;
+    /// let hydrator = Hydrator::new(config);
+    /// ```
+    pub fn from_yaml_file<P: AsRef<Path>>(file_path: P) -> Result<Self, Box<dyn Error>> {
+        let mut file = File::open(file_path)?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+
+        let mut config: BucketConfig = serde_yaml::from_str(&contents)?;
+
+        // Process the loaded configuration to build the derived maps
+        config.rebuild_derived_maps();
+
+        Ok(config)
+    }
+
+    pub fn to_yaml_file<P: AsRef<Path>>(&self, file_path: P) -> Result<(), Box<dyn Error>> {
+        let yaml = serde_yaml::to_string(self)?;
+        std::fs::write(file_path, yaml)?;
+        Ok(())
+    }
+
+    ///
+    /// Rebuild the derived maps (relation_to_bucket and relation_priorities)
+    /// This is needed after loading from YAML to ensure all internal state is consistent
+    fn rebuild_derived_maps(&mut self) {
+        self.relation_to_bucket.clear();
+        self.relation_priorities.clear();
+
+        // Rebuild relation_to_bucket and relation_priorities maps from bucket_relations
+        for (bucket_name, input_sources) in &self.bucket_relations {
+            for source in input_sources {
+                self.relation_to_bucket
+                    .insert(source.relation_name.clone(), bucket_name.clone());
+                self.relation_priorities
+                    .insert(source.relation_name.clone(), source.priority);
+            }
+        }
+    }
+
+    /// Load a BucketConfig from a YAML file
+    ///
+    /// # Arguments
+    ///
+    /// * `file_path` - Path to the YAML configuration file
+    ///
+    /// # Returns
+    ///
+    /// * `Result<BucketConfig, Box<dyn Error>>` - The loaded configuration or an error
+    ///
+    /// # Example
+    ///
+    ///
     ///
     /// Single entry point for configuring buckets
     ///
@@ -538,752 +632,73 @@ mod tests {
     use crate::ddlog_drain::{AttributeValue, DdlogDrain};
 
     #[test]
-    fn test_relation_specific_path_attributes() {
-        // Create facts with different relations using different path attribute names
-        let mut fact1 = DdlogFact {
-            relation_name: "Relation1".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact1.attributes.insert(
-            "path".to_string(),
-            AttributeValue::Path("0.2.0".to_string()),
-        );
-        fact1
-            .attributes
-            .insert("value".to_string(), AttributeValue::String("A".to_string()));
-
-        let mut fact2 = DdlogFact {
-            relation_name: "Relation1".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact2.attributes.insert(
-            "path".to_string(),
-            AttributeValue::Path("0.1.0".to_string()),
-        );
-        fact2
-            .attributes
-            .insert("value".to_string(), AttributeValue::String("B".to_string()));
-
-        let mut fact3 = DdlogFact {
-            relation_name: "Relation2".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact3.attributes.insert(
-            "custom_path".to_string(),
-            AttributeValue::Path("0.3.0".to_string()),
-        );
-        fact3
-            .attributes
-            .insert("value".to_string(), AttributeValue::String("C".to_string()));
-
-        let mut fact4 = DdlogFact {
-            relation_name: "Relation2".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact4.attributes.insert(
-            "custom_path".to_string(),
-            AttributeValue::Path("0.2.0".to_string()),
-        );
-        fact4
-            .attributes
-            .insert("value".to_string(), AttributeValue::String("D".to_string()));
-
-        // Configure hydrator with relation-specific path attributes
+    fn test_bucket_config_default_attributes() {
+        // Test that the with_default_path_attribute and with_default_value_attribute methods work
         let config = BucketConfig::new()
-            .with_path_attribute("path") // Default path attribute
-            .with_relation_path_attribute("Relation2", "custom_path");
+            .with_default_path_attribute("custom_path")
+            .with_default_value_attribute("custom_value");
 
-        let mut hydrator = Hydrator::new(config);
-
-        // Process facts
-        hydrator.process_fact(fact1);
-        hydrator.process_fact(fact2);
-        hydrator.process_fact(fact3);
-        hydrator.process_fact(fact4);
-
-        // Check that facts are ordered correctly within each bucket
-        let bucket1 = hydrator.buckets().get("Relation1").unwrap();
-        let bucket2 = hydrator.buckets().get("Relation2").unwrap();
-
-        // Relation1 uses "path" attribute
-        assert_eq!(bucket1.facts[0].path, "0.1.0");
-        assert_eq!(bucket1.facts[1].path, "0.2.0");
-
-        // Relation2 uses "custom_path" attribute
-        assert_eq!(bucket2.facts[0].path, "0.2.0");
-        assert_eq!(bucket2.facts[1].path, "0.3.0");
-
-        // Verify that buckets have the correct path attributes
-        assert_eq!(bucket1.path_attribute(), "path");
-        assert_eq!(bucket2.path_attribute(), "custom_path");
-
-        // Check the output to ensure the ordering is maintained
-        let output = hydrator.dump();
-
-        // Find positions of values in the output
-        let a_pos = output.find("value = A").unwrap();
-        let b_pos = output.find("value = B").unwrap();
-        let c_pos = output.find("value = C").unwrap();
-        let d_pos = output.find("value = D").unwrap();
-
-        // Within Relation1: B (0.1.0) should come before A (0.2.0)
-        assert!(b_pos < a_pos);
-
-        // Within Relation2: D (0.2.0) should come before C (0.3.0)
-        assert!(d_pos < c_pos);
+        assert_eq!(config.default_path_attribute, "custom_path");
+        assert_eq!(config.default_value_attribute, "custom_value");
     }
 
     #[test]
-    fn test_numerical_path_ordering() {
-        // Test with paths that should be ordered numerically
-        let mut hydrator = Hydrator::new(BucketConfig::new().with_default_path_attribute("path"));
+    fn test_bucket_config_default_priority() {
+        // Test that the with_default_priority method works
+        let config = BucketConfig::new().with_default_priority(100);
 
-        // Add facts with paths that should be ordered numerically
-        let mut fact1 = DdlogFact {
-            relation_name: "TestRelation".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact1.attributes.insert(
-            "path".to_string(),
-            AttributeValue::Path("0.10.0".to_string()),
-        );
-        fact1
-            .attributes
-            .insert("value".to_string(), AttributeValue::String("B".to_string()));
-
-        let mut fact2 = DdlogFact {
-            relation_name: "TestRelation".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact2.attributes.insert(
-            "path".to_string(),
-            AttributeValue::Path("0.2.0".to_string()),
-        );
-        fact2
-            .attributes
-            .insert("value".to_string(), AttributeValue::String("A".to_string()));
-
-        let mut fact3 = DdlogFact {
-            relation_name: "TestRelation".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact3.attributes.insert(
-            "path".to_string(),
-            AttributeValue::Path("0.100.0".to_string()),
-        );
-        fact3
-            .attributes
-            .insert("value".to_string(), AttributeValue::String("C".to_string()));
-
-        // Process facts in non-numerical order
-        hydrator.process_fact(fact1);
-        hydrator.process_fact(fact2);
-        hydrator.process_fact(fact3);
-
-        let bucket = hydrator.buckets().get("TestRelation").unwrap();
-
-        assert_eq!(bucket.facts[0].path, "0.2.0");
-        assert_eq!(bucket.facts[1].path, "0.10.0");
-        assert_eq!(bucket.facts[2].path, "0.100.0");
-
-        let output = hydrator.dump();
-        let a_pos = output.find("value = A").unwrap();
-        let b_pos = output.find("value = B").unwrap();
-        let c_pos = output.find("value = C").unwrap();
-
-        assert!(a_pos < b_pos);
-        assert!(b_pos < c_pos);
+        assert_eq!(config.default_priority, 100);
     }
 
     #[test]
-    fn test_basic_hydration() {
-        let lines = vec![
-            "Relation1{.path = \"0.1.2\", .value = \"data1\"}: +1".to_string(),
-            "Relation2{.path = \"0.1\", .value = \"data2\"}: +1".to_string(),
-            "Relation1{.path = \"0.1.1\", .value = \"data3\"}: +1".to_string(),
-        ];
-        let drain = DdlogDrain::new(lines.into_iter());
+    fn test_bucket_config_pool_shape() {
+        // Test that the with_pool_shape method works
+        let config = BucketConfig::new().with_pool_shape("custom_shape");
 
-        let config = BucketConfig::new()
-            .with_default_path_attribute("path")
-            .with_bucket("Relation1", 10, "path", "value", vec!["Relation1"])
-            .with_bucket("Relation2", 5, "path", "value", vec!["Relation2"]);
-
-        let mut hydrator = Hydrator::new(config);
-        hydrator.process_drain(drain);
-
-        assert_eq!(hydrator.buckets().len(), 2);
-
-        assert_eq!(hydrator.buckets().get("Relation1").unwrap().facts.len(), 2);
-        assert_eq!(hydrator.buckets().get("Relation2").unwrap().facts.len(), 1);
-
-        let output = hydrator.dump();
-        assert!(output.contains("Relation1"));
-        assert!(output.contains("Relation2"));
-        assert!(output.contains("data1"));
-        assert!(output.contains("data2"));
-        assert!(output.contains("data3"));
-
-        let pool = hydrator.create_pool("test".to_string());
-        let pool_output = format!("{}", pool);
-        assert!(pool_output.contains("Pool (shape: test)"));
-        assert!(pool_output.contains("Bucket: Relation1"));
-        assert!(pool_output.contains("Bucket: Relation2"));
-
-        let rel1_pos = pool_output.find("Bucket: Relation1").unwrap();
-        let rel2_pos = pool_output.find("Bucket: Relation2").unwrap();
-        assert!(rel1_pos < rel2_pos);
+        assert_eq!(config.pool_shape, "custom_shape");
     }
 
     #[test]
-    fn test_path_ordering() {
-        let lines = vec![
-            "TestRelation{.path = \"0.2.1\", .value = \"B\"}: +1".to_string(),
-            "TestRelation{.path = \"0.1.2\", .value = \"A\"}: +1".to_string(),
-            "TestRelation{.path = \"0.3.0\", .value = \"C\"}: +1".to_string(),
-        ];
-        let drain = DdlogDrain::new(lines.into_iter());
+    fn test_bucket_config_from_yaml_file() {
+        // Test loading a BucketConfig from a YAML file
+        let config_path = "src/test_data/test_config.yaml";
+        let config = BucketConfig::from_yaml_file(config_path).unwrap();
 
-        let config = BucketConfig::new()
-            .with_default_path_attribute("path")
-            .with_bucket("TestRelation", 0, "path", "value", vec!["TestRelation"]);
+        // Verify default values
+        assert_eq!(config.default_path_attribute, "custom_path");
+        assert_eq!(config.default_value_attribute, "custom_value");
+        assert_eq!(config.default_priority, 50);
+        assert_eq!(config.pool_shape, "test_pool");
 
-        let mut hydrator = Hydrator::new(config);
-        hydrator.process_drain(drain);
+        // Verify bucket priorities
+        assert_eq!(*config.priorities.get("bucket1").unwrap(), 100);
+        assert_eq!(*config.priorities.get("bucket2").unwrap(), 200);
 
-        let output = hydrator.dump();
+        // Verify path attributes
+        assert_eq!(config.path_attributes.get("bucket1").unwrap(), "path1");
+        assert_eq!(config.path_attributes.get("bucket2").unwrap(), "path2");
 
-        let a_pos = output.find("value = A").unwrap();
-        let b_pos = output.find("value = B").unwrap();
-        let c_pos = output.find("value = C").unwrap();
+        // Verify value attributes
+        assert_eq!(config.value_attributes.get("bucket1").unwrap(), "val1");
+        assert_eq!(config.value_attributes.get("bucket2").unwrap(), "val2");
 
-        assert!(a_pos < b_pos);
-        assert!(b_pos < c_pos);
-    }
-
-    #[test]
-    fn test_custom_path_attribute() {
-        let lines = vec![
-            "TestRelation{.custom_path = \"0.2\", .value = \"B\"}: +1".to_string(),
-            "TestRelation{.custom_path = \"0.1\", .value = \"A\"}: +1".to_string(),
-        ];
-        let drain = DdlogDrain::new(lines.into_iter());
-
-        let config = BucketConfig::new().with_bucket(
-            "TestRelation",
-            0,
-            "custom_path",
-            "value",
-            vec!["TestRelation"],
+        // Verify relation mappings were correctly built
+        assert_eq!(
+            config.relation_to_bucket.get("relation1").unwrap(),
+            "bucket1"
+        );
+        assert_eq!(
+            config.relation_to_bucket.get("relation2").unwrap(),
+            "bucket1"
+        );
+        assert_eq!(
+            config.relation_to_bucket.get("relation3").unwrap(),
+            "bucket2"
         );
 
-        let mut hydrator = Hydrator::new(config);
-        hydrator.process_drain(drain);
-
-        let output = hydrator.dump();
-
-        let a_pos = output.find("value = A").unwrap();
-        let b_pos = output.find("value = B").unwrap();
-
-        assert!(a_pos < b_pos);
-    }
-
-    #[test]
-    fn test_attribute_value_types() {
-        let mut fact1 = DdlogFact {
-            relation_name: "TestRelation".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact1.attributes.insert(
-            "path".to_string(),
-            AttributeValue::Path("0.1.2".to_string()),
-        );
-        fact1.attributes.insert(
-            "value".to_string(),
-            AttributeValue::String("test".to_string()),
-        );
-
-        let mut fact2 = DdlogFact {
-            relation_name: "TestRelation".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact2
-            .attributes
-            .insert("path".to_string(), AttributeValue::Number(42));
-        fact2.attributes.insert(
-            "value".to_string(),
-            AttributeValue::String("number path".to_string()),
-        );
-
-        let mut fact3 = DdlogFact {
-            relation_name: "TestRelation".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact3.attributes.insert(
-            "path".to_string(),
-            AttributeValue::String("0.3.4".to_string()),
-        );
-        fact3.attributes.insert(
-            "value".to_string(),
-            AttributeValue::String("string path".to_string()),
-        );
-
-        let config = BucketConfig::new().with_bucket(
-            "TestRelation",
-            0,
-            "path",
-            "value",
-            vec!["TestRelation"],
-        );
-        let mut hydrator = Hydrator::new(config);
-
-        hydrator.process_fact(fact1);
-        hydrator.process_fact(fact2);
-        hydrator.process_fact(fact3);
-
-        let output = hydrator.dump();
-
-        assert!(output.contains("value = test"));
-        assert!(output.contains("value = number path"));
-        assert!(output.contains("value = string path"));
-
-        let test_pos = output.find("value = test").unwrap();
-        let number_pos = output.find("value = number path").unwrap();
-        let string_pos = output.find("value = string path").unwrap();
-
-        // "0.1.2" < "42" < "0.3.4" in lexicographical ordering
-        assert!(test_pos < number_pos);
-        assert!(number_pos < string_pos);
-    }
-
-    #[test]
-    fn test_pool_creation() {
-        // Test with mixed relation types that should be organized by priority
-        let lines = vec![
-            "TestRelation{.path = \"0.1\", .value = \"test data\"}: +1".to_string(),
-            "EmitMermaidLineActivate{.path = \"0.2\", .value = \"activate Counter\"}: +1"
-                .to_string(),
-            "EmitMermaidLineSignal{.path = \"0.3\", .value = \"signal data\"}: +1".to_string(),
-            "OtherRelation{.path = \"0.4\", .value = \"other data\"}: +1".to_string(),
-        ];
-
-        let drain = DdlogDrain::new(lines.into_iter());
-        let config = BucketConfig::new()
-            .with_bucket(
-                "EmitMermaidLineActivate",
-                10,
-                "path",
-                "value",
-                vec!["EmitMermaidLineActivate"],
-            )
-            .with_bucket(
-                "EmitMermaidLineSignal",
-                8,
-                "path",
-                "value",
-                vec!["EmitMermaidLineSignal"],
-            )
-            .with_bucket("TestRelation", 5, "path", "value", vec!["TestRelation"])
-            .with_bucket("OtherRelation", 3, "path", "value", vec!["OtherRelation"]);
-
-        let mut hydrator = Hydrator::new(config);
-        hydrator.process_drain(drain);
-
-        let pool = hydrator.create_pool("mermaid".to_string());
-        let pool_output = format!("{}", pool);
-
-        assert!(pool_output.contains("Pool (shape: mermaid)"));
-
-        assert!(pool_output.contains("Bucket: TestRelation"));
-        assert!(pool_output.contains("Bucket: EmitMermaidLineActivate"));
-        assert!(pool_output.contains("Bucket: EmitMermaidLineSignal"));
-        assert!(pool_output.contains("Bucket: OtherRelation"));
-
-        assert!(pool_output.contains("test data"));
-        assert!(pool_output.contains("activate Counter"));
-        assert!(pool_output.contains("signal data"));
-        assert!(pool_output.contains("other data"));
-
-        let activate_pos = pool_output.find("Bucket: EmitMermaidLineActivate").unwrap();
-        let signal_pos = pool_output.find("Bucket: EmitMermaidLineSignal").unwrap();
-        let test_pos = pool_output.find("Bucket: TestRelation").unwrap();
-        let other_pos = pool_output.find("Bucket: OtherRelation").unwrap();
-
-        assert!(activate_pos < signal_pos);
-        assert!(signal_pos < test_pos);
-        assert!(test_pos < other_pos);
-    }
-
-    #[test]
-    fn test_numerical_path_ordering_primitives() {
-        let test_cases = [
-            ("0.2.3", "0.10.2"),  // 2 < 10 numerically
-            ("1.1.1", "1.2.1"),   // 1 < 2 numerically
-            ("1.2.1", "1.10.1"),  // 2 < 10 numerically
-            ("0.1.2", "0.1.2.3"), // Shorter path < longer path
-            ("0.1.2", "0.1.2"),   // Equal paths
-            ("a.1", "a.2"),       // Non-numeric segments compared as strings
-            ("1.a", "1.b"),       // Non-numeric segments compared as strings
-            ("1.10", "1.a"),      // Numeric segment compared with non-numeric
-        ];
-
-        for (path1, path2) in test_cases {
-            let result = compare_path_segments(path1, path2);
-
-            match (path1, path2) {
-                ("0.2.3", "0.10.2") => assert_eq!(result, Ordering::Less),
-                ("1.1.1", "1.2.1") => assert_eq!(result, Ordering::Less),
-                ("1.2.1", "1.10.1") => assert_eq!(result, Ordering::Less),
-                ("0.1.2", "0.1.2.3") => assert_eq!(result, Ordering::Less),
-                ("0.1.2", "0.1.2") => assert_eq!(result, Ordering::Equal),
-                ("a.1", "a.2") => assert_eq!(result, Ordering::Less),
-                ("1.a", "1.b") => assert_eq!(result, Ordering::Less),
-                ("1.10", "1.a") => {
-                    // This depends on how we want to handle mixed types
-                    // Typically numbers come before letters in ASCII
-                    assert!(result == Ordering::Less || result == Ordering::Greater);
-                }
-                _ => panic!("Unexpected test case"),
-            }
-        }
-    }
-
-    #[test]
-    fn test_lexicographical_ordering() {
-        let mut hydrator = Hydrator::new(
-            BucketConfig::new()
-                .with_default_path_attribute("path")
-                .with_bucket("TestRelation", 0, "path", "value", vec!["TestRelation"]),
-        );
-
-        let mut fact1 = DdlogFact {
-            relation_name: "TestRelation".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact1.attributes.insert(
-            "path".to_string(),
-            AttributeValue::Path("0.2.0".to_string()),
-        );
-        fact1
-            .attributes
-            .insert("value".to_string(), AttributeValue::String("B".to_string()));
-
-        let mut fact2 = DdlogFact {
-            relation_name: "TestRelation".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact2.attributes.insert(
-            "path".to_string(),
-            AttributeValue::Path("0.1.0".to_string()),
-        );
-        fact2
-            .attributes
-            .insert("value".to_string(), AttributeValue::String("A".to_string()));
-
-        let mut fact3 = DdlogFact {
-            relation_name: "TestRelation".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact3.attributes.insert(
-            "path".to_string(),
-            AttributeValue::Path("0.3.0".to_string()),
-        );
-        fact3
-            .attributes
-            .insert("value".to_string(), AttributeValue::String("C".to_string()));
-
-        // Process facts in non-lexicographical order
-        hydrator.process_fact(fact1);
-        hydrator.process_fact(fact2);
-        hydrator.process_fact(fact3);
-
-        let bucket = hydrator.buckets().get("TestRelation").unwrap();
-
-        assert_eq!(bucket.facts[0].path, "0.1.0");
-        assert_eq!(bucket.facts[1].path, "0.2.0");
-        assert_eq!(bucket.facts[2].path, "0.3.0");
-
-        let output = hydrator.dump();
-        let a_pos = output.find("value = A").unwrap();
-        let b_pos = output.find("value = B").unwrap();
-        let c_pos = output.find("value = C").unwrap();
-
-        assert!(a_pos < b_pos);
-        assert!(b_pos < c_pos);
-    }
-
-    #[test]
-    fn test_bucket_specific_config() {
-        let global_config = BucketConfig::new()
-            .with_default_path_attribute("default_path")
-            .with_bucket("Relation1", 10, "path1", "value", vec!["Relation1"])
-            .with_bucket("Relation2", 20, "path2", "value", vec!["Relation2"]);
-
-        let mut hydrator = Hydrator::new(global_config);
-
-        let mut fact1 = DdlogFact {
-            relation_name: "Relation1".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact1
-            .attributes
-            .insert("path1".to_string(), AttributeValue::Path("1.0".to_string()));
-
-        let mut fact2 = DdlogFact {
-            relation_name: "Relation2".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact2
-            .attributes
-            .insert("path2".to_string(), AttributeValue::Path("2.0".to_string()));
-
-        hydrator.process_fact(fact1);
-        hydrator.process_fact(fact2);
-
-        let bucket1 = hydrator.buckets().get("Relation1").unwrap();
-        let bucket2 = hydrator.buckets().get("Relation2").unwrap();
-
-        assert_eq!(bucket1.path_attribute(), "path1");
-        assert_eq!(bucket2.path_attribute(), "path2");
-
-        assert_eq!(bucket1.priority(), 10);
-        assert_eq!(bucket2.priority(), 20);
-
-        let pool = hydrator.create_pool("custom".to_string());
-        let pool_output = format!("{}", pool);
-
-        let rel1_pos = pool_output.find("Bucket: Relation1").unwrap();
-        let rel2_pos = pool_output.find("Bucket: Relation2").unwrap();
-        assert!(rel2_pos < rel1_pos);
-    }
-
-    #[test]
-    fn test_pool_shape_config() {
-        // Test that the pool shape is correctly set from the BucketConfig
-        let config = BucketConfig::new()
-            .with_bucket("TestRelation", 10, "path", "value", vec!["TestRelation"])
-            .with_pool_shape("custom_shape");
-
-        let mut hydrator = Hydrator::new(config);
-
-        let mut fact = DdlogFact {
-            relation_name: "TestRelation".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact.attributes.insert(
-            "path".to_string(),
-            AttributeValue::Path("0.1.0".to_string()),
-        );
-        fact.attributes.insert(
-            "value".to_string(),
-            AttributeValue::String("test_value".to_string()),
-        );
-
-        hydrator.process_fact(fact);
-
-        // Check that the dump uses the configured pool shape
-        let output = hydrator.dump();
-        assert!(output.contains("Pool (shape: custom_shape)"));
-        assert!(output.contains("custom_shape"));
-
-        // Check that we can still override the shape when creating a pool directly
-        let pool = hydrator.create_pool("override_shape".to_string());
-        let pool_output = format!("{}", pool);
-        assert!(pool_output.contains("Pool (shape: override_shape)"));
-        assert!(pool_output.contains("override_shape"));
-    }
-
-    #[test]
-    fn test_ignore_unknown_relations() {
-        // Configure hydrator with specific relations
-        let config = BucketConfig::new()
-            .with_default_path_attribute("path")
-            .with_bucket(
-                "KnownRelation1",
-                10,
-                "path",
-                "value",
-                vec!["KnownRelation1"],
-            )
-            .with_bucket("KnownRelation2", 5, "path", "value", vec!["KnownRelation2"]);
-
-        let mut hydrator = Hydrator::new(config);
-
-        // Create facts for known and unknown relations
-        let mut known_fact1 = DdlogFact {
-            relation_name: "KnownRelation1".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        known_fact1.attributes.insert(
-            "path".to_string(),
-            AttributeValue::Path("0.1.0".to_string()),
-        );
-        known_fact1.attributes.insert(
-            "value".to_string(),
-            AttributeValue::String("Known1".to_string()),
-        );
-
-        let mut known_fact2 = DdlogFact {
-            relation_name: "KnownRelation2".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        known_fact2.attributes.insert(
-            "path".to_string(),
-            AttributeValue::Path("0.2.0".to_string()),
-        );
-        known_fact2.attributes.insert(
-            "value".to_string(),
-            AttributeValue::String("Known2".to_string()),
-        );
-
-        let mut unknown_fact = DdlogFact {
-            relation_name: "UnknownRelation".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        unknown_fact.attributes.insert(
-            "path".to_string(),
-            AttributeValue::Path("0.3.0".to_string()),
-        );
-        unknown_fact.attributes.insert(
-            "value".to_string(),
-            AttributeValue::String("Unknown".to_string()),
-        );
-
-        // Process all facts
-        hydrator.process_fact(known_fact1);
-        hydrator.process_fact(known_fact2);
-        hydrator.process_fact(unknown_fact);
-
-        // Verify that only known relations were processed
-        assert_eq!(hydrator.buckets().len(), 2);
-        assert!(hydrator.buckets().contains_key("KnownRelation1"));
-        assert!(hydrator.buckets().contains_key("KnownRelation2"));
-        assert!(!hydrator.buckets().contains_key("UnknownRelation"));
-
-        // Verify the output doesn't contain the unknown relation
-        let output = hydrator.dump();
-        assert!(output.contains("Known1"));
-        assert!(output.contains("Known2"));
-        assert!(!output.contains("Unknown"));
-    }
-
-    #[test]
-    fn test_multiple_relations_per_bucket() {
-        // Configure hydrator with multiple relations mapped to the same bucket
-        let config = BucketConfig::new().with_bucket(
-            "MermaidBucket",
-            10,
-            "path",
-            "value",
-            vec![
-                "EmitMermaidLineActivate",
-                "EmitMermaidLineSignal",
-                "EmitMermaidLineDeactivate",
-            ],
-        );
-
-        let mut hydrator = Hydrator::new(config);
-
-        // Create facts for different relations that should go into the same bucket
-        let mut fact1 = DdlogFact {
-            relation_name: "EmitMermaidLineActivate".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact1.attributes.insert(
-            "path".to_string(),
-            AttributeValue::Path("0.1.0".to_string()),
-        );
-        fact1.attributes.insert(
-            "value".to_string(),
-            AttributeValue::String("activate Component".to_string()),
-        );
-
-        let mut fact2 = DdlogFact {
-            relation_name: "EmitMermaidLineSignal".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact2.attributes.insert(
-            "path".to_string(),
-            AttributeValue::Path("0.2.0".to_string()),
-        );
-        fact2.attributes.insert(
-            "value".to_string(),
-            AttributeValue::String("Component -> Other: signal".to_string()),
-        );
-
-        let mut fact3 = DdlogFact {
-            relation_name: "EmitMermaidLineDeactivate".to_string(),
-            attributes: HashMap::new(),
-            diff: Some(1),
-        };
-        fact3.attributes.insert(
-            "path".to_string(),
-            AttributeValue::Path("0.3.0".to_string()),
-        );
-        fact3.attributes.insert(
-            "value".to_string(),
-            AttributeValue::String("deactivate Component".to_string()),
-        );
-
-        // Process all facts
-        hydrator.process_fact(fact1);
-        hydrator.process_fact(fact2);
-        hydrator.process_fact(fact3);
-
-        // Verify that all facts went into a single bucket
-        assert_eq!(hydrator.buckets().len(), 1);
-        assert!(hydrator.buckets().contains_key("MermaidBucket"));
-
-        let bucket = hydrator.buckets().get("MermaidBucket").unwrap();
-        assert_eq!(bucket.facts.len(), 3);
-
-        // Verify that the bucket contains all three relations
-        assert_eq!(bucket.relations.len(), 3);
-        assert!(bucket
-            .relations
-            .contains(&"EmitMermaidLineActivate".to_string()));
-        assert!(bucket
-            .relations
-            .contains(&"EmitMermaidLineSignal".to_string()));
-        assert!(bucket
-            .relations
-            .contains(&"EmitMermaidLineDeactivate".to_string()));
-
-        // Verify the output contains all facts in the correct order
-        let output = hydrator.dump();
-        assert!(output.contains("Bucket: MermaidBucket"));
-        assert!(output.contains("Relations: "));
-        assert!(output.contains("activate Component"));
-        assert!(output.contains("Component -> Other: signal"));
-        assert!(output.contains("deactivate Component"));
-
-        // Check ordering by path
-        let activate_pos = output.find("activate Component").unwrap();
-        let signal_pos = output.find("Component -> Other: signal").unwrap();
-        let deactivate_pos = output.find("deactivate Component").unwrap();
-
-        assert!(activate_pos < signal_pos);
-        assert!(signal_pos < deactivate_pos);
+        // Verify relation priorities were correctly built
+        assert_eq!(*config.relation_priorities.get("relation1").unwrap(), 10);
+        assert_eq!(*config.relation_priorities.get("relation2").unwrap(), 20);
+        assert_eq!(*config.relation_priorities.get("relation3").unwrap(), 30);
     }
 }

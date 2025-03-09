@@ -1,0 +1,42 @@
+priorities:
+  flow: 90
+  participants: 100
+path_attributes:
+  flow: ce_id_path
+  participants: path
+value_attributes:
+  participants: val
+  flow: val
+default_path_attribute: path
+default_value_attribute: val
+default_priority: 0
+pool_shape: sequenceDiagram
+bucket_relations:
+  participants:
+  - relation_name: EmitMermaidLineCallerParticipantLine
+    priority: 100
+  - relation_name: EmitMermaidLineCalleeParticipantLine
+    priority: 90
+  flow:
+  - relation_name: EmitMermaidLineSignalLine
+    priority: 100
+  - relation_name: EmitMermaidLineActivateLine
+    priority: 90
+  - relation_name: EmitMermaidLineReturnSignalLine
+    priority: 80
+  - relation_name: EmitMermaidLineDeactivateLine
+    priority: 70
+relation_to_bucket:
+  EmitMermaidLineActivateLine: flow
+  EmitMermaidLineCalleeParticipantLine: participants
+  EmitMermaidLineDeactivateLine: flow
+  EmitMermaidLineReturnSignalLine: flow
+  EmitMermaidLineSignalLine: flow
+  EmitMermaidLineCallerParticipantLine: participants
+relation_priorities:
+  EmitMermaidLineReturnSignalLine: 80
+  EmitMermaidLineDeactivateLine: 70
+  EmitMermaidLineSignalLine: 100
+  EmitMermaidLineCallerParticipantLine: 100
+  EmitMermaidLineActivateLine: 90
+  EmitMermaidLineCalleeParticipantLine: 90

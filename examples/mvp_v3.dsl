@@ -108,14 +108,12 @@
    * Combines the information from the previous rules to create a complete
    * view of an intra-contract function call.
    */
-  (infer IntraContractFunctionCall (?ce_id, ?contract, ?contract_id, ?caller_func, ?caller_func_id, ?callee_func, ?callee_func_id, ?return_stmt_id, ?return_stmt)
-    via ((IntraContractCaller ?ce_id, ?contract, ?contract_id, ?caller_func, ?caller_func_id)
-        (IntraContractCallee ?ce_id, ?contract_id, ?callee_func, ?callee_func_id)
+  (infer IntraContractFunctionCall (?intra_ce_id, ?contract, ?contract_id, ?caller_func, ?caller_func_id, ?callee_func, ?callee_func_id, ?return_stmt_id, ?return_stmt)
+    via ((IntraContractCaller ?intra_ce_id, ?contract, ?contract_id, ?caller_func, ?caller_func_id)
+        (IntraContractCallee ?intra_ce_id, ?contract_id, ?callee_func, ?callee_func_id)
         (IntraContractReturn ?callee_func_id, ?return_stmt_id, ?return_stmt)
     )
   )
-
-
 
   /* 
    * TODO: if the identifier is not exposed on the LHS, paths will not function properly producing 
@@ -170,6 +168,77 @@
     (callee_func @CalleeFunc)
     (return_stmt @ReturnStmt)
   )
+
+  /* 
+   * Captures the essential elements of an intra-contract function call.
+   * This rule extracts and names the key components needed for visualization:
+   * - CeId: The unique ID of the call expression
+   * - Contract: The name of the contract containing both functions
+   * - CallerFunc: The name of the function making the call
+   * - CalleeFunc: The name of the function being called
+   * - ReturnStmt: The return statement of the called function (if any)
+   */
+  (capture IntraContractFunctionCall
+    (intra_ce_id @IntraCeId)
+    (contract @Contract)
+    (caller_func @IntraCallerFunc)
+    (callee_func @IntraCalleeFunc)
+    (return_stmt @IntraReturnStmt)
+  )
+
+  /* ------- INTRA-CONTRACT EMISSIONS -------- */
+
+  (emit MermaidLineIntraCallerParticipantLine
+    @:path:Contract
+    (do
+      {(format "participant " @Contract)}
+    )
+  )
+
+  (emit MermaidLineIntraCalleeParticipantLine
+    @:path:Contract
+    (do
+      {(format "participant " @Contract)}
+    )
+  )
+
+  (emit MermaidLineIntraSignalLine
+    @:path:IntraCeId
+    @:path:Contract
+    @:path:Contract
+    @:path:IntraCalleeFunc
+    (do
+      {(format @Contract "->>" @Contract ": " @CalleeFunc)}
+    )
+  )
+
+  (emit MermaidLineIntraActivateLine
+    @:path:IntraCeId
+    @:path:Contract
+    (do
+      {(format "activate " @Contract)}
+    )
+  )
+
+  (emit MermaidLineIntraDeactivateLine
+    @:path:IntraCeId
+    @:path:Contract
+    (do
+      {(format "deactivate " @Contract)}
+    )
+  )
+
+  (emit MermaidLineIntraReturnSignalLine
+    @:path:IntraCeId
+    @:path:Contract
+    @:path:IntraReturnStmt
+    (do
+      {(format @Contract "-->>" @Contract ": " @IntraReturnStmt)}
+    )
+  )
+
+
+  /* ------- INTER-CONTRACT EMISSIONS -------- */
 
   /* 
    * Emits a Mermaid syntax line that defines the caller contract as a participant.
@@ -268,6 +337,56 @@
     @:path:ReturnStmt
     (do
       {(format @CalleeContract "-->>" @CallerContract ": " @ReturnStmt)}
+    )
+  )
+
+  /* ------- INTRA-CONTRACT EMISSIONS -------- */
+
+  (emit MermaidLineIntraCallerParticipantLine
+    @:path:Contract
+    (do
+      {(format "participant " @Contract)}
+    )
+  )
+
+  (emit MermaidLineIntraCalleeParticipantLine
+    @:path:Contract
+    (do
+      {(format "participant " @Contract)}
+    )
+  )
+
+  (emit MermaidLineIntraSignalLine
+    @:path:IntraCeId
+    @:path:Contract
+    @:path:IntraCalleeFunc
+    (do
+      {(format @Contract "->>" @Contract ": " @IntraCalleeFunc)}
+    )
+  )
+
+  (emit MermaidLineIntraActivateLine
+    @:path:IntraCeId
+    @:path:CalleeContract
+    (do
+      {(format "activate " @Contract)}
+    )
+  )
+
+  (emit MermaidLineIntraDeactivateLine
+    @:path:IntraCeId
+    @:path:Contract
+    (do
+      {(format "deactivate " @Contract)}
+    )
+  )
+
+  (emit MermaidLineIntraReturnSignalLine
+    @:path:IntraCeId
+    @:path:Contract
+    @:path:IntraReturnStmt
+    (do
+      {(format @Contract "-->>" @Contract ": " @IntraReturnStmt)}
     )
   )
 )

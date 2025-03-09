@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File},
-    io::{Read, Result as IoResult, Write},
+    io::{BufReader, Read, Result as IoResult, Write},
     path::Path,
     process::{Command, Stdio},
 };
@@ -8,7 +8,7 @@ use tempdir::TempDir;
 
 use crate::facts::DDLogCommand;
 
-pub fn validate(dl_program: &str) -> Result<String, String> {
+pub fn validate(dl_program: &str, enable_tracing: bool) -> Result<String, String> {
     if which::which("ddlog").is_err() {
         return Err("`ddlog` binary not found on PATH".into());
     }
@@ -22,15 +22,19 @@ pub fn validate(dl_program: &str) -> Result<String, String> {
     file.write_all(dl_program.as_bytes())
         .map_err(|e| format!("Failed to write .dl file: {}", e))?;
 
-
     let mut ddlog_run = Command::new("ddlog")
         .args(["-i", &dl_file.to_string_lossy(), "--action=validate"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::piped()) // Capture stderr for error reporting
         .spawn()
         .map_err(|e| format!("Failed to launch ddlog command: {}", e))?;
 
+    let stderr = ddlog_run
+        .stderr
+        .take()
+        .ok_or("Failed to capture stderr")?;
+    
     let status = ddlog_run
         .wait()
         .map_err(|e| format!("Failed to wait for ddlog process: {}", e))?;
@@ -47,40 +51,39 @@ pub fn validate(dl_program: &str) -> Result<String, String> {
         let bytes = bytes::Bytes::from(buffer);
         Ok(String::from_utf8_lossy(&bytes).into())
     } else {
+        // Read stderr to get error message
+        let mut stderr_reader = BufReader::new(stderr);
+        let mut error_output = String::new();
+        stderr_reader
+            .read_to_string(&mut error_output)
+            .map_err(|e| format!("Failed to read stderr: {}", e))?;
+
+        // If tracing is enabled, display the DL file with line numbers and highlight the error line
+        if enable_tracing {
+            // Try to parse the error message to find the line number
+            if let Some(error_line) = parse_ddlog_error(&error_output, "program.dl") {
+                // Display the DL program with line numbers and highlight the error line
+                println!("\n=== DDLog Program with Error Highlighting ===");
+                println!(
+                    "{}",
+                    format_dl_file_with_line_numbers(dl_program, error_line)
+                );
+                println!("=== End of DDLog Program ===\n");
+            }
+
+            // Print the original error message
+            eprintln!("DDLog Validation Error: {}", error_output);
+        }
+
         let exit_code = status.code().unwrap_or(-1);
         Err(format!(
-            "DDlog validation failed with exit code: {}\n",
-            exit_code,
+            "DDlog validation failed with exit code: {}\n{}",
+            exit_code, error_output
         ))
     }
 }
 
 pub fn generate_rust_project(base_dir: &Path, project_name: &str, dl_content: &str) {
-    let cargo_toml_content = format!(
-        r#"[package]
-name = "{project_name}"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-name = "{project_name}"
-
-[[bin]]
-name = "{project_name}"
-path = "src/main.rs"
-
-[dependencies]
-differential-datalog = "0.50"
-"#,
-        project_name = project_name
-    );
-
-    let cargo_toml_path = base_dir.join("Cargo.toml");
-    let mut cargo_toml_file = File::create(&cargo_toml_path).expect("Failed to create Cargo.toml");
-    cargo_toml_file
-        .write_all(cargo_toml_content.as_bytes())
-        .expect("Failed to write Cargo.toml");
-
     let dl_file_path = base_dir.join(format!("{project_name}.dl"));
     let mut dl_file = File::create(&dl_file_path).expect("Failed to create .dl file");
     dl_file
@@ -124,23 +127,66 @@ channel = "1.76"
     fs::write(toolchain_path, toolchain_content)
 }
 
-pub fn build_ddlog_crate(base_dir: &Path, project_name: &str) -> Result<(), String> {
+pub fn build_ddlog_crate(
+    base_dir: &Path,
+    project_name: &str,
+    enable_tracing: bool,
+) -> Result<(), String> {
     if which::which("ddlog").is_err() {
         return Err("`ddlog` binary not found on PATH".into());
     }
 
     let dl_file = format!("{}.dl", project_name);
+    let dl_file_path = base_dir.join(&dl_file);
 
-    let ddlog_status = Command::new("ddlog")
+    // Capture stderr to parse error messages
+    let mut ddlog_process = Command::new("ddlog")
         .args(["-i", &dl_file, "-L", "../../lib"])
         .current_dir(base_dir)
         .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("Failed to launch ddlog command: {}", e))?;
 
-    if !ddlog_status.success() {
-        return Err(format!("ddlog command failed on {:?}", dl_file));
+    let stderr = ddlog_process
+        .stderr
+        .take()
+        .ok_or("Failed to capture stderr")?;
+    let status = ddlog_process
+        .wait()
+        .map_err(|e| format!("Failed to wait for ddlog process: {}", e))?;
+
+    if !status.success() {
+        // Read stderr to get error message
+        let mut stderr_reader = BufReader::new(stderr);
+        let mut error_output = String::new();
+        stderr_reader
+            .read_to_string(&mut error_output)
+            .map_err(|e| format!("Failed to read stderr: {}", e))?;
+
+        // If tracing is enabled, display the DL file with line numbers and highlight the error line
+        if enable_tracing {
+            // Try to parse the error message to find the line number
+            if let Some(error_line) = parse_ddlog_error(&error_output, &dl_file) {
+                // Read the DL file
+                if let Ok(dl_content) = fs::read_to_string(&dl_file_path) {
+                    println!("\n=== DDLog File with Error Highlighting ===");
+                    println!(
+                        "{}",
+                        format_dl_file_with_line_numbers(&dl_content, error_line)
+                    );
+                    println!("=== End of DDLog File ===\n");
+                }
+            }
+
+            // Print the original error message
+            eprintln!("DDLog Error: {}", error_output);
+        }
+
+        return Err(format!(
+            "ddlog command failed on {:?}: {}",
+            dl_file, error_output
+        ));
     }
 
     let project_dir = format!(
@@ -149,25 +195,89 @@ pub fn build_ddlog_crate(base_dir: &Path, project_name: &str) -> Result<(), Stri
         project_name
     );
 
-    let cargo_status = Command::new("RUSTFLAGS=\"-A warnings\" cargo")
+    // Capture stderr for cargo build as well
+    let mut cargo_process = Command::new("cargo")
         .args(["+1.76", "build"])
-        .current_dir(project_dir)
+        .env("RUSTFLAGS", "-A warnings")
+        .current_dir(&project_dir)
         .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("Failed to launch cargo build: {}", e))?;
 
+    let cargo_stderr = cargo_process
+        .stderr
+        .take()
+        .ok_or("Failed to capture stderr")?;
+    let cargo_status = cargo_process
+        .wait()
+        .map_err(|e| format!("Failed to wait for cargo process: {}", e))?;
+
     if !cargo_status.success() {
-        return Err("Cargo build failed.".into());
+        let mut stderr_reader = BufReader::new(cargo_stderr);
+        let mut error_output = String::new();
+        stderr_reader
+            .read_to_string(&mut error_output)
+            .map_err(|e| format!("Failed to read stderr: {}", e))?;
+
+        if enable_tracing {
+            eprintln!("Cargo Build Error: {}", error_output);
+        }
+
+        return Err(format!("Cargo build failed: {}", error_output));
     }
 
     Ok(())
+}
+
+/// Parse a DDLog error message to extract the line number
+fn parse_ddlog_error(error_message: &str, dl_file: &str) -> Option<usize> {
+    // Pattern to match DDLog error format: program.dl:218.157-218.172
+    // or path/to/file.dl:218.157-218.172
+    let file_basename = Path::new(dl_file).file_name()?.to_str()?;
+
+    // Look for the line number in the error message
+    for line in error_message.lines() {
+        if line.contains(file_basename) {
+            // Extract line number using regex
+            let re = regex::Regex::new(r"(\w+\.dl):(\d+)\.(\d+)-(\d+)\.(\d+)").ok()?;
+            if let Some(captures) = re.captures(line) {
+                if let Some(line_str) = captures.get(2) {
+                    return line_str.as_str().parse::<usize>().ok();
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Format a DL file with line numbers and highlight the error line
+fn format_dl_file_with_line_numbers(content: &str, error_line: usize) -> String {
+    let lines = content.lines().collect::<Vec<_>>();
+    let max_line_num_width = lines.len().to_string().len();
+    let mut formatted_lines = Vec::new();
+
+    for (i, line) in lines.iter().enumerate() {
+        let line_num = (i + 1).to_string();
+        let padded_line_num = format!("{:>width$}", line_num, width = max_line_num_width);
+
+        if i + 1 == error_line {
+            // Highlight the error line
+            formatted_lines.push(format!("{} | >>> {} <<<", padded_line_num, line));
+        } else {
+            formatted_lines.push(format!("{} | {}", padded_line_num, line));
+        }
+    }
+
+    formatted_lines.join("\n")
 }
 
 pub fn run_ddlog_crate(
     base_dir: &Path,
     project_name: &str,
     cmds: &[DDLogCommand],
+    enable_tracing: bool,
 ) -> Result<String, String> {
     let project_dir = format!(
         "{}/{}_ddlog",
@@ -181,11 +291,12 @@ pub fn run_ddlog_crate(
         .join("\n");
 
     let exec_path = format!("target/debug/{}_cli", project_name);
-
-    println!(
-        "Running generated DDLog application: {}/{}",
-        project_dir, exec_path
-    );
+    if enable_tracing {
+        println!(
+            "Running generated DDLog application: {}/{}",
+            project_dir, exec_path
+        );
+    }
     let mut ddlog_app_run = Command::new(&exec_path)
         .current_dir(project_dir)
         .stdin(Stdio::piped())
@@ -202,11 +313,7 @@ pub fn run_ddlog_crate(
     // print just first 80 lines of the facts
     println!(
         "Facts:\n{}",
-        dat_content
-            .lines()
-            .take(80)
-            .collect::<Vec<&str>>()
-            .join("\n")
+        dat_content.lines().collect::<Vec<&str>>().join("\n")
     );
     write!(ddlog_app_run.stdin.as_ref().unwrap(), "{}", dat_content).unwrap();
 
@@ -313,7 +420,7 @@ DoubledRun(t) :- TestRun(d),
 "#;
 
         generate_rust_project(dir.path(), project_name, dl_content);
-        let build_result = build_ddlog_crate(dir.path(), project_name);
+        let build_result = build_ddlog_crate(dir.path(), project_name, false);
         assert!(build_result.is_ok());
     }
 
@@ -344,7 +451,7 @@ DoubledRun(t) :- TestRun(d),
             DDLogCommand::CommitDumpChanges,
         ];
 
-        let run_output = run_ddlog_crate(dir.path(), project_name, &commands)
+        let run_output = run_ddlog_crate(dir.path(), project_name, &commands, false)
             .expect("Failed to run ddlog crate");
 
         assert!(

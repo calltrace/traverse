@@ -25,6 +25,10 @@ struct Cli {
     /// Check if file is formatted without modifying it
     #[arg(short, long)]
     check: bool,
+    
+    /// Enable syntax highlighting in output (only available when using stdin/stdout)
+    #[arg(short = 'H', long)]
+    highlight: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -48,7 +52,7 @@ fn main() -> io::Result<()> {
     let cli = Cli::parse();
     
     // Read input
-    let input = match cli.input {
+    let input = match &cli.input {
         Some(path) => fs::read_to_string(path)?,
         None => {
             let mut buffer = String::new();
@@ -66,8 +70,27 @@ fn main() -> io::Result<()> {
         }
     };
 
-    let mut formatter = Formatter::new(cli.indent).with_syntax_highlighting(Some(SyntaxTheme::default()));
-    let formatted = formatter.format_with_highlighting(&parsed);
+    // Validate highlighting option
+    if cli.highlight && (cli.input.is_some() || cli.output.is_some()) {
+        eprintln!("Warning: Syntax highlighting is only available when using stdin/stdout. Ignoring --highlight flag.");
+    }
+
+    // Determine if highlighting should be used
+    let use_highlighting = cli.highlight && cli.input.is_none() && cli.output.is_none();
+    
+    let mut formatter = Formatter::new(cli.indent);
+    
+    // Apply syntax highlighting if requested and using stdin/stdout
+    if use_highlighting {
+        formatter = formatter.with_syntax_highlighting(Some(SyntaxTheme::default()));
+    }
+    
+    // Format with or without highlighting
+    let formatted = if use_highlighting {
+        formatter.format_with_highlighting(&parsed)
+    } else {
+        formatter.format(&parsed)
+    };
 
     if cli.check {
         if formatted == input {
@@ -81,7 +104,14 @@ fn main() -> io::Result<()> {
 
     // Write output
     match cli.output {
+        // If output file is specified, write to it
         Some(path) => fs::write(path, formatted)?,
+        // If no output file is specified but input file exists, format in-place
+        None if cli.input.is_some() => {
+            fs::write(cli.input.unwrap(), formatted)?;
+            println!("Formatted file in-place.");
+        },
+        // Otherwise print to stdout
         None => println!("{}", formatted),
     }
 

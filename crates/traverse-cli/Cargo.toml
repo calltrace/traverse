@@ -20,7 +20,13 @@ path = "src/bin/ts-grammar-to-ddlog.rs"
 name = "trvc"
 path = "src/bin/trvc.rs"
 
+[[bin]]
+name = "trvf"
+path = "src/bin/trvf.rs"
+
 [dependencies]
+tracing = "0.1"
+tracing-subscriber = "0.3"
 core = { path = "../core" }
 frontend = { path = "../frontend" }
 backend = { path = "../backend" }
