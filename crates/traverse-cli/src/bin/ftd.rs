@@ -16,8 +16,9 @@ use std::path::{Path, PathBuf};
 use std::process;
 
 use backend::facts::{FactNodeTreeDumper, TreeSitterToDDLog};
-use clap::Parser;
+use clap::Parser as ClapParser;
 use language::{Language, Mermaid, Solidity};
+use tree_sitter::{Node, Parser, Tree};
 
 #[derive(Debug, clap::ValueEnum, Clone)]
 pub enum SourceType {
@@ -34,7 +35,7 @@ impl SourceType {
     }
 }
 
-#[derive(Parser, Debug)]
+#[derive(ClapParser, Debug)]
 #[command(
     name = "ftd",
     version,
@@ -61,6 +62,10 @@ struct Args {
     /// Exclude specific node types from the tree (comma-separated list)
     #[arg(short = 'e', long = "exclude", value_name = "TYPES")]
     exclude: Option<String>,
+
+    /// Dump the native Tree-sitter tree (including anonymous nodes)
+    #[arg(long = "raw-tree", default_value = "false")]
+    raw_tree: bool,
 }
 
 impl Args {
@@ -84,6 +89,71 @@ impl Args {
         }
 
         Ok(())
+    }
+}
+
+/// Dumps a Tree-sitter tree to a string, including both named and anonymous nodes
+fn dump_raw_tree_sitter_tree(tree: &Tree, source: &str) -> String {
+    let mut result = String::new();
+    let root_node = tree.root_node();
+
+    dump_node(&root_node, source, &mut result, "", true);
+
+    result
+}
+
+/// Recursively dumps a Tree-sitter node and its children
+fn dump_node(node: &Node, source: &str, result: &mut String, prefix: &str, is_last: bool) {
+    // Add the appropriate prefix for this node
+    if is_last {
+        result.push_str(&format!("{}└── ", prefix));
+    } else {
+        result.push_str(&format!("{}├── ", prefix));
+    }
+
+    // Add node information
+    let node_type = node.kind();
+    let is_named = node.is_named();
+    let start_position = node.start_position();
+    let end_position = node.end_position();
+
+    // Get node text from source
+    let node_text = if node.byte_range().len() <= 40 {
+        source[node.byte_range()].replace('\n', "\\n")
+    } else {
+        format!(
+            "{}...",
+            &source[node.byte_range()][..37].replace('\n', "\\n")
+        )
+    };
+
+    // Format node information
+    result.push_str(&format!(
+        "{}{} [{},{}]-[{},{}] '{}'",
+        if is_named { "" } else { "(anon) " },
+        node_type,
+        start_position.row,
+        start_position.column,
+        end_position.row,
+        end_position.column,
+        node_text
+    ));
+    result.push('\n');
+
+    // Create the new prefix for child nodes
+    let new_prefix = if is_last {
+        format!("{}    ", prefix)
+    } else {
+        format!("{}│   ", prefix)
+    };
+
+    // Get all children
+    let child_count = node.child_count();
+    for i in 0..child_count {
+        if let Some(child) = node.child(i) {
+            let is_last_child = i == child_count - 1;
+            dump_node(&child, source, result, &new_prefix, is_last_child);
+        }
     }
 }
 
@@ -119,25 +189,38 @@ fn main() {
 
     let language = args.source_type.to_tree_sitter_language();
 
-    let mut parser = TreeSitterToDDLog::new(&source_content, &language);
-
-    if let Some(exclude_str) = &args.exclude {
-        use std::collections::HashSet;
-        let excluded_relations: HashSet<String> = exclude_str
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .collect();
+    let tree_dump = if args.raw_tree {
+        // Parse with native Tree-sitter
+        let tree = language
+            .parse(&source_content)
+            .expect("Failed to parse source code");
 
         if args.verbose {
-            println!("Excluding node types: {:?}", excluded_relations);
+            println!("Dumping raw Tree-sitter tree (including anonymous nodes)");
         }
 
-        parser = parser.with_excluded_relations(excluded_relations);
-    }
+        dump_raw_tree_sitter_tree(&tree, &source_content)
+    } else {
+        // Use the existing FactNodeTreeDumper
+        let mut parser = TreeSitterToDDLog::new(&source_content, &language);
 
-    let tree_dumper = parser.create_tree_dumper();
+        if let Some(exclude_str) = &args.exclude {
+            use std::collections::HashSet;
+            let excluded_relations: HashSet<String> = exclude_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect();
 
-    let tree_dump = tree_dumper.dump_tree();
+            if args.verbose {
+                println!("Excluding node types: {:?}", excluded_relations);
+            }
+
+            parser = parser.with_excluded_relations(excluded_relations);
+        }
+
+        let tree_dumper = parser.create_tree_dumper();
+        tree_dumper.dump_tree()
+    };
 
     if args.verbose {
         println!(
@@ -164,6 +247,6 @@ fn main() {
     }
 
     if args.verbose {
-        println!("Facts tree dump completed successfully!");
+        println!("Tree dump completed successfully!");
     }
 }
