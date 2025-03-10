@@ -650,7 +650,7 @@ impl IrGenerator {
                                     Some(ProvenanceType::Path) => {
                                         relation_attributes.insert(Attribute {
                                             name: format!(
-                                                "{}_path",
+                                                "lhs_{}_path",
                                                 normalize_string(&mapping.symbol)
                                             ),
                                             attr_type: AttributeType::String,
@@ -659,7 +659,7 @@ impl IrGenerator {
                                     Some(ProvenanceType::Span) => {
                                         relation_attributes.insert(Attribute {
                                             name: format!(
-                                                "{}_span",
+                                                "lhs_{}_span",
                                                 normalize_string(&mapping.symbol)
                                             ),
                                             attr_type: AttributeType::String,
@@ -668,14 +668,14 @@ impl IrGenerator {
                                     Some(ProvenanceType::Full) => {
                                         relation_attributes.insert(Attribute {
                                             name: format!(
-                                                "{}_path",
+                                                "lhs_{}_path",
                                                 normalize_string(&mapping.symbol)
                                             ),
                                             attr_type: AttributeType::String,
                                         });
                                         relation_attributes.insert(Attribute {
                                             name: format!(
-                                                "{}_span",
+                                                "lhs_{}_span",
                                                 normalize_string(&mapping.symbol)
                                             ),
                                             attr_type: AttributeType::String,
