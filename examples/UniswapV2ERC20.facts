@@ -1,0 +1,802 @@
+source_file (id: 1)
+├── pragma_directive (id: 2)
+│   └── solidity_pragma_token (id: 3)
+│       ├── solidity_version_comparison_operator (id: 4)
+│       └── solidity_version (id: 5) "0.5.16"
+├── import_directive (id: 6)
+│   └── string (id: 7)
+├── import_directive (id: 8)
+│   └── string (id: 9)
+└── contract_declaration (id: 10)
+    ├── identifier (id: 11) "UniswapV2ERC20"
+    ├── inheritance_specifier (id: 12)
+    │   └── user_defined_type (id: 13)
+    │       └── identifier (id: 14) "IUniswapV2ERC20"
+    └── contract_body (id: 15)
+        ├── using_directive (id: 16)
+        │   ├── type_alias (id: 17)
+        │   │   └── identifier (id: 18) "SafeMath"
+        │   └── type_name (id: 19)
+        │       └── primitive_type (id: 20)
+        ├── state_variable_declaration (id: 21)
+        │   ├── type_name (id: 22)
+        │   │   └── primitive_type (id: 23)
+        │   ├── visibility (id: 24)
+        │   ├── identifier (id: 25) "name"
+        │   └── expression (id: 26)
+        │       └── string_literal (id: 27)
+        │           └── string (id: 28)
+        ├── state_variable_declaration (id: 29)
+        │   ├── type_name (id: 30)
+        │   │   └── primitive_type (id: 31)
+        │   ├── visibility (id: 32)
+        │   ├── identifier (id: 33) "symbol"
+        │   └── expression (id: 34)
+        │       └── string_literal (id: 35)
+        │           └── string (id: 36)
+        ├── state_variable_declaration (id: 37)
+        │   ├── type_name (id: 38)
+        │   │   └── primitive_type (id: 39)
+        │   ├── visibility (id: 40)
+        │   ├── identifier (id: 41) "decimals"
+        │   └── expression (id: 42)
+        │       └── number_literal (id: 43) "18"
+        ├── state_variable_declaration (id: 44)
+        │   ├── type_name (id: 45)
+        │   │   └── primitive_type (id: 46)
+        │   ├── visibility (id: 47)
+        │   └── identifier (id: 48) "totalSupply"
+        ├── state_variable_declaration (id: 49)
+        │   ├── type_name (id: 50)
+        │   │   ├── primitive_type (id: 51)
+        │   │   └── type_name (id: 52)
+        │   │       └── primitive_type (id: 53)
+        │   ├── visibility (id: 54)
+        │   └── identifier (id: 55) "balanceOf"
+        ├── state_variable_declaration (id: 56)
+        │   ├── type_name (id: 57)
+        │   │   ├── primitive_type (id: 58)
+        │   │   └── type_name (id: 59)
+        │   │       ├── primitive_type (id: 60)
+        │   │       └── type_name (id: 61)
+        │   │           └── primitive_type (id: 62)
+        │   ├── visibility (id: 63)
+        │   └── identifier (id: 64) "allowance"
+        ├── state_variable_declaration (id: 65)
+        │   ├── type_name (id: 66)
+        │   │   └── primitive_type (id: 67)
+        │   ├── visibility (id: 68)
+        │   └── identifier (id: 69) "DOMAIN_SEPARATOR"
+        ├── comment (id: 70) "// keccak256(\"Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)\");"
+        ├── state_variable_declaration (id: 71)
+        │   ├── type_name (id: 72)
+        │   │   └── primitive_type (id: 73)
+        │   ├── visibility (id: 74)
+        │   ├── identifier (id: 75) "PERMIT_TYPEHASH"
+        │   └── expression (id: 76)
+        │       └── number_literal (id: 77) "0x6e71edae12b1b97f4d1f60370fef10105fa2faae0126114a169c64845d6126c9"
+        ├── state_variable_declaration (id: 78)
+        │   ├── type_name (id: 79)
+        │   │   ├── primitive_type (id: 80)
+        │   │   └── type_name (id: 81)
+        │   │       └── primitive_type (id: 82)
+        │   ├── visibility (id: 83)
+        │   └── identifier (id: 84) "nonces"
+        ├── event_definition (id: 85)
+        │   ├── identifier (id: 86) "Approval"
+        │   ├── event_parameter (id: 87)
+        │   │   ├── type_name (id: 88)
+        │   │   │   └── primitive_type (id: 89)
+        │   │   └── identifier (id: 90) "owner"
+        │   ├── event_parameter (id: 91)
+        │   │   ├── type_name (id: 92)
+        │   │   │   └── primitive_type (id: 93)
+        │   │   └── identifier (id: 94) "spender"
+        │   └── event_parameter (id: 95)
+        │       ├── type_name (id: 96)
+        │       │   └── primitive_type (id: 97)
+        │       └── identifier (id: 98) "value"
+        ├── event_definition (id: 99)
+        │   ├── identifier (id: 100) "Transfer"
+        │   ├── event_parameter (id: 101)
+        │   │   ├── type_name (id: 102)
+        │   │   │   └── primitive_type (id: 103)
+        │   │   └── identifier (id: 104) "from"
+        │   ├── event_parameter (id: 105)
+        │   │   ├── type_name (id: 106)
+        │   │   │   └── primitive_type (id: 107)
+        │   │   └── identifier (id: 108) "to"
+        │   └── event_parameter (id: 109)
+        │       ├── type_name (id: 110)
+        │       │   └── primitive_type (id: 111)
+        │       └── identifier (id: 112) "value"
+        ├── constructor_definition (id: 113)
+        │   └── function_body (id: 114)
+        │       ├── statement (id: 115)
+        │       │   └── variable_declaration_statement (id: 116)
+        │       │       └── variable_declaration (id: 117)
+        │       │           ├── type_name (id: 118)
+        │       │           │   └── primitive_type (id: 119)
+        │       │           └── identifier (id: 120) "chainId"
+        │       ├── statement (id: 121)
+        │       │   └── assembly_statement (id: 122)
+        │       │       └── yul_assignment (id: 123)
+        │       │           ├── yul_path (id: 124)
+        │       │           │   └── yul_identifier (id: 125)
+        │       │           │       └── identifier (id: 126) "chainId"
+        │       │           └── yul_function_call (id: 127)
+        │       │               └── yul_evm_builtin (id: 128)
+        │       └── statement (id: 129)
+        │           └── expression_statement (id: 130)
+        │               └── expression (id: 131)
+        │                   └── assignment_expression (id: 132)
+        │                       ├── expression (id: 133)
+        │                       │   └── identifier (id: 134) "DOMAIN_SEPARATOR"
+        │                       └── expression (id: 135)
+        │                           └── call_expression (id: 136)
+        │                               ├── expression (id: 137)
+        │                               │   └── identifier (id: 138) "keccak256"
+        │                               └── call_argument (id: 139)
+        │                                   └── expression (id: 140)
+        │                                       └── call_expression (id: 141)
+        │                                           ├── expression (id: 142)
+        │                                           │   └── member_expression (id: 143)
+        │                                           │       ├── identifier (id: 144) "abi"
+        │                                           │       └── identifier (id: 145) "encode"
+        │                                           ├── call_argument (id: 146)
+        │                                           │   └── expression (id: 147)
+        │                                           │       └── call_expression (id: 148)
+        │                                           │           ├── expression (id: 149)
+        │                                           │           │   └── identifier (id: 150) "keccak256"
+        │                                           │           └── call_argument (id: 151)
+        │                                           │               └── expression (id: 152)
+        │                                           │                   └── string_literal (id: 153)
+        │                                           │                       └── string (id: 154)
+        │                                           ├── call_argument (id: 155)
+        │                                           │   └── expression (id: 156)
+        │                                           │       └── call_expression (id: 157)
+        │                                           │           ├── expression (id: 158)
+        │                                           │           │   └── identifier (id: 159) "keccak256"
+        │                                           │           └── call_argument (id: 160)
+        │                                           │               └── expression (id: 161)
+        │                                           │                   └── type_cast_expression (id: 162)
+        │                                           │                       ├── primitive_type (id: 163)
+        │                                           │                       └── call_argument (id: 164)
+        │                                           │                           └── expression (id: 165)
+        │                                           │                               └── identifier (id: 166) "name"
+        │                                           ├── call_argument (id: 167)
+        │                                           │   └── expression (id: 168)
+        │                                           │       └── call_expression (id: 169)
+        │                                           │           ├── expression (id: 170)
+        │                                           │           │   └── identifier (id: 171) "keccak256"
+        │                                           │           └── call_argument (id: 172)
+        │                                           │               └── expression (id: 173)
+        │                                           │                   └── type_cast_expression (id: 174)
+        │                                           │                       ├── primitive_type (id: 175)
+        │                                           │                       └── call_argument (id: 176)
+        │                                           │                           └── expression (id: 177)
+        │                                           │                               └── string_literal (id: 178)
+        │                                           │                                   └── string (id: 179)
+        │                                           ├── call_argument (id: 180)
+        │                                           │   └── expression (id: 181)
+        │                                           │       └── identifier (id: 182) "chainId"
+        │                                           └── call_argument (id: 183)
+        │                                               └── expression (id: 184)
+        │                                                   └── type_cast_expression (id: 185)
+        │                                                       ├── primitive_type (id: 186)
+        │                                                       └── call_argument (id: 187)
+        │                                                           └── expression (id: 188)
+        │                                                               └── identifier (id: 189) "this"
+        ├── function_definition (id: 190)
+        │   ├── identifier (id: 191) "_mint"
+        │   ├── parameter (id: 192)
+        │   │   ├── type_name (id: 193)
+        │   │   │   └── primitive_type (id: 194)
+        │   │   └── identifier (id: 195) "to"
+        │   ├── parameter (id: 196)
+        │   │   ├── type_name (id: 197)
+        │   │   │   └── primitive_type (id: 198)
+        │   │   └── identifier (id: 199) "value"
+        │   ├── visibility (id: 200)
+        │   └── function_body (id: 201)
+        │       ├── statement (id: 202)
+        │       │   └── expression_statement (id: 203)
+        │       │       └── expression (id: 204)
+        │       │           └── assignment_expression (id: 205)
+        │       │               ├── expression (id: 206)
+        │       │               │   └── identifier (id: 207) "totalSupply"
+        │       │               └── expression (id: 208)
+        │       │                   └── call_expression (id: 209)
+        │       │                       ├── expression (id: 210)
+        │       │                       │   └── member_expression (id: 211)
+        │       │                       │       ├── identifier (id: 212) "totalSupply"
+        │       │                       │       └── identifier (id: 213) "add"
+        │       │                       └── call_argument (id: 214)
+        │       │                           └── expression (id: 215)
+        │       │                               └── identifier (id: 216) "value"
+        │       ├── statement (id: 217)
+        │       │   └── expression_statement (id: 218)
+        │       │       └── expression (id: 219)
+        │       │           └── assignment_expression (id: 220)
+        │       │               ├── expression (id: 221)
+        │       │               │   └── array_access (id: 222)
+        │       │               │       ├── expression (id: 223)
+        │       │               │       │   └── identifier (id: 224) "balanceOf"
+        │       │               │       └── expression (id: 225)
+        │       │               │           └── identifier (id: 226) "to"
+        │       │               └── expression (id: 227)
+        │       │                   └── call_expression (id: 228)
+        │       │                       ├── expression (id: 229)
+        │       │                       │   └── member_expression (id: 230)
+        │       │                       │       ├── expression (id: 231)
+        │       │                       │       │   └── array_access (id: 232)
+        │       │                       │       │       ├── expression (id: 233)
+        │       │                       │       │       │   └── identifier (id: 234) "balanceOf"
+        │       │                       │       │       └── expression (id: 235)
+        │       │                       │       │           └── identifier (id: 236) "to"
+        │       │                       │       └── identifier (id: 237) "add"
+        │       │                       └── call_argument (id: 238)
+        │       │                           └── expression (id: 239)
+        │       │                               └── identifier (id: 240) "value"
+        │       └── statement (id: 241)
+        │           └── emit_statement (id: 242)
+        │               ├── expression (id: 243)
+        │               │   └── identifier (id: 244) "Transfer"
+        │               ├── call_argument (id: 245)
+        │               │   └── expression (id: 246)
+        │               │       └── type_cast_expression (id: 247)
+        │               │           ├── primitive_type (id: 248)
+        │               │           └── call_argument (id: 249)
+        │               │               └── expression (id: 250)
+        │               │                   └── number_literal (id: 251) "0"
+        │               ├── call_argument (id: 252)
+        │               │   └── expression (id: 253)
+        │               │       └── identifier (id: 254) "to"
+        │               └── call_argument (id: 255)
+        │                   └── expression (id: 256)
+        │                       └── identifier (id: 257) "value"
+        ├── function_definition (id: 258)
+        │   ├── identifier (id: 259) "_burn"
+        │   ├── parameter (id: 260)
+        │   │   ├── type_name (id: 261)
+        │   │   │   └── primitive_type (id: 262)
+        │   │   └── identifier (id: 263) "from"
+        │   ├── parameter (id: 264)
+        │   │   ├── type_name (id: 265)
+        │   │   │   └── primitive_type (id: 266)
+        │   │   └── identifier (id: 267) "value"
+        │   ├── visibility (id: 268)
+        │   └── function_body (id: 269)
+        │       ├── statement (id: 270)
+        │       │   └── expression_statement (id: 271)
+        │       │       └── expression (id: 272)
+        │       │           └── assignment_expression (id: 273)
+        │       │               ├── expression (id: 274)
+        │       │               │   └── array_access (id: 275)
+        │       │               │       ├── expression (id: 276)
+        │       │               │       │   └── identifier (id: 277) "balanceOf"
+        │       │               │       └── expression (id: 278)
+        │       │               │           └── identifier (id: 279) "from"
+        │       │               └── expression (id: 280)
+        │       │                   └── call_expression (id: 281)
+        │       │                       ├── expression (id: 282)
+        │       │                       │   └── member_expression (id: 283)
+        │       │                       │       ├── expression (id: 284)
+        │       │                       │       │   └── array_access (id: 285)
+        │       │                       │       │       ├── expression (id: 286)
+        │       │                       │       │       │   └── identifier (id: 287) "balanceOf"
+        │       │                       │       │       └── expression (id: 288)
+        │       │                       │       │           └── identifier (id: 289) "from"
+        │       │                       │       └── identifier (id: 290) "sub"
+        │       │                       └── call_argument (id: 291)
+        │       │                           └── expression (id: 292)
+        │       │                               └── identifier (id: 293) "value"
+        │       ├── statement (id: 294)
+        │       │   └── expression_statement (id: 295)
+        │       │       └── expression (id: 296)
+        │       │           └── assignment_expression (id: 297)
+        │       │               ├── expression (id: 298)
+        │       │               │   └── identifier (id: 299) "totalSupply"
+        │       │               └── expression (id: 300)
+        │       │                   └── call_expression (id: 301)
+        │       │                       ├── expression (id: 302)
+        │       │                       │   └── member_expression (id: 303)
+        │       │                       │       ├── identifier (id: 304) "totalSupply"
+        │       │                       │       └── identifier (id: 305) "sub"
+        │       │                       └── call_argument (id: 306)
+        │       │                           └── expression (id: 307)
+        │       │                               └── identifier (id: 308) "value"
+        │       └── statement (id: 309)
+        │           └── emit_statement (id: 310)
+        │               ├── expression (id: 311)
+        │               │   └── identifier (id: 312) "Transfer"
+        │               ├── call_argument (id: 313)
+        │               │   └── expression (id: 314)
+        │               │       └── identifier (id: 315) "from"
+        │               ├── call_argument (id: 316)
+        │               │   └── expression (id: 317)
+        │               │       └── type_cast_expression (id: 318)
+        │               │           ├── primitive_type (id: 319)
+        │               │           └── call_argument (id: 320)
+        │               │               └── expression (id: 321)
+        │               │                   └── number_literal (id: 322) "0"
+        │               └── call_argument (id: 323)
+        │                   └── expression (id: 324)
+        │                       └── identifier (id: 325) "value"
+        ├── function_definition (id: 326)
+        │   ├── identifier (id: 327) "_approve"
+        │   ├── parameter (id: 328)
+        │   │   ├── type_name (id: 329)
+        │   │   │   └── primitive_type (id: 330)
+        │   │   └── identifier (id: 331) "owner"
+        │   ├── parameter (id: 332)
+        │   │   ├── type_name (id: 333)
+        │   │   │   └── primitive_type (id: 334)
+        │   │   └── identifier (id: 335) "spender"
+        │   ├── parameter (id: 336)
+        │   │   ├── type_name (id: 337)
+        │   │   │   └── primitive_type (id: 338)
+        │   │   └── identifier (id: 339) "value"
+        │   ├── visibility (id: 340)
+        │   └── function_body (id: 341)
+        │       ├── statement (id: 342)
+        │       │   └── expression_statement (id: 343)
+        │       │       └── expression (id: 344)
+        │       │           └── assignment_expression (id: 345)
+        │       │               ├── expression (id: 346)
+        │       │               │   └── array_access (id: 347)
+        │       │               │       ├── expression (id: 348)
+        │       │               │       │   └── array_access (id: 349)
+        │       │               │       │       ├── expression (id: 350)
+        │       │               │       │       │   └── identifier (id: 351) "allowance"
+        │       │               │       │       └── expression (id: 352)
+        │       │               │       │           └── identifier (id: 353) "owner"
+        │       │               │       └── expression (id: 354)
+        │       │               │           └── identifier (id: 355) "spender"
+        │       │               └── expression (id: 356)
+        │       │                   └── identifier (id: 357) "value"
+        │       └── statement (id: 358)
+        │           └── emit_statement (id: 359)
+        │               ├── expression (id: 360)
+        │               │   └── identifier (id: 361) "Approval"
+        │               ├── call_argument (id: 362)
+        │               │   └── expression (id: 363)
+        │               │       └── identifier (id: 364) "owner"
+        │               ├── call_argument (id: 365)
+        │               │   └── expression (id: 366)
+        │               │       └── identifier (id: 367) "spender"
+        │               └── call_argument (id: 368)
+        │                   └── expression (id: 369)
+        │                       └── identifier (id: 370) "value"
+        ├── function_definition (id: 371)
+        │   ├── identifier (id: 372) "_transfer"
+        │   ├── parameter (id: 373)
+        │   │   ├── type_name (id: 374)
+        │   │   │   └── primitive_type (id: 375)
+        │   │   └── identifier (id: 376) "from"
+        │   ├── parameter (id: 377)
+        │   │   ├── type_name (id: 378)
+        │   │   │   └── primitive_type (id: 379)
+        │   │   └── identifier (id: 380) "to"
+        │   ├── parameter (id: 381)
+        │   │   ├── type_name (id: 382)
+        │   │   │   └── primitive_type (id: 383)
+        │   │   └── identifier (id: 384) "value"
+        │   ├── visibility (id: 385)
+        │   └── function_body (id: 386)
+        │       ├── statement (id: 387)
+        │       │   └── expression_statement (id: 388)
+        │       │       └── expression (id: 389)
+        │       │           └── assignment_expression (id: 390)
+        │       │               ├── expression (id: 391)
+        │       │               │   └── array_access (id: 392)
+        │       │               │       ├── expression (id: 393)
+        │       │               │       │   └── identifier (id: 394) "balanceOf"
+        │       │               │       └── expression (id: 395)
+        │       │               │           └── identifier (id: 396) "from"
+        │       │               └── expression (id: 397)
+        │       │                   └── call_expression (id: 398)
+        │       │                       ├── expression (id: 399)
+        │       │                       │   └── member_expression (id: 400)
+        │       │                       │       ├── expression (id: 401)
+        │       │                       │       │   └── array_access (id: 402)
+        │       │                       │       │       ├── expression (id: 403)
+        │       │                       │       │       │   └── identifier (id: 404) "balanceOf"
+        │       │                       │       │       └── expression (id: 405)
+        │       │                       │       │           └── identifier (id: 406) "from"
+        │       │                       │       └── identifier (id: 407) "sub"
+        │       │                       └── call_argument (id: 408)
+        │       │                           └── expression (id: 409)
+        │       │                               └── identifier (id: 410) "value"
+        │       ├── statement (id: 411)
+        │       │   └── expression_statement (id: 412)
+        │       │       └── expression (id: 413)
+        │       │           └── assignment_expression (id: 414)
+        │       │               ├── expression (id: 415)
+        │       │               │   └── array_access (id: 416)
+        │       │               │       ├── expression (id: 417)
+        │       │               │       │   └── identifier (id: 418) "balanceOf"
+        │       │               │       └── expression (id: 419)
+        │       │               │           └── identifier (id: 420) "to"
+        │       │               └── expression (id: 421)
+        │       │                   └── call_expression (id: 422)
+        │       │                       ├── expression (id: 423)
+        │       │                       │   └── member_expression (id: 424)
+        │       │                       │       ├── expression (id: 425)
+        │       │                       │       │   └── array_access (id: 426)
+        │       │                       │       │       ├── expression (id: 427)
+        │       │                       │       │       │   └── identifier (id: 428) "balanceOf"
+        │       │                       │       │       └── expression (id: 429)
+        │       │                       │       │           └── identifier (id: 430) "to"
+        │       │                       │       └── identifier (id: 431) "add"
+        │       │                       └── call_argument (id: 432)
+        │       │                           └── expression (id: 433)
+        │       │                               └── identifier (id: 434) "value"
+        │       └── statement (id: 435)
+        │           └── emit_statement (id: 436)
+        │               ├── expression (id: 437)
+        │               │   └── identifier (id: 438) "Transfer"
+        │               ├── call_argument (id: 439)
+        │               │   └── expression (id: 440)
+        │               │       └── identifier (id: 441) "from"
+        │               ├── call_argument (id: 442)
+        │               │   └── expression (id: 443)
+        │               │       └── identifier (id: 444) "to"
+        │               └── call_argument (id: 445)
+        │                   └── expression (id: 446)
+        │                       └── identifier (id: 447) "value"
+        ├── function_definition (id: 448)
+        │   ├── identifier (id: 449) "approve"
+        │   ├── parameter (id: 450)
+        │   │   ├── type_name (id: 451)
+        │   │   │   └── primitive_type (id: 452)
+        │   │   └── identifier (id: 453) "spender"
+        │   ├── parameter (id: 454)
+        │   │   ├── type_name (id: 455)
+        │   │   │   └── primitive_type (id: 456)
+        │   │   └── identifier (id: 457) "value"
+        │   ├── visibility (id: 458)
+        │   ├── return_type_definition (id: 459)
+        │   │   └── parameter (id: 460)
+        │   │       └── type_name (id: 461)
+        │   │           └── primitive_type (id: 462)
+        │   └── function_body (id: 463)
+        │       ├── statement (id: 464)
+        │       │   └── expression_statement (id: 465)
+        │       │       └── expression (id: 466)
+        │       │           └── call_expression (id: 467)
+        │       │               ├── expression (id: 468)
+        │       │               │   └── identifier (id: 469) "_approve"
+        │       │               ├── call_argument (id: 470)
+        │       │               │   └── expression (id: 471)
+        │       │               │       └── member_expression (id: 472)
+        │       │               │           ├── identifier (id: 473) "msg"
+        │       │               │           └── identifier (id: 474) "sender"
+        │       │               ├── call_argument (id: 475)
+        │       │               │   └── expression (id: 476)
+        │       │               │       └── identifier (id: 477) "spender"
+        │       │               └── call_argument (id: 478)
+        │       │                   └── expression (id: 479)
+        │       │                       └── identifier (id: 480) "value"
+        │       └── statement (id: 481)
+        │           └── return_statement (id: 482)
+        │               └── expression (id: 483)
+        │                   └── boolean_literal (id: 484)
+        │                       └── true (id: 485)
+        ├── function_definition (id: 486)
+        │   ├── identifier (id: 487) "transfer"
+        │   ├── parameter (id: 488)
+        │   │   ├── type_name (id: 489)
+        │   │   │   └── primitive_type (id: 490)
+        │   │   └── identifier (id: 491) "to"
+        │   ├── parameter (id: 492)
+        │   │   ├── type_name (id: 493)
+        │   │   │   └── primitive_type (id: 494)
+        │   │   └── identifier (id: 495) "value"
+        │   ├── visibility (id: 496)
+        │   ├── return_type_definition (id: 497)
+        │   │   └── parameter (id: 498)
+        │   │       └── type_name (id: 499)
+        │   │           └── primitive_type (id: 500)
+        │   └── function_body (id: 501)
+        │       ├── statement (id: 502)
+        │       │   └── expression_statement (id: 503)
+        │       │       └── expression (id: 504)
+        │       │           └── call_expression (id: 505)
+        │       │               ├── expression (id: 506)
+        │       │               │   └── identifier (id: 507) "_transfer"
+        │       │               ├── call_argument (id: 508)
+        │       │               │   └── expression (id: 509)
+        │       │               │       └── member_expression (id: 510)
+        │       │               │           ├── identifier (id: 511) "msg"
+        │       │               │           └── identifier (id: 512) "sender"
+        │       │               ├── call_argument (id: 513)
+        │       │               │   └── expression (id: 514)
+        │       │               │       └── identifier (id: 515) "to"
+        │       │               └── call_argument (id: 516)
+        │       │                   └── expression (id: 517)
+        │       │                       └── identifier (id: 518) "value"
+        │       └── statement (id: 519)
+        │           └── return_statement (id: 520)
+        │               └── expression (id: 521)
+        │                   └── boolean_literal (id: 522)
+        │                       └── true (id: 523)
+        ├── function_definition (id: 524)
+        │   ├── identifier (id: 525) "transferFrom"
+        │   ├── parameter (id: 526)
+        │   │   ├── type_name (id: 527)
+        │   │   │   └── primitive_type (id: 528)
+        │   │   └── identifier (id: 529) "from"
+        │   ├── parameter (id: 530)
+        │   │   ├── type_name (id: 531)
+        │   │   │   └── primitive_type (id: 532)
+        │   │   └── identifier (id: 533) "to"
+        │   ├── parameter (id: 534)
+        │   │   ├── type_name (id: 535)
+        │   │   │   └── primitive_type (id: 536)
+        │   │   └── identifier (id: 537) "value"
+        │   ├── visibility (id: 538)
+        │   ├── return_type_definition (id: 539)
+        │   │   └── parameter (id: 540)
+        │   │       └── type_name (id: 541)
+        │   │           └── primitive_type (id: 542)
+        │   └── function_body (id: 543)
+        │       ├── statement (id: 544)
+        │       │   └── if_statement (id: 545)
+        │       │       ├── expression (id: 546)
+        │       │       │   └── binary_expression (id: 547)
+        │       │       │       ├── expression (id: 548)
+        │       │       │       │   └── array_access (id: 549)
+        │       │       │       │       ├── expression (id: 550)
+        │       │       │       │       │   └── array_access (id: 551)
+        │       │       │       │       │       ├── expression (id: 552)
+        │       │       │       │       │       │   └── identifier (id: 553) "allowance"
+        │       │       │       │       │       └── expression (id: 554)
+        │       │       │       │       │           └── identifier (id: 555) "from"
+        │       │       │       │       └── expression (id: 556)
+        │       │       │       │           └── member_expression (id: 557)
+        │       │       │       │               ├── identifier (id: 558) "msg"
+        │       │       │       │               └── identifier (id: 559) "sender"
+        │       │       │       └── expression (id: 560)
+        │       │       │           └── type_cast_expression (id: 561)
+        │       │       │               ├── primitive_type (id: 562)
+        │       │       │               └── call_argument (id: 563)
+        │       │       │                   └── expression (id: 564)
+        │       │       │                       └── unary_expression (id: 565)
+        │       │       │                           └── expression (id: 566)
+        │       │       │                               └── number_literal (id: 567) "1"
+        │       │       └── statement (id: 568)
+        │       │           └── block_statement (id: 569)
+        │       │               └── statement (id: 570)
+        │       │                   └── expression_statement (id: 571)
+        │       │                       └── expression (id: 572)
+        │       │                           └── assignment_expression (id: 573)
+        │       │                               ├── expression (id: 574)
+        │       │                               │   └── array_access (id: 575)
+        │       │                               │       ├── expression (id: 576)
+        │       │                               │       │   └── array_access (id: 577)
+        │       │                               │       │       ├── expression (id: 578)
+        │       │                               │       │       │   └── identifier (id: 579) "allowance"
+        │       │                               │       │       └── expression (id: 580)
+        │       │                               │       │           └── identifier (id: 581) "from"
+        │       │                               │       └── expression (id: 582)
+        │       │                               │           └── member_expression (id: 583)
+        │       │                               │               ├── identifier (id: 584) "msg"
+        │       │                               │               └── identifier (id: 585) "sender"
+        │       │                               └── expression (id: 586)
+        │       │                                   └── call_expression (id: 587)
+        │       │                                       ├── expression (id: 588)
+        │       │                                       │   └── member_expression (id: 589)
+        │       │                                       │       ├── expression (id: 590)
+        │       │                                       │       │   └── array_access (id: 591)
+        │       │                                       │       │       ├── expression (id: 592)
+        │       │                                       │       │       │   └── array_access (id: 593)
+        │       │                                       │       │       │       ├── expression (id: 594)
+        │       │                                       │       │       │       │   └── identifier (id: 595) "allowance"
+        │       │                                       │       │       │       └── expression (id: 596)
+        │       │                                       │       │       │           └── identifier (id: 597) "from"
+        │       │                                       │       │       └── expression (id: 598)
+        │       │                                       │       │           └── member_expression (id: 599)
+        │       │                                       │       │               ├── identifier (id: 600) "msg"
+        │       │                                       │       │               └── identifier (id: 601) "sender"
+        │       │                                       │       └── identifier (id: 602) "sub"
+        │       │                                       └── call_argument (id: 603)
+        │       │                                           └── expression (id: 604)
+        │       │                                               └── identifier (id: 605) "value"
+        │       ├── statement (id: 606)
+        │       │   └── expression_statement (id: 607)
+        │       │       └── expression (id: 608)
+        │       │           └── call_expression (id: 609)
+        │       │               ├── expression (id: 610)
+        │       │               │   └── identifier (id: 611) "_transfer"
+        │       │               ├── call_argument (id: 612)
+        │       │               │   └── expression (id: 613)
+        │       │               │       └── identifier (id: 614) "from"
+        │       │               ├── call_argument (id: 615)
+        │       │               │   └── expression (id: 616)
+        │       │               │       └── identifier (id: 617) "to"
+        │       │               └── call_argument (id: 618)
+        │       │                   └── expression (id: 619)
+        │       │                       └── identifier (id: 620) "value"
+        │       └── statement (id: 621)
+        │           └── return_statement (id: 622)
+        │               └── expression (id: 623)
+        │                   └── boolean_literal (id: 624)
+        │                       └── true (id: 625)
+        └── function_definition (id: 626)
+            ├── identifier (id: 627) "permit"
+            ├── parameter (id: 628)
+            │   ├── type_name (id: 629)
+            │   │   └── primitive_type (id: 630)
+            │   └── identifier (id: 631) "owner"
+            ├── parameter (id: 632)
+            │   ├── type_name (id: 633)
+            │   │   └── primitive_type (id: 634)
+            │   └── identifier (id: 635) "spender"
+            ├── parameter (id: 636)
+            │   ├── type_name (id: 637)
+            │   │   └── primitive_type (id: 638)
+            │   └── identifier (id: 639) "value"
+            ├── parameter (id: 640)
+            │   ├── type_name (id: 641)
+            │   │   └── primitive_type (id: 642)
+            │   └── identifier (id: 643) "deadline"
+            ├── parameter (id: 644)
+            │   ├── type_name (id: 645)
+            │   │   └── primitive_type (id: 646)
+            │   └── identifier (id: 647) "v"
+            ├── parameter (id: 648)
+            │   ├── type_name (id: 649)
+            │   │   └── primitive_type (id: 650)
+            │   └── identifier (id: 651) "r"
+            ├── parameter (id: 652)
+            │   ├── type_name (id: 653)
+            │   │   └── primitive_type (id: 654)
+            │   └── identifier (id: 655) "s"
+            ├── visibility (id: 656)
+            └── function_body (id: 657)
+                ├── statement (id: 658)
+                │   └── expression_statement (id: 659)
+                │       └── expression (id: 660)
+                │           └── call_expression (id: 661)
+                │               ├── expression (id: 662)
+                │               │   └── identifier (id: 663) "require"
+                │               ├── call_argument (id: 664)
+                │               │   └── expression (id: 665)
+                │               │       └── binary_expression (id: 666)
+                │               │           ├── expression (id: 667)
+                │               │           │   └── identifier (id: 668) "deadline"
+                │               │           └── expression (id: 669)
+                │               │               └── member_expression (id: 670)
+                │               │                   ├── identifier (id: 671) "block"
+                │               │                   └── identifier (id: 672) "timestamp"
+                │               └── call_argument (id: 673)
+                │                   └── expression (id: 674)
+                │                       └── string_literal (id: 675)
+                │                           └── string (id: 676)
+                ├── statement (id: 677)
+                │   └── variable_declaration_statement (id: 678)
+                │       ├── variable_declaration (id: 679)
+                │       │   ├── type_name (id: 680)
+                │       │   │   └── primitive_type (id: 681)
+                │       │   └── identifier (id: 682) "digest"
+                │       └── expression (id: 683)
+                │           └── call_expression (id: 684)
+                │               ├── expression (id: 685)
+                │               │   └── identifier (id: 686) "keccak256"
+                │               └── call_argument (id: 687)
+                │                   └── expression (id: 688)
+                │                       └── call_expression (id: 689)
+                │                           ├── expression (id: 690)
+                │                           │   └── member_expression (id: 691)
+                │                           │       ├── identifier (id: 692) "abi"
+                │                           │       └── identifier (id: 693) "encodePacked"
+                │                           ├── call_argument (id: 694)
+                │                           │   └── expression (id: 695)
+                │                           │       └── string_literal (id: 696)
+                │                           │           └── string (id: 697)
+                │                           ├── call_argument (id: 698)
+                │                           │   └── expression (id: 699)
+                │                           │       └── identifier (id: 700) "DOMAIN_SEPARATOR"
+                │                           └── call_argument (id: 701)
+                │                               └── expression (id: 702)
+                │                                   └── call_expression (id: 703)
+                │                                       ├── expression (id: 704)
+                │                                       │   └── identifier (id: 705) "keccak256"
+                │                                       └── call_argument (id: 706)
+                │                                           └── expression (id: 707)
+                │                                               └── call_expression (id: 708)
+                │                                                   ├── expression (id: 709)
+                │                                                   │   └── member_expression (id: 710)
+                │                                                   │       ├── identifier (id: 711) "abi"
+                │                                                   │       └── identifier (id: 712) "encode"
+                │                                                   ├── call_argument (id: 713)
+                │                                                   │   └── expression (id: 714)
+                │                                                   │       └── identifier (id: 715) "PERMIT_TYPEHASH"
+                │                                                   ├── call_argument (id: 716)
+                │                                                   │   └── expression (id: 717)
+                │                                                   │       └── identifier (id: 718) "owner"
+                │                                                   ├── call_argument (id: 719)
+                │                                                   │   └── expression (id: 720)
+                │                                                   │       └── identifier (id: 721) "spender"
+                │                                                   ├── call_argument (id: 722)
+                │                                                   │   └── expression (id: 723)
+                │                                                   │       └── identifier (id: 724) "value"
+                │                                                   ├── call_argument (id: 725)
+                │                                                   │   └── expression (id: 726)
+                │                                                   │       └── update_expression (id: 727)
+                │                                                   │           └── expression (id: 728)
+                │                                                   │               └── array_access (id: 729)
+                │                                                   │                   ├── expression (id: 730)
+                │                                                   │                   │   └── identifier (id: 731) "nonces"
+                │                                                   │                   └── expression (id: 732)
+                │                                                   │                       └── identifier (id: 733) "owner"
+                │                                                   └── call_argument (id: 734)
+                │                                                       └── expression (id: 735)
+                │                                                           └── identifier (id: 736) "deadline"
+                ├── statement (id: 737)
+                │   └── variable_declaration_statement (id: 738)
+                │       ├── variable_declaration (id: 739)
+                │       │   ├── type_name (id: 740)
+                │       │   │   └── primitive_type (id: 741)
+                │       │   └── identifier (id: 742) "recoveredAddress"
+                │       └── expression (id: 743)
+                │           └── call_expression (id: 744)
+                │               ├── expression (id: 745)
+                │               │   └── identifier (id: 746) "ecrecover"
+                │               ├── call_argument (id: 747)
+                │               │   └── expression (id: 748)
+                │               │       └── identifier (id: 749) "digest"
+                │               ├── call_argument (id: 750)
+                │               │   └── expression (id: 751)
+                │               │       └── identifier (id: 752) "v"
+                │               ├── call_argument (id: 753)
+                │               │   └── expression (id: 754)
+                │               │       └── identifier (id: 755) "r"
+                │               └── call_argument (id: 756)
+                │                   └── expression (id: 757)
+                │                       └── identifier (id: 758) "s"
+                ├── statement (id: 759)
+                │   └── expression_statement (id: 760)
+                │       └── expression (id: 761)
+                │           └── call_expression (id: 762)
+                │               ├── expression (id: 763)
+                │               │   └── identifier (id: 764) "require"
+                │               ├── call_argument (id: 765)
+                │               │   └── expression (id: 766)
+                │               │       └── binary_expression (id: 767)
+                │               │           ├── expression (id: 768)
+                │               │           │   └── binary_expression (id: 769)
+                │               │           │       ├── expression (id: 770)
+                │               │           │       │   └── identifier (id: 771) "recoveredAddress"
+                │               │           │       └── expression (id: 772)
+                │               │           │           └── type_cast_expression (id: 773)
+                │               │           │               ├── primitive_type (id: 774)
+                │               │           │               └── call_argument (id: 775)
+                │               │           │                   └── expression (id: 776)
+                │               │           │                       └── number_literal (id: 777) "0"
+                │               │           └── expression (id: 778)
+                │               │               └── binary_expression (id: 779)
+                │               │                   ├── expression (id: 780)
+                │               │                   │   └── identifier (id: 781) "recoveredAddress"
+                │               │                   └── expression (id: 782)
+                │               │                       └── identifier (id: 783) "owner"
+                │               └── call_argument (id: 784)
+                │                   └── expression (id: 785)
+                │                       └── string_literal (id: 786)
+                │                           └── string (id: 787)
+                └── statement (id: 788)
+                    └── expression_statement (id: 789)
+                        └── expression (id: 790)
+                            └── call_expression (id: 791)
+                                ├── expression (id: 792)
+                                │   └── identifier (id: 793) "_approve"
+                                ├── call_argument (id: 794)
+                                │   └── expression (id: 795)
+                                │       └── identifier (id: 796) "owner"
+                                ├── call_argument (id: 797)
+                                │   └── expression (id: 798)
+                                │       └── identifier (id: 799) "spender"
+                                └── call_argument (id: 800)
+                                    └── expression (id: 801)
+                                        └── identifier (id: 802) "value"
