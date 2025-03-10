@@ -691,12 +691,25 @@ impl IrGenerator {
                     }
                 }
 
-                ir_program.relations.push(IRRelationType {
-                    name: output_relation_name.clone(),
-                    attributes: relation_attributes.into_iter().collect(),
-                    role: IRRelationRole::Output,
-                    category: Some(ir::RelationCategory::Structural),
-                });
+                // Find and update existing relation if it exists, otherwise create a new one
+                let relation_exists = ir_program.relations.iter().position(|r| r.name == output_relation_name);
+                if let Some(index) = relation_exists {
+                    // Update existing relation with additional attributes
+                    let existing_attributes = &mut ir_program.relations[index].attributes;
+                    for attr in relation_attributes {
+                        if !existing_attributes.contains(&attr) {
+                            existing_attributes.push(attr);
+                        }
+                    }
+                } else {
+                    // Create new relation
+                    ir_program.relations.push(IRRelationType {
+                        name: output_relation_name.clone(),
+                        attributes: relation_attributes.into_iter().collect(),
+                        role: IRRelationRole::Output,
+                        category: Some(ir::RelationCategory::Structural),
+                    });
+                }
 
                 // Create LHS attributes including both regular and provenance fields
                 let mut lhs_attributes = IndexSet::new();
@@ -707,7 +720,8 @@ impl IrGenerator {
                     if let Lval::Capture(capture_name, provenance_type) = &**capture_ref {
                         // Look up the specific attribute mapping for this capture
                         if let Some(mappings) = context.get_capture_mappings(capture_name) {
-                            for mapping in mappings {
+                            // Use only the first mapping for each capture to avoid duplicates
+                            if let Some(mapping) = mappings.first() {
                                 // Only add provenance for the specific mapped attribute
                                 match provenance_type {
                                     Some(ProvenanceType::Path) => {
