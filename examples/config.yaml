@@ -1,9 +1,9 @@
 priorities:
-  flow: 90
   participants: 100
+  flow: 90
 path_attributes:
-  flow: ce_id_path
   participants: path
+  flow: ce_id_path
 value_attributes:
   participants: val
   flow: val
@@ -17,6 +17,8 @@ bucket_relations:
     priority: 100
   - relation_name: EmitMermaidLineCalleeParticipantLine
     priority: 90
+  - relation_name: EmitMermaidLineContractParticipantLine
+    priority: 90
   flow:
   - relation_name: EmitMermaidLineSignalLine
     priority: 100
@@ -26,17 +28,47 @@ bucket_relations:
     priority: 80
   - relation_name: EmitMermaidLineDeactivateLine
     priority: 70
+  - relation_name: EmitMermaidLineIntraSignalLine
+    priority: 100
+  - relation_name: EmitMermaidLineIntraSignalLineNoReturn
+    priority: 100
+  - relation_name: EmitMermaidLineIntraActivateLine
+    priority: 90
+  - relation_name: EmitMermaidLineIntraActivateLineNoReturn
+    priority: 90
+  - relation_name: EmitMermaidLineIntraReturnSignalLine
+    priority: 80
+  - relation_name: EmitMermaidLineIntraDeactivateLine
+    priority: 70
+  - relation_name: EmitMermaidLineIntraDeactivateLineNoReturn
+    priority: 70
 relation_to_bucket:
-  EmitMermaidLineActivateLine: flow
-  EmitMermaidLineCalleeParticipantLine: participants
+  EmitMermaidLineIntraActivateLine: flow
   EmitMermaidLineDeactivateLine: flow
+  EmitMermaidLineContractParticipantLine: participants
+  EmitMermaidLineIntraDeactivateLine: flow
+  EmitMermaidLineIntraActivateLineNoReturn: flow
   EmitMermaidLineReturnSignalLine: flow
+  EmitMermaidLineIntraReturnSignalLine: flow
+  EmitMermaidLineIntraDeactivateLineNoReturn: flow
+  EmitMermaidLineIntraSignalLineNoReturn: flow
   EmitMermaidLineSignalLine: flow
   EmitMermaidLineCallerParticipantLine: participants
+  EmitMermaidLineCalleeParticipantLine: participants
+  EmitMermaidLineActivateLine: flow
+  EmitMermaidLineIntraSignalLine: flow
 relation_priorities:
-  EmitMermaidLineReturnSignalLine: 80
-  EmitMermaidLineDeactivateLine: 70
-  EmitMermaidLineSignalLine: 100
-  EmitMermaidLineCallerParticipantLine: 100
-  EmitMermaidLineActivateLine: 90
+  EmitMermaidLineIntraActivateLineNoReturn: 90
   EmitMermaidLineCalleeParticipantLine: 90
+  EmitMermaidLineIntraReturnSignalLine: 80
+  EmitMermaidLineDeactivateLine: 70
+  EmitMermaidLineActivateLine: 90
+  EmitMermaidLineContractParticipantLine: 90
+  EmitMermaidLineReturnSignalLine: 80
+  EmitMermaidLineIntraDeactivateLine: 70
+  EmitMermaidLineIntraDeactivateLineNoReturn: 70
+  EmitMermaidLineIntraSignalLineNoReturn: 100
+  EmitMermaidLineCallerParticipantLine: 100
+  EmitMermaidLineSignalLine: 100
+  EmitMermaidLineIntraSignalLine: 100
+  EmitMermaidLineIntraActivateLine: 90

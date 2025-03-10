@@ -639,58 +639,6 @@ impl IrGenerator {
                         )
                     })?;
 
-                // Add provenance attributes from each capture based on their provenance type
-                for capture_ref in captures {
-                    if let Lval::Capture(capture_name, provenance_type) = &**capture_ref {
-                        // Look up the specific attribute mapping for this capture
-                        if let Some(mappings) = context.get_capture_mappings(capture_name) {
-                            for mapping in mappings {
-                                // Only add provenance for the specific mapped attribute
-                                match provenance_type {
-                                    Some(ProvenanceType::Path) => {
-                                        relation_attributes.insert(Attribute {
-                                            name: format!(
-                                                "lhs_{}_path",
-                                                normalize_string(&mapping.symbol)
-                                            ),
-                                            attr_type: AttributeType::String,
-                                        });
-                                    }
-                                    Some(ProvenanceType::Span) => {
-                                        relation_attributes.insert(Attribute {
-                                            name: format!(
-                                                "lhs_{}_span",
-                                                normalize_string(&mapping.symbol)
-                                            ),
-                                            attr_type: AttributeType::String,
-                                        });
-                                    }
-                                    Some(ProvenanceType::Full) => {
-                                        relation_attributes.insert(Attribute {
-                                            name: format!(
-                                                "lhs_{}_path",
-                                                normalize_string(&mapping.symbol)
-                                            ),
-                                            attr_type: AttributeType::String,
-                                        });
-                                        relation_attributes.insert(Attribute {
-                                            name: format!(
-                                                "lhs_{}_span",
-                                                normalize_string(&mapping.symbol)
-                                            ),
-                                            attr_type: AttributeType::String,
-                                        });
-                                    }
-                                    Some(ProvenanceType::Default) | None => {
-                                        // by default or in case provenance is not
-                                        // specified, we do not update our relation
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 // Find and update existing relation if it exists, otherwise create a new one
                 let relation_exists = ir_program.relations.iter().position(|r| r.name == output_relation_name);
                 if let Some(index) = relation_exists {

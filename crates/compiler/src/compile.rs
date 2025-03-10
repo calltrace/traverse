@@ -184,6 +184,10 @@ impl Compiler {
             .with_syntax_highlighting(Some(SyntaxTheme::default()))
             .format_with_highlighting(&lval);
 
+        if self.enable_tracing {
+            println!("DSL:\n\n{}\n", formatted);
+        }
+
         // Generate IR from the parsed DSL
         let mut ir_generator = IrGenerator::new()
             .with_input_relations(false)
@@ -198,7 +202,7 @@ impl Compiler {
             .map_err(|e| CompilerError::IrGeneration(format!("{:?}", e)))?;
 
         if self.enable_tracing {
-            println!("IR: {}", formatted_ir);
+            println!("IR:\n\n{}\n", formatted_ir);
         }
 
         // Generate DDlog from the IR
@@ -288,7 +292,6 @@ impl Compiler {
             } else {
                 // Try to load from default path
                 let default_path = PathBuf::from("hydration.yaml");
-                if default_path.exists() {
                     match BucketConfig::from_yaml_file(&default_path) {
                         Ok(config) => config,
                         Err(_) => {
@@ -309,6 +312,10 @@ impl Compiler {
                                             "EmitMermaidLineCalleeParticipantLine",
                                             90,
                                         ),
+                                        InputSource::new(
+                                            "EmitMermaidLineContractParticipantLine",
+                                            90,
+                                        ),
                                     ],
                                 )
                                 .with_bucket(
@@ -321,37 +328,29 @@ impl Compiler {
                                         InputSource::new("EmitMermaidLineActivateLine", 90),
                                         InputSource::new("EmitMermaidLineReturnSignalLine", 80),
                                         InputSource::new("EmitMermaidLineDeactivateLine", 70),
+                                        InputSource::new("EmitMermaidLineIntraSignalLine", 100),
+                                        InputSource::new(
+                                            "EmitMermaidLineIntraSignalLineNoReturn",
+                                            100,
+                                        ),
+                                        InputSource::new("EmitMermaidLineIntraActivateLine", 90),
+                                        InputSource::new(
+                                            "EmitMermaidLineIntraActivateLineNoReturn",
+                                            90,
+                                        ),
+                                        InputSource::new(
+                                            "EmitMermaidLineIntraReturnSignalLine",
+                                            80,
+                                        ),
+                                        InputSource::new("EmitMermaidLineIntraDeactivateLine", 70),
+                                        InputSource::new(
+                                            "EmitMermaidLineIntraDeactivateLineNoReturn",
+                                            70,
+                                        ),
                                     ],
                                 )
                         }
                     }
-                } else {
-                    // Use hardcoded default if no file exists
-                    BucketConfig::new()
-                        .with_pool_shape("sequenceDiagram")
-                        .with_bucket(
-                            "participants",
-                            100,
-                            "path",
-                            "val",
-                            vec![
-                                InputSource::new("EmitMermaidLineCallerParticipantLine", 100),
-                                InputSource::new("EmitMermaidLineCalleeParticipantLine", 90),
-                            ],
-                        )
-                        .with_bucket(
-                            "flow",
-                            90,
-                            "ce_id_path",
-                            "val",
-                            vec![
-                                InputSource::new("EmitMermaidLineSignalLine", 100),
-                                InputSource::new("EmitMermaidLineActivateLine", 90),
-                                InputSource::new("EmitMermaidLineReturnSignalLine", 80),
-                                InputSource::new("EmitMermaidLineDeactivateLine", 70),
-                            ],
-                        )
-                }
             };
 
             // save config
