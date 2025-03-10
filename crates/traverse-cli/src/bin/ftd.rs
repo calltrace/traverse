@@ -15,9 +15,9 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 
+use backend::facts::{FactNodeTreeDumper, TreeSitterToDDLog};
 use clap::Parser;
 use language::{Language, Mermaid, Solidity};
-use backend::facts::{FactNodeTreeDumper, TreeSitterToDDLog};
 
 #[derive(Debug, clap::ValueEnum, Clone)]
 pub enum SourceType {
@@ -29,7 +29,7 @@ impl SourceType {
     fn to_tree_sitter_language(&self) -> impl Language {
         match self {
             SourceType::Solidity => Solidity,
-            SourceType::Mermaid => Mermaid,
+            SourceType::Mermaid => unimplemented!("Mermaid language support not yet implemented"),
         }
     }
 }
@@ -37,7 +37,6 @@ impl SourceType {
 #[derive(Parser, Debug)]
 #[command(
     name = "ftd",
-    author = "Traverse Team",
     version,
     about = "Facts Tree Dump - Parse source files and dump the tree representation",
     long_about = None
@@ -58,7 +57,7 @@ struct Args {
     /// Enable verbose output
     #[arg(short = 'v', long = "verbose", default_value = "false")]
     verbose: bool,
-    
+
     /// Exclude specific node types from the tree (comma-separated list)
     #[arg(short = 'e', long = "exclude", value_name = "TYPES")]
     exclude: Option<String>,
@@ -66,7 +65,6 @@ struct Args {
 
 impl Args {
     fn validate(&self) -> Result<(), io::Error> {
-        // Validate that source file exists
         if !self.source_path.exists() {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
@@ -74,7 +72,6 @@ impl Args {
             ));
         }
 
-        // If output path is provided, check if its directory exists
         if let Some(output_path) = &self.output_path {
             if let Some(parent) = output_path.parent() {
                 if !parent.is_dir() {
@@ -91,16 +88,13 @@ impl Args {
 }
 
 fn main() {
-    // Parse command line arguments
     let args = Args::parse();
 
-    // Validate arguments
     if let Err(err) = args.validate() {
         eprintln!("Error: {}", err);
         process::exit(1);
     }
 
-    // Read the source file
     let mut source_content = String::new();
     match fs::File::open(&args.source_path) {
         Ok(mut file) => {
@@ -123,57 +117,52 @@ fn main() {
         }
     }
 
-    // Get the appropriate language for the source type
     let language = args.source_type.to_tree_sitter_language();
 
-    // Create the TreeSitterToDDLog parser
     let mut parser = TreeSitterToDDLog::new(&source_content, &language);
-    
-    // Apply exclusions if specified
+
     if let Some(exclude_str) = &args.exclude {
         use std::collections::HashSet;
         let excluded_relations: HashSet<String> = exclude_str
             .split(',')
             .map(|s| s.trim().to_string())
             .collect();
-        
+
         if args.verbose {
             println!("Excluding node types: {:?}", excluded_relations);
         }
-        
+
         parser = parser.with_excluded_relations(excluded_relations);
     }
 
-    // Create the tree dumper
     let tree_dumper = parser.create_tree_dumper();
-    
-    // Get the tree representation
+
     let tree_dump = tree_dumper.dump_tree();
-    
+
     if args.verbose {
-        println!("Successfully parsed source file: {}", args.source_path.display());
+        println!(
+            "Successfully parsed source file: {}",
+            args.source_path.display()
+        );
         println!("Tree representation generated");
     }
 
-    // Output the tree representation
     match &args.output_path {
         Some(output_path) => {
-            // Write to file
             if let Err(err) = fs::write(output_path, &tree_dump) {
                 eprintln!("Error writing to output file: {}", err);
                 process::exit(1);
             }
-            
+
             if args.verbose {
                 println!("Tree dump written to: {}", output_path.display());
             }
         }
         None => {
-            // Write to stdout
             io::stdout().write_all(tree_dump.as_bytes()).unwrap();
         }
     }
-    
+
     if args.verbose {
         println!("Facts tree dump completed successfully!");
     }
