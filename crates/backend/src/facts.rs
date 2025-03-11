@@ -24,13 +24,16 @@ impl FactNode {
     pub fn new(source_code: &str, node: &Node, id: usize, parent_id: Option<usize>) -> Self {
         let kind = node.kind().to_string();
         let relation = to_pascal_case(&kind);
-        let value = if node.child_count() == 0 {
-            source_code
-                .get(node.start_byte()..node.end_byte())
-                .map(|s| s.to_string())
-        } else {
-            None
-        };
+        let value = source_code
+            .get(node.start_byte()..node.end_byte())
+            .map(|s| s.to_string());
+
+        // escape special characters in the value 
+        let value = value.map(|v| {
+            v.replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n")
+        });
 
         Self {
             id,

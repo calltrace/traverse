@@ -106,13 +106,22 @@
 
   /* 
    * Combines the information from the previous rules to create a complete
-   * view of an intra-contract function call.
+   * view of an intra-contract function call with callees that return values.
    */
   (infer IntraContractFunctionCall (?intra_ce_id, ?contract, ?contract_id, ?caller_func, ?caller_func_id, ?callee_func, ?callee_func_id, ?return_stmt_id, ?return_stmt)
     via ((IntraContractCaller ?intra_ce_id, ?contract, ?contract_id, ?caller_func, ?caller_func_id)
         (IntraContractCallee ?intra_ce_id, ?contract_id, ?callee_func, ?callee_func_id)
         (IntraContractReturn ?callee_func_id, ?return_stmt_id, ?return_stmt)
     )
+  )
+
+  /* 
+   * Combines the information from the previous rules to create a complete
+   * view of an intra-contract function calls with callees that to not return values.
+   */
+  (infer IntraContractFunctionCallNoReturn (?intra_ce_id, ?contract, ?contract_id, ?caller_func, ?caller_func_id, ?callee_func, ?callee_func_id)
+    via ((IntraContractCaller ?intra_ce_id, ?contract, ?contract_id, ?caller_func, ?caller_func_id)
+        (IntraContractCallee ?intra_ce_id, ?contract_id, ?callee_func, ?callee_func_id))
   )
 
   /* 
@@ -186,6 +195,21 @@
     (return_stmt @IntraReturnStmt)
   )
 
+/* 
+   * Captures intra-contract function calls without return statements.
+   * This rule extracts and names the key components needed for visualization:
+   * - CeId: The unique ID of the call expression
+   * - Contract: The name of the contract containing both functions
+   * - CallerFunc: The name of the function making the call
+   * - CalleeFunc: The name of the function being called
+   */
+  (capture IntraContractFunctionCallNoReturn
+    (intra_ce_id @IntraCeIdNoReturn)
+    (contract @Contract)
+    (caller_func @IntraCallerFuncNoReturn)
+    (callee_func @IntraCalleeFuncNoReturn)
+  )
+
   /* ------- INTRA-CONTRACT EMISSIONS -------- */
 
   (emit MermaidLineIntraCallerParticipantLine
@@ -202,6 +226,11 @@
     )
   )
 
+  /* 
+   * Emits a Mermaid syntax line that represents the internal function call as a self-arrow.
+   * This creates a self-arrow in the sequence diagram within the contract,
+   * labeled with the name of the function being called.
+   */
   (emit MermaidLineIntraSignalLine
     @:path:IntraCeId
     @:path:Contract
@@ -211,6 +240,21 @@
       {(format @Contract "->>" @Contract ": " @CalleeFunc)}
     )
   )
+
+  /* 
+   * Similar emit rule for function calls without return statements.
+   * This creates a self-arrow in the sequence diagram within the contract,
+   * labeled with the name of the function being called.
+   */
+  (emit MermaidLineIntraSignalLineNoReturn
+    @:path:IntraCeIdNoReturn
+    @:path:Contract
+    @:path:IntraCalleeFuncNoReturn
+    (do
+      {(format @Contract "->>" @Contract ": " @IntraCalleeFuncNoReturn)}
+    )
+  )
+
 
   (emit MermaidLineIntraActivateLine
     @:path:IntraCeId

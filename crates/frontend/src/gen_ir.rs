@@ -527,9 +527,9 @@ impl IrGenerator {
                         }
                     }
 
-                if let Some(do_block) = do_block {
-                    process_do_block(do_block, context, &mut instructions, &self.symbol_table)?
-                }
+                    if let Some(do_block) = do_block {
+                        process_do_block(do_block, context, &mut instructions, &self.symbol_table)?
+                    }
 
                     // attach the instructions emitted for the constraints and qexprs to the top most capture rule
                     let ssa_block = if instructions.is_empty() {
@@ -640,7 +640,10 @@ impl IrGenerator {
                     })?;
 
                 // Find and update existing relation if it exists, otherwise create a new one
-                let relation_exists = ir_program.relations.iter().position(|r| r.name == output_relation_name);
+                let relation_exists = ir_program
+                    .relations
+                    .iter()
+                    .position(|r| r.name == output_relation_name);
                 if let Some(index) = relation_exists {
                     // Update existing relation with additional attributes
                     let existing_attributes = &mut ir_program.relations[index].attributes;
@@ -807,7 +810,13 @@ impl IrGenerator {
                                         relation_name: "PathExpr".to_string(),
                                         attributes: vec![
                                             provenance_attr_name,
-                                            format!("rhs_{}_id", mapping.symbol.to_lowercase().trim_end_matches("_id")),
+                                            format!(
+                                                "rhs_{}_id",
+                                                mapping
+                                                    .symbol
+                                                    .to_lowercase()
+                                                    .trim_end_matches("_id")
+                                            ),
                                         ],
                                     };
                                     rhs_nodes.push(RHSVal::RHSNode(path_node));
@@ -887,10 +896,10 @@ impl IrGenerator {
 
                 // Get input relation attributes
                 let input_relation = get_input_relation(ir_program, rel_name)?;
-                
+
                 // Validate that all referenced attributes exist in the input relation
-                validate_attributes_exist(input_relation, attrs_map)?;
-                
+                validate_attributes_exist(rel_name, input_relation, attrs_map)?;
+
                 let rhs_attrs = generate_rhs_attributes(input_relation, attrs_map);
 
                 // Build RHS value with lineage
@@ -899,7 +908,7 @@ impl IrGenerator {
 
                 // Generate internal relation
                 let (internal_relation_name, internal_relation) =
-                    generate_internal_relation(input_relation, &outbound_attrs);
+                    generate_internal_relation(attrs_map, input_relation)?;
 
                 // Register internal relation
                 ir_program.relations.push(internal_relation.clone());
@@ -1173,6 +1182,7 @@ impl IrGenerator {
         /// Validates that all attributes referenced in the attrs_map exist in the input relation.
         /// Returns Ok(()) if all attributes are valid, or an Error if any attribute is not found.
         fn validate_attributes_exist(
+            capture_relation_name: &str,
             input_relation: &IRRelationType,
             attrs_map: &IndexMap<String, Box<Lval>>,
         ) -> Result<()> {
@@ -1187,8 +1197,8 @@ impl IrGenerator {
             for (attr_name, _) in attrs_map {
                 if !relation_attrs.contains(attr_name) {
                     return Err(Error::ResolveError(format!(
-                        "Attribute '{}' referenced in capture form does not exist in relation '{}'",
-                        attr_name, input_relation.name
+                        "Attribute '{}' referenced in capture form '{}' does not exist in relation '{}'",
+                        attr_name, capture_relation_name, input_relation.name
                     )));
                 }
             }
@@ -1243,32 +1253,38 @@ impl IrGenerator {
         }
 
         fn generate_internal_relation(
+            attrs_map: &IndexMap<String, Box<Lval>>,
             input_relation: &IRRelationType,
-            outbound_attrs: &VecDeque<Attribute>,
-        ) -> (String, IRRelationType) {
-            // normalize attributes and determine their types based on input relations
-            let normalized_relation_attrs = {
-                let unique_relation_attrs: IndexSet<_> = outbound_attrs.iter().cloned().collect();
-                unique_relation_attrs
-                    .iter()
-                    .map(|attr| {
-                        // Look up the attribute type from the input relation
-                        let attr_type = 
-                            // Find matching attribute in input relation
-                            input_relation
-                                .attributes
-                                .iter()
-                                .find(|a| normalize_string(&a.name) == normalize_string(&attr.name)) 
-                                .map(|a| a.attr_type.clone())
-                                .unwrap_or(AttributeType::String); // Default to String if not found
+        ) -> Result<(String, IRRelationType)> {
+            let unique_relation_attrs: IndexSet<_> = attrs_map.keys().cloned().collect();
+            let mut attr_type_map = HashMap::new();
 
-                        Attribute {
-                            name: normalize_string(&attr.name),
-                            attr_type,
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            };
+            for relation_attr in unique_relation_attrs.iter() {
+                for input_relation_attr in &input_relation.attributes {
+                    if *relation_attr == input_relation_attr.name {
+                        attr_type_map.insert(relation_attr, &input_relation_attr.attr_type);
+                    }
+                }
+            }
+
+            let normalized_relation_attrs = unique_relation_attrs
+                .iter()
+                .map(|attr| {
+                    let attr_type = attr_type_map.get(&attr).unwrap();
+
+                    // remove prefix 
+                    let attr_name = attrs_map.get(attr).map(|a| a.to_string());
+                    let attr_name = attr_name
+                        .unwrap_or_else(|| attr.to_string())
+                        .trim_start_matches("@")
+                        .to_string();
+
+                    Attribute {
+                        name: normalize_string(&attr_name),
+                        attr_type: (*attr_type).clone(),
+                    }
+                })
+                .collect::<Vec<_>>();
 
             let combined_attrs = normalized_relation_attrs
                 .iter()
@@ -1294,7 +1310,7 @@ impl IrGenerator {
                 category: Some(ir::RelationCategory::Structural),
             };
 
-            (internal_relation_name, internal_relation)
+            Ok((internal_relation_name, internal_relation))
         }
 
         fn register_internal_relation_captures(
@@ -1790,10 +1806,20 @@ impl IrGenerator {
                                 if let Some(Lval::Sym(operation)) = lvals.first().map(|v| &**v) {
                                     match operation.as_str() {
                                         "format" => {
-                                            process_format_operation(lvals, context, instructions, symbol_table)?;
+                                            process_format_operation(
+                                                lvals,
+                                                context,
+                                                instructions,
+                                                symbol_table,
+                                            )?;
                                         }
                                         "concat" => {
-                                            process_concat_operation(lvals, context, instructions, symbol_table)?;
+                                            process_concat_operation(
+                                                lvals,
+                                                context,
+                                                instructions,
+                                                symbol_table,
+                                            )?;
                                         }
                                         "replace" => {
                                             process_replace_operation(
@@ -1813,7 +1839,12 @@ impl IrGenerator {
                                             )?;
                                         }
                                         "trim" => {
-                                            process_trim_operation(lvals, context, instructions, symbol_table)?;
+                                            process_trim_operation(
+                                                lvals,
+                                                context,
+                                                instructions,
+                                                symbol_table,
+                                            )?;
                                         }
                                         _ => {
                                             return Err(Error::GenerationError(format!(
@@ -1950,14 +1981,22 @@ impl IrGenerator {
             Ok(())
         }
 
-        fn parse_string_operands(lvals: &[Box<Lval>], context: &SSAContext, symbol_table: &SymbolTable) -> Result<Vec<StringPart>> {
+        fn parse_string_operands(
+            lvals: &[Box<Lval>],
+            context: &SSAContext,
+            symbol_table: &SymbolTable,
+        ) -> Result<Vec<StringPart>> {
             lvals
                 .iter()
                 .map(|lval| parse_single_operand(&**lval, context, symbol_table))
                 .collect()
         }
 
-        fn parse_single_operand(lval: &Lval, context: &SSAContext, symbol_table: &SymbolTable) -> Result<StringPart> {
+        fn parse_single_operand(
+            lval: &Lval,
+            context: &SSAContext,
+            symbol_table: &SymbolTable,
+        ) -> Result<StringPart> {
             match lval {
                 Lval::Sym(operand) => {
                     if let Some('$') = operand.chars().next() {
@@ -1974,15 +2013,18 @@ impl IrGenerator {
                             capture_name
                         ))
                     })?;
-                    
+
                     // Look up the attribute mapping in the SSA context
                     if let Some(mappings) = context.get_capture_mappings(capture_name) {
                         if let Some(mapping) = mappings.first() {
                             // Use the attribute identifier from the mapping instead of the capture name
-                            return Ok(StringPart::Dynamic(format!("rhs_{}", normalize_string(&mapping.symbol))));
+                            return Ok(StringPart::Dynamic(format!(
+                                "rhs_{}",
+                                normalize_string(&mapping.symbol)
+                            )));
                         }
                     }
-                    
+
                     // Fallback to using the capture name if no mapping is found
                     Ok(StringPart::Dynamic(format!("rhs_{}", capture_name)))
                 }
@@ -1993,8 +2035,6 @@ impl IrGenerator {
                 ))),
             }
         }
-
-
 
         fn generate_string_concat_instructions(
             operands: Vec<StringPart>,

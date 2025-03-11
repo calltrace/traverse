@@ -171,8 +171,8 @@ impl Compiler {
 
         let source_code = std::fs::read_to_string(source_file).map_err(CompilerError::Io)?;
         let converter = TreeSitterToDDLog::new(&source_code, language)
-            .with_excluded_relations(HashSet::from(["SourceFile".to_string()]));
-        Ok(converter.extract_commands(None))
+            .with_excluded_relations(HashSet::from(["SourceFile".to_string(), "String".to_string()]));
+        Ok(converter.extract_commands_with_fact_nodes(None))
     }
 
     pub fn process_input(&self, input: &str) -> Result<CompilationResult, CompilerError> {
