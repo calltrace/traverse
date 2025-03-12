@@ -1756,7 +1756,7 @@ impl DDlogGenerator {
                 ],
             });
             */
-            
+
             // Add PathExpr rule
             program.add_rule(Rule {
                 pos: Pos::nopos(),
@@ -1890,8 +1890,60 @@ impl DDlogGenerator {
             }
         }
 
-        // Collect RHS attributes that correspond to LHS attributes
-        Ok(collect_from_rhs_val(&rule.rhs, &lhs_attributes))
+        // Helper function to collect attributes from SSA instructions
+        fn collect_from_ssa_instructions(
+            ssa_block: &Option<SSAInstructionBlock>,
+            lhs_attrs: &HashSet<String>,
+        ) -> Vec<String> {
+            let mut rhs_attributes = Vec::new();
+
+            if let Some(block) = ssa_block {
+                for instruction in &block.instructions {
+                    if let SSAInstruction::Assignment {
+                        variable,
+                        operation,
+                    } = instruction
+                    {
+                        // Scan operands for attribute references
+                        for operand in &operation.operands {
+                            match operand {
+                                Operand::Reference(Reference::Named(name)) => {
+                                    // Check if this is an RHS attribute reference
+                                    if name.starts_with("rhs_") {
+                                        rhs_attributes.push(name.clone());
+                                    }
+                                }
+                                Operand::Identifier(id) => {
+                                    // Check if the identifier is an RHS attribute
+                                    if id.starts_with("rhs_") {
+                                        if let Some(attr_name) = id.strip_prefix("rhs_") {
+                                            if lhs_attrs.contains(attr_name) {
+                                                rhs_attributes.push(id.clone());
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+
+            rhs_attributes
+        }
+
+        // Collect attributes from both RHSVal and SSA instructions
+        let rhs_attributes = collect_from_rhs_val(&rule.rhs, &lhs_attributes);
+        let ssa_attributes = collect_from_ssa_instructions(&rule.ssa_block, &lhs_attributes);
+
+        // Combine both sources and deduplicate
+        let mut all_attributes = HashSet::new();
+        for attr in rhs_attributes.iter().chain(ssa_attributes.iter()) {
+            all_attributes.insert(attr.clone());
+        }
+
+        Ok(all_attributes.into_iter().collect())
     }
 
     fn lookup_relation<'a>(
@@ -1995,6 +2047,12 @@ impl DDlogGenerator {
                                 operand_mapping.insert(variable.clone(), id.clone());
                             }
                             Operand::Reference(Reference::Named(name)) => {
+                                // Check if this is an attribute reference (starts with rhs_)
+                                if name.starts_with("rhs_") {
+                                    // Store the mapping from variable to attribute name
+                                    operand_mapping.insert(variable.clone(), name.clone());
+                                }
+
                                 let ref_name = if operation.op_type == OperationType::Not {
                                     format!("$not_{}", name)
                                 } else {
@@ -2037,6 +2095,15 @@ impl DDlogGenerator {
                 Operand::Reference(Reference::Named(name)) => {
                     if relation_refs.contains(name) {
                         format!("{}.{}", label, name) // Prefix with predicate name for relation refs
+                    } else if operand_mapping.contains_key(name) {
+                        operand_mapping
+                            .get(name)
+                            .map(|o| o.trim_start_matches("$"))
+                            .unwrap()
+                            .to_string()
+                    } else if name.starts_with("rhs_") {
+                        // If it's an attribute reference, use it directly
+                        name.clone()
                     } else {
                         format!("rhs_{}", name)
                     }
@@ -2307,7 +2374,6 @@ impl From<std::io::Error> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 pub type IrToDdlogResult = Result<Box<DatalogProgram>>;
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2526,7 +2592,7 @@ mod tests {
                 vec![],
                 None,
                 None,
-                None
+                None,
             ))),
             None,
             None,

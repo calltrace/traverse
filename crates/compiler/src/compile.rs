@@ -217,6 +217,7 @@ impl Compiler {
 
         // Validate the generated DDlog
         let ddlog_str = ddlog.to_string();
+
         if let Err(e) = validate(&ddlog_str, self.enable_tracing) {
             return Err(CompilerError::DdlogValidation(e.to_string()));
         }
@@ -292,69 +293,59 @@ impl Compiler {
             } else {
                 // Try to load from default path
                 let default_path = PathBuf::from("hydration.yaml");
-                    match BucketConfig::from_yaml_file(&default_path) {
-                        Ok(config) => config,
-                        Err(_) => {
-                            // Fall back to hardcoded default if file exists but can't be parsed
-                            BucketConfig::new()
-                                .with_pool_shape("sequenceDiagram")
-                                .with_bucket(
-                                    "participants",
-                                    100,
-                                    "path",
-                                    "val",
-                                    vec![
-                                        InputSource::new(
-                                            "EmitMermaidLineMockActorLine",
-                                            100,
-                                        ),
-                                        InputSource::new(
-                                            "EmitMermaidLineCallerParticipantLine",
-                                            99,
-                                        ),
-                                        InputSource::new(
-                                            "EmitMermaidLineCalleeParticipantLine",
-                                            90,
-                                        ),
-                                        InputSource::new(
-                                            "EmitMermaidLineContractParticipantLine",
-                                            90,
-                                        ),
-                                    ],
-                                )
-                                .with_bucket(
-                                    "flow",
-                                    90,
-                                    "ce_id_path",
-                                    "val",
-                                    vec![
-                                        InputSource::new("EmitMermaidLineSignalLine", 100),
-                                        InputSource::new("EmitMermaidLineActivateLine", 90),
-                                        InputSource::new("EmitMermaidLineReturnSignalLine", 80),
-                                        InputSource::new("EmitMermaidLineDeactivateLine", 70),
-                                        InputSource::new("EmitMermaidLineIntraSignalLine", 100),
-                                        InputSource::new(
-                                            "EmitMermaidLineIntraSignalLineNoReturn",
-                                            100,
-                                        ),
-                                        InputSource::new("EmitMermaidLineIntraActivateLine", 90),
-                                        InputSource::new(
-                                            "EmitMermaidLineIntraActivateLineNoReturn",
-                                            90,
-                                        ),
-                                        InputSource::new(
-                                            "EmitMermaidLineIntraReturnSignalLine",
-                                            80,
-                                        ),
-                                        InputSource::new("EmitMermaidLineIntraDeactivateLine", 70),
-                                        InputSource::new(
-                                            "EmitMermaidLineIntraDeactivateLineNoReturn",
-                                            70,
-                                        ),
-                                    ],
-                                )
-                        }
+                match BucketConfig::from_yaml_file(&default_path) {
+                    Ok(config) => config,
+                    Err(_) => {
+                        // Fall back to hardcoded default if file exists but can't be parsed
+                        BucketConfig::new()
+                            .with_pool_shape("sequenceDiagram")
+                            .with_bucket(
+                                "participants",
+                                100,
+                                "path",
+                                "val",
+                                vec![
+                                    InputSource::new("EmitMermaidLineMockActorLine", 100),
+                                    InputSource::new("EmitMermaidLineMockActorParticipantLine", 99),
+                                    InputSource::new("EmitMermaidLineCallerParticipantLine", 95),
+                                    InputSource::new("EmitMermaidLineCalleeParticipantLine", 90),
+                                    InputSource::new("EmitMermaidLineContractParticipantLine", 90),
+                                ],
+                            )
+                            .with_bucket(
+                                "mock-actor-flows",
+                                95,
+                                "mock_actor_func_id_path",
+                                "val",
+                                vec![InputSource::new("EmitMermaidLineMockActorSignalLine", 100)],
+                            )
+                            .with_bucket(
+                                "flow",
+                                90,
+                                "ce_id_path",
+                                "val",
+                                vec![
+                                    InputSource::new("EmitMermaidLineSignalLine", 100),
+                                    InputSource::new("EmitMermaidLineActivateLine", 90),
+                                    InputSource::new("EmitMermaidLineReturnSignalLine", 80),
+                                    InputSource::new("EmitMermaidLineDeactivateLine", 70),
+                                    InputSource::new("EmitMermaidLineIntraSignalLine", 100),
+                                    InputSource::new("EmitMermaidLineIntraSignalLineNoReturn", 100),
+                                    InputSource::new("EmitMermaidLineIntraActivateLine", 90),
+                                    InputSource::new(
+                                        "EmitMermaidLineIntraActivateLineNoReturn",
+                                        90,
+                                    ),
+                                    InputSource::new("EmitMermaidLineIntraReturnSignalLine", 80),
+                                    InputSource::new("EmitMermaidLineIntraDeactivateLine", 70),
+                                    InputSource::new(
+                                        "EmitMermaidLineIntraDeactivateLineNoReturn",
+                                        70,
+                                    ),
+                                ],
+                            )
                     }
+                }
             };
 
             // save config

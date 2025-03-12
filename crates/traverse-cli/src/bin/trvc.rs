@@ -208,7 +208,7 @@ IR:
                 .compilation
                 .ddlog
                 .lines()
-                .take(10)
+//                .take(10)
                 .collect::<Vec<_>>()
                 .join(
                     "

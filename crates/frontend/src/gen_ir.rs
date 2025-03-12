@@ -900,7 +900,7 @@ impl IrGenerator {
                 // Validate that all referenced attributes exist in the input relation
                 validate_attributes_exist(rel_name, input_relation, attrs_map)?;
 
-                let rhs_attrs = generate_rhs_attributes(input_relation, attrs_map);
+                let rhs_attrs = generate_rhs_attributes(input_relation, attrs_map, when);
 
                 // Build RHS value with lineage
                 let rhs_vals_with_lineage =
@@ -1206,10 +1206,48 @@ impl IrGenerator {
             Ok(())
         }
 
+        fn extract_attributes_from_when_block(when_block: &Option<Box<Lval>>) -> HashSet<String> {
+            let mut referenced_attrs = HashSet::new();
+
+            if let Some(logical) = when_block {
+                if let Lval::Logical(_, operands) = &**logical {
+                    for operand in operands {
+                        extract_attributes_from_lval(operand, &mut referenced_attrs);
+                    }
+                }
+            }
+
+            referenced_attrs
+        }
+
+        fn extract_attributes_from_lval(lval: &Lval, referenced_attrs: &mut HashSet<String>) {
+            match lval {
+                Lval::Capture(capture, _provenance) => {
+                    referenced_attrs.insert(capture.clone());
+                }
+                Lval::Sym(sym) => {
+                    // Symbols in conditions often start with '@' to reference attributes
+                    if sym.starts_with('@') {
+                        referenced_attrs.insert(sym[1..].to_string());
+                    }
+                }
+                Lval::Logical(_, operands) => {
+                    for operand in operands {
+                        extract_attributes_from_lval(operand, referenced_attrs);
+                    }
+                }
+                _ => {}
+            }
+        }
+
         fn generate_rhs_attributes(
             input_relation: &IRRelationType,
             attrs_map: &IndexMap<String, Box<Lval>>,
+            when_block: &Option<Box<Lval>>,
         ) -> Vec<String> {
+            // Extract attributes referenced in conditions
+            let condition_attrs = extract_attributes_from_when_block(when_block);
+
             input_relation
                 .attributes
                 .iter()
@@ -1218,10 +1256,20 @@ impl IrGenerator {
                         if let Lval::Capture(capture_name, _provenance) = attr_val.as_ref() {
                             format!("rhs_{}", normalize_string(capture_name))
                         } else {
-                            format!("unused_{}", normalize_string(&attr.name))
+                            // Check if this attribute is used in a condition
+                            if condition_attrs.contains(&attr.name) {
+                                format!("rhs_{}", normalize_string(&attr.name))
+                            } else {
+                                format!("unused_{}", normalize_string(&attr.name))
+                            }
                         }
                     } else {
-                        format!("unused_{}", normalize_string(&attr.name))
+                        // Check if this attribute is used in a condition
+                        if condition_attrs.contains(&attr.name) {
+                            format!("rhs_{}", normalize_string(&attr.name))
+                        } else {
+                            format!("unused_{}", normalize_string(&attr.name))
+                        }
                     }
                 })
                 .collect()
@@ -2197,7 +2245,7 @@ impl IrGenerator {
                             variable: temp_var.clone(),
                             operation: SSAOperation {
                                 op_type: OperationType::Load,
-                                operands: vec![Operand::StringLiteral(s.clone())],
+                                operands: vec![Operand::StringLiteral(s.replace("\"", "").clone())],
                             },
                         });
                     }
