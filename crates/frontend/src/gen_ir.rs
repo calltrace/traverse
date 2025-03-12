@@ -741,6 +741,7 @@ impl IrGenerator {
                                     ))
                                 })?;
                         let referenced_rel = &symbol.relationref.name;
+                        println!("Referenced relation: {}", referenced_rel);
 
                         if let Some(relation) =
                             Self::lookup_relation(ir_program, referenced_rel, None)
