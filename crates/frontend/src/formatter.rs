@@ -262,11 +262,11 @@ impl Formatter {
             }
             Lval::Inference(relation, params, paths) => {
                 let mut result = String::from("(infer");
-                result.push_str(&format!(" {} ({})\n", relation, params.join(", ")));
+                result.push_str(&format!(" {} ({})\n", relation, params.as_ref().map(|r| r.join(", ")).unwrap_or_default()));
 
                 self.indent_level += 1;
-                if !paths.is_empty() {
-                    for path in paths {
+                if paths.is_some() && !paths.as_ref().unwrap().is_empty() {
+                    for path in paths.as_ref().unwrap() {
                         result.push_str(&format!("{}\n", self.format(path)));
                     }
                 }

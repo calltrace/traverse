@@ -1272,7 +1272,7 @@ impl IrGenerator {
                 .map(|attr| {
                     let attr_type = attr_type_map.get(&attr).unwrap();
 
-                    // remove prefix 
+                    // remove prefix
                     let attr_name = attrs_map.get(attr).map(|a| a.to_string());
                     let attr_name = attr_name
                         .unwrap_or_else(|| attr.to_string())
@@ -1526,21 +1526,27 @@ impl IrGenerator {
                 )?;
 
                 // Process each inference path
-                for path in inference_paths {
-                    if let Lval::InferencePath(predicates, computation) = &**path {
-                        let (rhs_nodes, mut instructions) =
-                            process_predicates(predicates, context)?;
+                if inference_paths.is_some() {
+                    for path in inference_paths.as_ref().unwrap() {
+                        if let Lval::InferencePath(predicates, computation) = &**path {
+                            let (rhs_nodes, mut instructions) =
+                                process_predicates(predicates, context)?;
 
-                        // Process computation block if present
-                        if let Some(comp) = computation {
-                            process_computation(comp, context, &mut instructions)?;
+                            // Process computation block if present
+                            if let Some(comp) = computation {
+                                process_computation(comp, context, &mut instructions)?;
+                            }
+
+                            // Create the inference rule
+                            let ir_rule = create_inference_rule(
+                                relation_name,
+                                params.as_ref(),
+                                rhs_nodes,
+                                instructions,
+                            );
+
+                            infer_rules.push_back(ir_rule);
                         }
-
-                        // Create the inference rule
-                        let ir_rule =
-                            create_inference_rule(relation_name, params, rhs_nodes, instructions);
-
-                        infer_rules.push_back(ir_rule);
                     }
                 }
             }
@@ -1550,7 +1556,7 @@ impl IrGenerator {
         fn ensure_output_relation_exists(
             relation_name: &str,
             relation_category: ir::RelationCategory,
-            params: &[String],
+            params: &Option<Vec<String>>,
             ir_program: &mut IRProgram,
         ) -> Result<()> {
             if !ir_program
@@ -1559,19 +1565,23 @@ impl IrGenerator {
                 .any(|r| r.name == *relation_name)
             {
                 let attributes = params
-                    .iter()
-                    .map(|p| {
-                        let param_name = &p[1..];
-                        Attribute {
-                            name: param_name.to_string(),
-                            attr_type: if param_name.ends_with("_id") {
-                                AttributeType::Number
-                            } else {
-                                AttributeType::String
-                            },
-                        }
+                    .as_ref()
+                    .map(|ps| {
+                        ps.iter()
+                            .map(|p| {
+                                let param_name = &p[1..];
+                                Attribute {
+                                    name: param_name.to_string(),
+                                    attr_type: if param_name.ends_with("_id") {
+                                        AttributeType::Number
+                                    } else {
+                                        AttributeType::String
+                                    },
+                                }
+                            })
+                            .collect()
                     })
-                    .collect();
+                    .unwrap_or_default();
 
                 ir_program.relations.push(IRRelationType {
                     name: to_pascal_case(relation_name),
@@ -1774,14 +1784,16 @@ impl IrGenerator {
 
         fn create_inference_rule(
             relation_name: &str,
-            params: &[String],
+            params: Option<&Vec<String>>,
             rhs_nodes: Vec<RHSVal>,
             instructions: Vec<SSAInstruction>,
         ) -> IRRule {
             IRRule {
                 lhs: LHSNode {
                     relation_name: to_pascal_case(relation_name),
-                    output_attributes: params.iter().map(|p| p[1..].to_string()).collect(),
+                    output_attributes: params
+                        .map(|parms| parms.iter().map(|p| p[1..].to_string().clone()).collect())
+                        .unwrap_or_default(),
                 },
                 rhs: RHSVal::NestedRHS(rhs_nodes),
                 ssa_block: if !instructions.is_empty() {

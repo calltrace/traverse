@@ -171,7 +171,7 @@ impl Compiler {
 
         let source_code = std::fs::read_to_string(source_file).map_err(CompilerError::Io)?;
         let converter = TreeSitterToDDLog::new(&source_code, language)
-            .with_excluded_relations(HashSet::from(["SourceFile".to_string(), "String".to_string()]));
+            .with_excluded_relations(HashSet::from(["String".to_string()]));
         Ok(converter.extract_commands_with_fact_nodes(None))
     }
 
@@ -305,8 +305,12 @@ impl Compiler {
                                     "val",
                                     vec![
                                         InputSource::new(
-                                            "EmitMermaidLineCallerParticipantLine",
+                                            "EmitMermaidLineMockActorLine",
                                             100,
+                                        ),
+                                        InputSource::new(
+                                            "EmitMermaidLineCallerParticipantLine",
+                                            99,
                                         ),
                                         InputSource::new(
                                             "EmitMermaidLineCalleeParticipantLine",

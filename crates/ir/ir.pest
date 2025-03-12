@@ -11,7 +11,7 @@ ir = { SOI ~ ( (relations_section ~ WHITESPACE* ~ datalog_rules_section*) | COMM
 relations_section = { "relations" ~ WHITESPACE* ~ "{" ~ WHITESPACE* ~ relation* ~ WHITESPACE* ~ "}" }
 
 // Defines a single relation with attributes and its metadata.
-relation = { identifier ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ attributes ~ WHITESPACE* ~ ")" ~ WHITESPACE* ~ ":" ~ WHITESPACE* ~ relation_metadata ~ ";" }
+relation = { identifier ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ attributes* ~ WHITESPACE* ~ ")" ~ WHITESPACE* ~ ":" ~ WHITESPACE* ~ relation_metadata ~ ";" }
 
 // Defines a list of attributes within a relation, separated by commas.
 attributes = { attribute ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ attribute)* }
@@ -56,7 +56,7 @@ input_attributes = { (identifier | placeholder)  ~ (WHITESPACE* ~ "," ~ WHITESPA
 ssa_instruction = { (label | ssa_assignment | control_flow) ~ WHITESPACE* ~ ";" }
 
 // Defines a label used for control flow, ending with a colon (e.g., "L1:").
-label = { "L" ~ ASCII_DIGIT ~ ":" }
+label = { "L" ~ ASCII_DIGIT+ ~ ":" }
 
 // Defines an SSA assignment, where a variable is assigned the result of an operation or another variable.
 ssa_assignment = { identifier ~ WHITESPACE* ~ "=" ~ WHITESPACE* ~ (ssa_operation | identifier) }

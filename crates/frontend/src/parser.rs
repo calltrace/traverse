@@ -55,26 +55,32 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
         Rule::inference => {
             let mut inner = parsed.into_inner();
             let relation = inner.next().unwrap().as_str();
-
-            // Parse parameters
-            let parameters = inner.next().unwrap();
-            let parameter_list = parameters.into_inner().next().unwrap();
-            let params_pair = parameter_list.into_inner();
-
-            let params: Vec<String> = params_pair
-                .filter(|p| p.as_rule() == Rule::variable)
-                .map(|p| p.as_str().to_string())
-                .collect();
-
-            // Parse inference paths
             let mut paths = vec![];
-            for path in inner {
-                if path.as_rule() == Rule::inference_paths {
-                    paths.push(lval_read(path)?);
+            let mut params: Vec<String> = vec![];
+            //
+            // Parse parameters
+            let parameters = inner.next();
+            if parameters.is_some() {
+                let parameter_list = parameters.unwrap().into_inner().next().unwrap();
+                let params_pair = parameter_list.into_inner();
+
+                params = params_pair
+                    .filter(|p| p.as_rule() == Rule::variable)
+                    .map(|p| p.as_str().to_string())
+                    .collect();
+
+                // Parse inference paths
+                for path in inner {
+                    if path.as_rule() == Rule::inference_paths {
+                        paths.push(lval_read(path)?);
+                    }
                 }
             }
 
-            Ok(Lval::inference(relation, params, paths))
+            let params_option = if params.is_empty() { None } else { Some(params) };
+            let paths_option = if paths.is_empty() { None } else { Some(paths) };
+            
+            Ok(Lval::inference(relation, params_option, paths_option))
         }
         Rule::inference_paths => {
             let mut inner = parsed
@@ -117,11 +123,9 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
                     let prefix_op = prefix_inner.next().unwrap().as_str();
                     let predicate = lval_read(prefix_inner.next().unwrap())?;
                     Ok(Lval::prefix_predicate(prefix_op, predicate))
-                },
-                Rule::predicate => {
-                    lval_read(first)
-                },
-                _ => Err(Error::Parse("Invalid predicate expression".to_string()))
+                }
+                Rule::predicate => lval_read(first),
+                _ => Err(Error::Parse("Invalid predicate expression".to_string())),
             }
         }
 
@@ -246,7 +250,7 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
 
             // If no provenance was specified, use None
             Ok(Lval::capture(&capture_name, provenance))
-        },
+        }
         Rule::capture_form => {
             let mut inner = parsed.into_inner();
             let node_type = inner.next().unwrap().as_str().to_string();

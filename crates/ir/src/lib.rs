@@ -607,12 +607,22 @@ mod parser {
             Rule::relation => {
                 let mut inner = parsed.into_inner();
                 let name = inner.next().unwrap().as_str().to_string();
-                let attributes: Vec<Attribute> = inner
-                    .next()
-                    .unwrap()
-                    .into_inner()
-                    .map(parse_attribute)
-                    .collect();
+                
+                // Initialize an empty vector for attributes
+                let mut attributes: Vec<Attribute> = Vec::new();
+                
+                // Check if the next item is attributes before consuming it
+                if let Some(next_item) = inner.peek() {
+                    if next_item.as_rule() == Rule::attributes {
+                        // Consume the attributes item and collect the attributes
+                        attributes = inner
+                            .next()
+                            .unwrap()
+                            .into_inner()
+                            .map(parse_attribute)
+                            .collect();
+                    }
+                }
 
                 let metadata = inner.next().unwrap().into_inner();
                 let mut role = None;
