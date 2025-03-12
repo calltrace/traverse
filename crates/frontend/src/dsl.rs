@@ -47,9 +47,9 @@ pub enum Lval {
     WhenForm(Box<Lval>, LvalChildren),
     KeyVal(LvalChildren),
     // New variants for inference rules
-    Inference(String, Vec<String>, Vec<Box<Lval>>), // (relation_name, parameters, inference_paths)
+    Inference(String, Option<Vec<String>>, Option<Vec<Box<Lval>>>), // (relation_name, parameters, inference_paths)
     InferencePath(Vec<Box<Lval>>, Option<Box<Lval>>), // (predicates, optional_computation)
-    Predicate(String, Vec<String>),                 // (identifier, arguments)
+    Predicate(String, Vec<String>),                   // (identifier, arguments)
     PrefixPredicate(String, Box<Lval>),
     PredicateExpr(Box<Lval>),
     Computation(String, Box<Lval>), // (variable, qexpr)
@@ -60,7 +60,11 @@ impl Lval {
     pub fn rules_block(rules: Vec<Box<Lval>>) -> Box<Lval> {
         Box::new(Lval::RulesBlock(rules))
     }
-    pub fn inference(relation: &str, params: Vec<String>, paths: Vec<Box<Lval>>) -> Box<Lval> {
+    pub fn inference(
+        relation: &str,
+        params: Option<Vec<String>>,
+        paths: Option<Vec<Box<Lval>>>,
+    ) -> Box<Lval> {
         Box::new(Lval::Inference(relation.to_string(), params, paths))
     }
 
@@ -285,12 +289,16 @@ impl fmt::Display for Lval {
                     f,
                     "(infer {} ({}) via ({}))",
                     relation,
-                    params.join(", "),
+                    params.as_ref().map(|p| p.join(", ")).unwrap_or_default(),
                     paths
-                        .iter()
-                        .map(|p| p.to_string())
-                        .collect::<Vec<_>>()
-                        .join(" ")
+                        .as_ref()
+                        .map(|ps| {
+                            ps.iter()
+                                .map(|p| p.to_string())
+                                .collect::<Vec<_>>()
+                                .join(" ")
+                        })
+                        .unwrap_or_default()
                 )
             }
             Lval::InferencePath(predicates, computation) => {

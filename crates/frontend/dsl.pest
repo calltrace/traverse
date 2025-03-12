@@ -71,7 +71,7 @@ key_value = {
 // for each case and we keep the syntax Lispy. 
 
 inference = {
-   "(" ~ WHITESPACE* ~ "infer" ~ WHITESPACE* ~ relation ~ WHITESPACE* ~ parameters ~ WHITESPACE* ~ inference_paths+ ~ WHITESPACE* ~ ")"
+   "(" ~ WHITESPACE* ~ "infer" ~ WHITESPACE* ~ relation ~ WHITESPACE* ~ parameters? ~ WHITESPACE* ~ inference_paths* ~ WHITESPACE* ~ ")"
 }
 
 // Rule header
