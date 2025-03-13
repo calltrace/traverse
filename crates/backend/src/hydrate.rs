@@ -125,6 +125,8 @@ pub struct BucketConfig {
     relation_to_bucket: HashMap<String, String>,
     #[serde(default)]
     relation_priorities: HashMap<String, u32>,
+    #[serde(default)]
+    streams: HashMap<String, Vec<String>>,
 }
 
 // Helper functions for serde default values
@@ -153,6 +155,7 @@ impl BucketConfig {
             bucket_relations: HashMap::new(),
             relation_to_bucket: HashMap::new(),
             relation_priorities: HashMap::new(),
+            streams: HashMap::new(),
         }
     }
 
@@ -305,6 +308,27 @@ impl BucketConfig {
 
     pub fn with_pool_shape(mut self, shape: &str) -> Self {
         self.pool_shape = shape.to_string();
+        self
+    }
+
+    /// Define a stream that merges multiple buckets
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_name` - Name of the stream
+    /// * `bucket_names` - List of bucket names to include in the stream
+    ///
+    /// # Returns
+    ///
+    /// * `Self` - The updated configuration
+    pub fn with_stream(mut self, stream_name: &str, bucket_names: Vec<&str>) -> Self {
+        let bucket_names: Vec<String> = bucket_names.iter().map(|&s| s.to_string()).collect();
+        
+        // Ensure we have at least 2 buckets
+        if bucket_names.len() >= 2 {
+            self.streams.insert(stream_name.to_string(), bucket_names);
+        }
+        
         self
     }
 }
@@ -535,16 +559,93 @@ impl Display for Pool {
 }
 
 #[derive(Debug)]
+pub struct Stream {
+    name: String,
+    bucket_names: Vec<String>,
+}
+
+impl Stream {
+    fn new(name: String, bucket_names: Vec<String>) -> Self {
+        Stream {
+            name,
+            bucket_names,
+        }
+    }
+
+    fn collect_facts<'a>(&'a self, buckets: &'a HashMap<String, Bucket>) -> Vec<&'a OrderedFact> {
+        let mut all_facts = Vec::new();
+        
+        // Collect facts from all buckets in this stream
+        for bucket_name in &self.bucket_names {
+            if let Some(bucket) = buckets.get(bucket_name) {
+                for fact in &bucket.facts {
+                    all_facts.push(fact);
+                }
+            }
+        }
+        
+        // Sort all facts by path
+        all_facts.sort_by(|a, b| compare_path_segments(&a.path, &b.path));
+        
+        all_facts
+    }
+
+    fn dump<'a>(&'a self, buckets: &'a HashMap<String, Bucket>) -> String {
+        let mut result = String::new();
+        
+        result.push_str(&format!("%% Stream: {} (buckets: {:?})\n", self.name, self.bucket_names));
+        
+        // Collect and sort all facts from the buckets in this stream
+        let all_facts = self.collect_facts(buckets);
+        
+        // Output the facts in order
+        for fact in all_facts {
+            let bucket_name = fact.fact.relation_name.clone();
+            let bucket = buckets.get(&bucket_name);
+            
+            let value_attr = bucket.map_or("val".to_string(), |b| b.value_attribute());
+            let value = fact
+                .fact
+                .attributes
+                .get(&value_attr)
+                .map_or("", |v| match v {
+                    AttributeValue::String(s) => s,
+                    AttributeValue::Path(p) => p,
+                    AttributeValue::Number(_) => "", // Skip numbers as values
+                });
+            
+            result.push_str(&format!(
+                "%% Stream Fact: (bucket: {}, path: {})\n{}\n",
+                bucket_name, fact.path, value
+            ));
+        }
+        
+        result
+    }
+}
+
+#[derive(Debug)]
 pub struct Hydrator {
     global_config: BucketConfig,
     buckets: HashMap<String, Bucket>,
+    streams: HashMap<String, Stream>,
 }
 
 impl Hydrator {
     pub fn new(config: BucketConfig) -> Self {
+        // Initialize streams from config
+        let mut streams = HashMap::new();
+        for (stream_name, bucket_names) in &config.streams {
+            streams.insert(
+                stream_name.clone(),
+                Stream::new(stream_name.clone(), bucket_names.clone()),
+            );
+        }
+        
         Hydrator {
             global_config: config,
             buckets: HashMap::new(),
+            streams,
         }
     }
 
@@ -624,12 +725,45 @@ impl Hydrator {
     pub fn clear(&mut self) {
         self.buckets.clear();
     }
+    
+    /// Get a reference to the streams
+    pub fn streams(&self) -> &HashMap<String, Stream> {
+        &self.streams
+    }
+    
+    /// Dump a specific stream by name
+    pub fn dump_stream(&self, stream_name: &str) -> Option<String> {
+        self.streams.get(stream_name).map(|stream| stream.dump(&self.buckets))
+    }
+    
+    /// Dump all streams
+    pub fn dump_streams(&self) -> String {
+        let mut result = String::new();
+        
+        for stream in self.streams.values() {
+            result.push_str(&stream.dump(&self.buckets));
+            result.push_str("\n");
+        }
+        
+        result
+    }
+    
+    /// Add a new stream
+    pub fn add_stream(&mut self, stream_name: &str, bucket_names: Vec<String>) {
+        if bucket_names.len() >= 2 {
+            self.streams.insert(
+                stream_name.to_string(),
+                Stream::new(stream_name.to_string(), bucket_names),
+            );
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ddlog_drain::{AttributeValue, DdlogDrain};
+    use std::collections::HashMap;
 
     #[test]
     fn test_bucket_config_default_attributes() {
@@ -656,6 +790,61 @@ mod tests {
         let config = BucketConfig::new().with_pool_shape("custom_shape");
 
         assert_eq!(config.pool_shape, "custom_shape");
+    }
+    
+    #[test]
+    fn test_bucket_config_with_stream() {
+        // Test that the with_stream method works
+        let config = BucketConfig::new().with_stream("test_stream", vec!["bucket1", "bucket2"]);
+        
+        assert!(config.streams.contains_key("test_stream"));
+        let buckets = config.streams.get("test_stream").unwrap();
+        assert_eq!(buckets.len(), 2);
+        assert_eq!(buckets[0], "bucket1");
+        assert_eq!(buckets[1], "bucket2");
+    }
+    
+    #[test]
+    fn test_stream_collect_facts() {
+        // Create a test configuration
+        let config = BucketConfig::new()
+            .with_bucket_simple("bucket1", 100, "path", "val", vec!["relation1"])
+            .with_bucket_simple("bucket2", 200, "path", "val", vec!["relation2"])
+            .with_stream("test_stream", vec!["bucket1", "bucket2"]);
+            
+        // Create a hydrator
+        let mut hydrator = Hydrator::new(config);
+        
+        // Create some test facts
+        let mut fact1 = DdlogFact {
+            relation_name: "relation1".to_string(),
+            attributes: HashMap::new(),
+        };
+        fact1.attributes.insert("path".to_string(), AttributeValue::Path("1.2".to_string()));
+        fact1.attributes.insert("val".to_string(), AttributeValue::String("value1".to_string()));
+        
+        let mut fact2 = DdlogFact {
+            relation_name: "relation2".to_string(),
+            attributes: HashMap::new(),
+        };
+        fact2.attributes.insert("path".to_string(), AttributeValue::Path("1.1".to_string()));
+        fact2.attributes.insert("val".to_string(), AttributeValue::String("value2".to_string()));
+        
+        // Process the facts
+        hydrator.process_fact(fact1);
+        hydrator.process_fact(fact2);
+        
+        // Get the stream output
+        let stream_output = hydrator.dump_stream("test_stream").unwrap();
+        
+        // The output should contain both facts, with fact2 before fact1 due to path ordering
+        assert!(stream_output.contains("value1"));
+        assert!(stream_output.contains("value2"));
+        
+        // Check if the facts are in the correct order (path 1.1 before 1.2)
+        let value1_pos = stream_output.find("value1").unwrap();
+        let value2_pos = stream_output.find("value2").unwrap();
+        assert!(value2_pos < value1_pos);
     }
 
     #[test]

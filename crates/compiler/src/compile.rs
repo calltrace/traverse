@@ -197,6 +197,8 @@ impl Compiler {
             .lval_to_ir(&lval)
             .map_err(|e| CompilerError::IrGeneration(format!("{:?}", e)))?;
 
+        //println!("IR (before formatting):\n\n{}\n", dl_ir);
+
         // Format the IR
         let formatted_ir = ir::format_program(&dl_ir.to_string(), true, 2, false)
             .map_err(|e| CompilerError::IrGeneration(format!("{:?}", e)))?;
@@ -323,7 +325,7 @@ impl Compiler {
                             .with_bucket(
                                 "flow",
                                 90,
-                                "ce_id_path",
+                                "intra_ce_no_return_id_path",
                                 "val",
                                 vec![
                                     InputSource::new("EmitMermaidLineSignalLine", 100),

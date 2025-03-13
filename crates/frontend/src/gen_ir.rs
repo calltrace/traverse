@@ -57,7 +57,8 @@ impl SymbolTable {
         };
 
         // Insert into global captures map
-        self.captures.insert(capture_name.to_string(), symbol.clone());
+        self.captures
+            .insert(capture_name.to_string(), symbol.clone());
 
         // Add to relation-specific set
         self.relation_captures
@@ -74,13 +75,25 @@ impl SymbolTable {
     }
 
     /// Looks up a capture by name and relation role, returning its full symbol info if found
-    pub fn lookup_capture_by_role(&self, capture_name: &str, role: IRRelationRole) -> Option<&CaptureSymbol> {
-        self.captures.get(capture_name).filter(|symbol| symbol.relationref.role == role)
+    pub fn lookup_capture_by_role(
+        &self,
+        capture_name: &str,
+        role: IRRelationRole,
+    ) -> Option<&CaptureSymbol> {
+        self.captures
+            .get(capture_name)
+            .filter(|symbol| symbol.relationref.role == role)
     }
 
     /// Looks up a capture by name and relation name, returning its full symbol info if found
-    pub fn lookup_capture_by_relation(&self, capture_name: &str, relation_name: &str) -> Option<&CaptureSymbol> {
-        self.captures.get(capture_name).filter(|symbol| symbol.relationref.name == relation_name)
+    pub fn lookup_capture_by_relation(
+        &self,
+        capture_name: &str,
+        relation_name: &str,
+    ) -> Option<&CaptureSymbol> {
+        self.captures
+            .get(capture_name)
+            .filter(|symbol| symbol.relationref.name == relation_name)
     }
 
     pub fn lookup_capture_for_relation(&self, relation_name: &str) -> Option<&CaptureSymbol> {
@@ -628,15 +641,65 @@ impl IrGenerator {
                     attr_type: AttributeType::String,
                 });
 
+                // Add provenance attributes to the relation definition
+                for capture_ref in captures {
+                    if let Lval::Capture(capture_name, provenance_type) = &**capture_ref {
+                        if let Some(mappings) = context.get_capture_mappings(capture_name) {
+                            for mapping in mappings {
+                                match provenance_type {
+                                    Some(ProvenanceType::Path) => {
+                                        relation_attributes.insert(Attribute {
+                                            name: format!(
+                                                "{}_path",
+                                                normalize_string(&mapping.symbol)
+                                            ),
+                                            attr_type: AttributeType::String,
+                                        });
+                                    }
+                                    Some(ProvenanceType::Span) => {
+                                        relation_attributes.insert(Attribute {
+                                            name: format!(
+                                                "{}_span",
+                                                normalize_string(&mapping.symbol)
+                                            ),
+                                            attr_type: AttributeType::String,
+                                        });
+                                    }
+                                    Some(ProvenanceType::Full) => {
+                                        relation_attributes.insert(Attribute {
+                                            name: format!(
+                                                "{}_path",
+                                                normalize_string(&mapping.symbol)
+                                            ),
+                                            attr_type: AttributeType::String,
+                                        });
+                                        relation_attributes.insert(Attribute {
+                                            name: format!(
+                                                "{}_span",
+                                                normalize_string(&mapping.symbol)
+                                            ),
+                                            attr_type: AttributeType::String,
+                                        });
+                                    }
+                                    Some(ProvenanceType::Default) | None => {
+                                        // No provenance attributes needed
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if captures.is_empty() {
                     return Err(Error::GenerationError(
-                        "Emit operation needs to have at least one associated capture reference"
+                        format!("Emit operation '{}' needs to have at least one associated capture reference", rel_name)
                             .to_string(),
                     ));
                 }
 
                 // check that at least one of the defined capture references has an associated
                 // provenance
+                /*
                 captures.iter()
                     .find_map(|c| match c.as_ref() {
                         Lval::Capture(_, provenance_type) => provenance_type.clone(),
@@ -644,10 +707,11 @@ impl IrGenerator {
                     })
                     .ok_or_else(|| {
                         Error::GenerationError(
-                            "Emit operation needs to have at least one associated capture reference with provenance"
+                            format!("Emit operation '{}' needs to have at least one associated capture reference with provenance", rel_name)
                                 .to_string()
                         )
                     })?;
+                 */
 
                 // Find and update existing relation if it exists, otherwise create a new one
                 let relation_exists = ir_program
@@ -741,9 +805,15 @@ impl IrGenerator {
                 for capture_ref in captures {
                     if let Lval::Capture(capture_name, provenance_type) = &**capture_ref {
                         // Look up the capture's relation, prioritizing internal relations
-                        let symbol = self.symbol_table
+                        let symbol = self
+                            .symbol_table
                             .lookup_capture_by_role(capture_name, IRRelationRole::Internal)
-                            .or_else(|| self.symbol_table.lookup_capture_by_role(capture_name, IRRelationRole::Intermediate))
+                            .or_else(|| {
+                                self.symbol_table.lookup_capture_by_role(
+                                    capture_name,
+                                    IRRelationRole::Intermediate,
+                                )
+                            })
                             .or_else(|| self.symbol_table.lookup_capture(capture_name))
                             .ok_or_else(|| {
                                 Error::ResolveError(format!(
@@ -788,48 +858,43 @@ impl IrGenerator {
 
                             // Look up the specific attribute mapping for this capture and augment
                             // with provenance.
-                            // provenance.
                             if let Some(mappings) = context.get_capture_mappings(capture_name) {
                                 for mapping in mappings {
                                     // Add Path relation node only for the mapped attribute
-                                    let provenance_attr_name = {
-                                        match provenance_type {
-                                            Some(ProvenanceType::Path) => {
+                                    let path_node = provenance_type
+                                        .as_ref()
+                                        .and_then(|p| match p {
+                                            ProvenanceType::Path => Some(format!(
+                                                "rhs_{}_path",
+                                                mapping.symbol.to_lowercase()
+                                            )),
+                                            ProvenanceType::Span => Some(format!(
+                                                "rhs_{}_span",
+                                                mapping.symbol.to_lowercase()
+                                            )),
+                                            ProvenanceType::Full => Some(format!(
+                                                "rhs_{}_path",
+                                                mapping.symbol.to_lowercase()
+                                            )),
+                                            ProvenanceType::Default => None,
+                                        })
+                                        .map(|prv_attr_name| RHSNode {
+                                            relation_name: "PathExpr".to_string(),
+                                            attributes: vec![
+                                                prv_attr_name,
                                                 format!(
-                                                    "rhs_{}_path",
-                                                    mapping.symbol.to_lowercase()
-                                                )
-                                            }
-                                            Some(ProvenanceType::Span) => {
-                                                format!(
-                                                    "rhs_{}_span",
-                                                    mapping.symbol.to_lowercase()
-                                                )
-                                            }
-                                            Some(ProvenanceType::Full) => {
-                                                format!(
-                                                    "rhs_{}_path",
-                                                    mapping.symbol.to_lowercase()
-                                                )
-                                            }
-                                            Some(ProvenanceType::Default) | None => "".to_string(),
-                                        }
-                                    };
+                                                    "rhs_{}_id",
+                                                    mapping
+                                                        .symbol
+                                                        .to_lowercase()
+                                                        .trim_end_matches("_id")
+                                                ),
+                                            ],
+                                        });
 
-                                    let path_node = RHSNode {
-                                        relation_name: "PathExpr".to_string(),
-                                        attributes: vec![
-                                            provenance_attr_name,
-                                            format!(
-                                                "rhs_{}_id",
-                                                mapping
-                                                    .symbol
-                                                    .to_lowercase()
-                                                    .trim_end_matches("_id")
-                                            ),
-                                        ],
-                                    };
-                                    rhs_nodes.push(RHSVal::RHSNode(path_node));
+                                    if let Some(path_node) = path_node {
+                                        rhs_nodes.push(RHSVal::RHSNode(path_node));
+                                    }
                                 }
                             } else {
                                 return Err(Error::ResolveError(format!(
@@ -2095,7 +2160,10 @@ impl IrGenerator {
                         ))
                     })?;
 
-                    Ok(StringPart::Dynamic(format!("rhs_{}", normalize_string(capture_name))))
+                    Ok(StringPart::Dynamic(format!(
+                        "rhs_{}",
+                        normalize_string(capture_name)
+                    )))
                 }
                 Lval::String(s) => Ok(StringPart::Static(s[1..s.len() - 1].to_string())),
                 _ => Err(Error::GenerationError(format!(
