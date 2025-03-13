@@ -293,6 +293,7 @@ impl Compiler {
             } else {
                 // Try to load from default path
                 let default_path = PathBuf::from("hydration.yaml");
+
                 match BucketConfig::from_yaml_file(&default_path) {
                     Ok(config) => config,
                     Err(_) => {

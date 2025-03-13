@@ -926,7 +926,6 @@ impl IrGenerator {
                 // Update symbol table with internal relation captures
                 register_internal_relation_captures(
                     capture_decls,
-                    //&internal_relation,
                     &internal_relation_name,
                     symbol_table,
                 )?;
