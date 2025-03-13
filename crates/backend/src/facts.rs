@@ -537,7 +537,7 @@ mod tests {
         let source_code = "function test() {}";
         let solidity = Solidity;
         let mut parser = Parser::new();
-        parser.set_language(solidity.language()).unwrap();
+        parser.set_language(&solidity.get_tree_sitter_language()).unwrap();
         let tree = parser.parse(source_code, None).unwrap();
 
         let fact_node = FactNode::new(source_code, &tree.root_node(), 1, None);

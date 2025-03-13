@@ -347,6 +347,7 @@ impl Compiler {
                                     ),
                                 ],
                             )
+                            .with_stream_shape("actor-flow-stream", vec!["mock-actor-flows", "flow"], "sequenceDiagram")
                     }
                 }
             };
@@ -360,7 +361,7 @@ impl Compiler {
             let drain = DdlogDrain::new(lines);
 
             hydrator.process_drain(drain);
-            Some(hydrator.dump())
+            Some(hydrator.dump_streams())
         } else {
             None
         };

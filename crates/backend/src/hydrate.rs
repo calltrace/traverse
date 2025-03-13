@@ -1,4 +1,4 @@
-use regex::Regex;
+// use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 /// # Hydrate Module
@@ -127,6 +127,8 @@ pub struct BucketConfig {
     relation_priorities: HashMap<String, u32>,
     #[serde(default)]
     streams: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    stream_shapes: HashMap<String, String>,
 }
 
 // Helper functions for serde default values
@@ -156,6 +158,7 @@ impl BucketConfig {
             relation_to_bucket: HashMap::new(),
             relation_priorities: HashMap::new(),
             streams: HashMap::new(),
+            stream_shapes: HashMap::new(),
         }
     }
 
@@ -323,12 +326,44 @@ impl BucketConfig {
     /// * `Self` - The updated configuration
     pub fn with_stream(mut self, stream_name: &str, bucket_names: Vec<&str>) -> Self {
         let bucket_names: Vec<String> = bucket_names.iter().map(|&s| s.to_string()).collect();
-        
+
         // Ensure we have at least 2 buckets
         if bucket_names.len() >= 2 {
             self.streams.insert(stream_name.to_string(), bucket_names);
+            // Use default shape
+            self.stream_shapes
+                .insert(stream_name.to_string(), "default".to_string());
         }
-        
+
+        self
+    }
+
+    /// Define a stream with a custom shape
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_name` - Name of the stream
+    /// * `bucket_names` - List of bucket names to include in the stream
+    /// * `shape` - Shape of the stream
+    ///
+    /// # Returns
+    ///
+    /// * `Self` - The updated configuration
+    pub fn with_stream_shape(
+        mut self,
+        stream_name: &str,
+        bucket_names: Vec<&str>,
+        shape: &str,
+    ) -> Self {
+        let bucket_names: Vec<String> = bucket_names.iter().map(|&s| s.to_string()).collect();
+
+        // Ensure we have at least 2 buckets
+        if bucket_names.len() >= 2 {
+            self.streams.insert(stream_name.to_string(), bucket_names);
+            self.stream_shapes
+                .insert(stream_name.to_string(), shape.to_string());
+        }
+
         self
     }
 }
@@ -503,7 +538,7 @@ impl Bucket {
                 .map_or("", |v| match v {
                     AttributeValue::String(s) => s,
                     AttributeValue::Path(p) => p,
-                    AttributeValue::Number(n) => "", // Skip numbers as values
+                    AttributeValue::Number(_) => "", // Skip numbers as values
                 });
 
             let fact_path = if !fact.path.is_empty() {
@@ -562,19 +597,21 @@ impl Display for Pool {
 pub struct Stream {
     name: String,
     bucket_names: Vec<String>,
+    shape: String,
 }
 
 impl Stream {
-    fn new(name: String, bucket_names: Vec<String>) -> Self {
+    fn new(name: String, bucket_names: Vec<String>, shape: String) -> Self {
         Stream {
             name,
             bucket_names,
+            shape,
         }
     }
 
     fn collect_facts<'a>(&'a self, buckets: &'a HashMap<String, Bucket>) -> Vec<&'a OrderedFact> {
         let mut all_facts = Vec::new();
-        
+
         // Collect facts from all buckets in this stream
         for bucket_name in &self.bucket_names {
             if let Some(bucket) = buckets.get(bucket_name) {
@@ -583,26 +620,32 @@ impl Stream {
                 }
             }
         }
-        
+
         // Sort all facts by path
         all_facts.sort_by(|a, b| compare_path_segments(&a.path, &b.path));
-        
+
         all_facts
     }
 
     fn dump<'a>(&'a self, buckets: &'a HashMap<String, Bucket>) -> String {
         let mut result = String::new();
-        
-        result.push_str(&format!("%% Stream: {} (buckets: {:?})\n", self.name, self.bucket_names));
-        
+
+        result.push_str(&format!(
+            "%% Stream: {} (shape: {}, buckets: {:?})\n",
+            self.name, self.shape, self.bucket_names
+        ));
+
+        // Output the stream shape first
+        result.push_str(&format!("{}\n", self.shape));
+
         // Collect and sort all facts from the buckets in this stream
         let all_facts = self.collect_facts(buckets);
-        
+
         // Output the facts in order
         for fact in all_facts {
             let bucket_name = fact.fact.relation_name.clone();
             let bucket = buckets.get(&bucket_name);
-            
+
             let value_attr = bucket.map_or("val".to_string(), |b| b.value_attribute());
             let value = fact
                 .fact
@@ -613,13 +656,13 @@ impl Stream {
                     AttributeValue::Path(p) => p,
                     AttributeValue::Number(_) => "", // Skip numbers as values
                 });
-            
+
             result.push_str(&format!(
                 "%% Stream Fact: (bucket: {}, path: {})\n{}\n",
                 bucket_name, fact.path, value
             ));
         }
-        
+
         result
     }
 }
@@ -636,12 +679,18 @@ impl Hydrator {
         // Initialize streams from config
         let mut streams = HashMap::new();
         for (stream_name, bucket_names) in &config.streams {
+            let shape = config
+                .stream_shapes
+                .get(stream_name)
+                .cloned()
+                .unwrap_or_else(|| "default".to_string());
+
             streams.insert(
                 stream_name.clone(),
-                Stream::new(stream_name.clone(), bucket_names.clone()),
+                Stream::new(stream_name.clone(), bucket_names.clone(), shape),
             );
         }
-        
+
         Hydrator {
             global_config: config,
             buckets: HashMap::new(),
@@ -725,35 +774,52 @@ impl Hydrator {
     pub fn clear(&mut self) {
         self.buckets.clear();
     }
-    
+
     /// Get a reference to the streams
     pub fn streams(&self) -> &HashMap<String, Stream> {
         &self.streams
     }
-    
+
     /// Dump a specific stream by name
     pub fn dump_stream(&self, stream_name: &str) -> Option<String> {
-        self.streams.get(stream_name).map(|stream| stream.dump(&self.buckets))
+        self.streams
+            .get(stream_name)
+            .map(|stream| stream.dump(&self.buckets))
     }
-    
+
     /// Dump all streams
     pub fn dump_streams(&self) -> String {
         let mut result = String::new();
-        
+
         for stream in self.streams.values() {
             result.push_str(&stream.dump(&self.buckets));
             result.push_str("\n");
         }
-        
+
         result
     }
-    
+
     /// Add a new stream
     pub fn add_stream(&mut self, stream_name: &str, bucket_names: Vec<String>) {
         if bucket_names.len() >= 2 {
             self.streams.insert(
                 stream_name.to_string(),
-                Stream::new(stream_name.to_string(), bucket_names),
+                Stream::new(stream_name.to_string(), bucket_names, "default".to_string()),
+            );
+        }
+    }
+
+    /// Add a new stream with a custom shape
+    pub fn add_stream_with_shape(
+        &mut self,
+        stream_name: &str,
+        bucket_names: Vec<String>,
+        shape: &str,
+    ) {
+        if bucket_names.len() >= 2 {
+            self.streams.insert(
+                stream_name.to_string(),
+                Stream::new(stream_name.to_string(), bucket_names, shape.to_string()),
             );
         }
     }
@@ -791,60 +857,426 @@ mod tests {
 
         assert_eq!(config.pool_shape, "custom_shape");
     }
-    
+
     #[test]
     fn test_bucket_config_with_stream() {
         // Test that the with_stream method works
         let config = BucketConfig::new().with_stream("test_stream", vec!["bucket1", "bucket2"]);
-        
+
         assert!(config.streams.contains_key("test_stream"));
         let buckets = config.streams.get("test_stream").unwrap();
         assert_eq!(buckets.len(), 2);
         assert_eq!(buckets[0], "bucket1");
         assert_eq!(buckets[1], "bucket2");
+
+        // Check default shape
+        assert_eq!(config.stream_shapes.get("test_stream").unwrap(), "default");
     }
-    
+
+    #[test]
+    fn test_bucket_config_with_stream_shape() {
+        // Test that the with_stream_shape method works
+        let config = BucketConfig::new().with_stream_shape(
+            "test_stream",
+            vec!["bucket1", "bucket2"],
+            "custom_shape",
+        );
+
+        assert!(config.streams.contains_key("test_stream"));
+        let buckets = config.streams.get("test_stream").unwrap();
+        assert_eq!(buckets.len(), 2);
+        assert_eq!(buckets[0], "bucket1");
+        assert_eq!(buckets[1], "bucket2");
+
+        // Check custom shape
+        assert_eq!(
+            config.stream_shapes.get("test_stream").unwrap(),
+            "custom_shape"
+        );
+    }
+
     #[test]
     fn test_stream_collect_facts() {
         // Create a test configuration
         let config = BucketConfig::new()
             .with_bucket_simple("bucket1", 100, "path", "val", vec!["relation1"])
             .with_bucket_simple("bucket2", 200, "path", "val", vec!["relation2"])
-            .with_stream("test_stream", vec!["bucket1", "bucket2"]);
-            
+            .with_stream_shape("test_stream", vec!["bucket1", "bucket2"], "test_shape");
+
         // Create a hydrator
         let mut hydrator = Hydrator::new(config);
-        
+
         // Create some test facts
         let mut fact1 = DdlogFact {
             relation_name: "relation1".to_string(),
             attributes: HashMap::new(),
+            diff: None,
         };
-        fact1.attributes.insert("path".to_string(), AttributeValue::Path("1.2".to_string()));
-        fact1.attributes.insert("val".to_string(), AttributeValue::String("value1".to_string()));
-        
+        fact1
+            .attributes
+            .insert("path".to_string(), AttributeValue::Path("1.2".to_string()));
+        fact1.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("value1".to_string()),
+        );
+
         let mut fact2 = DdlogFact {
             relation_name: "relation2".to_string(),
             attributes: HashMap::new(),
+            diff: None,
         };
-        fact2.attributes.insert("path".to_string(), AttributeValue::Path("1.1".to_string()));
-        fact2.attributes.insert("val".to_string(), AttributeValue::String("value2".to_string()));
-        
+        fact2
+            .attributes
+            .insert("path".to_string(), AttributeValue::Path("1.1".to_string()));
+        fact2.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("value2".to_string()),
+        );
+
         // Process the facts
         hydrator.process_fact(fact1);
         hydrator.process_fact(fact2);
-        
+
         // Get the stream output
         let stream_output = hydrator.dump_stream("test_stream").unwrap();
-        
+
         // The output should contain both facts, with fact2 before fact1 due to path ordering
+        assert!(stream_output.contains("test_shape"));
         assert!(stream_output.contains("value1"));
         assert!(stream_output.contains("value2"));
-        
+
         // Check if the facts are in the correct order (path 1.1 before 1.2)
         let value1_pos = stream_output.find("value1").unwrap();
         let value2_pos = stream_output.find("value2").unwrap();
         assert!(value2_pos < value1_pos);
+    }
+
+    #[test]
+    fn test_different_path_attributes_in_stream() {
+        let config = BucketConfig::new()
+            .with_bucket_simple("bucket_a", 100, "path_a", "val", vec!["relation_a"])
+            .with_bucket_simple("bucket_b", 100, "path_b", "val", vec!["relation_b"])
+            .with_stream_shape("mixed_stream", vec!["bucket_a", "bucket_b"], "mixed_shape");
+
+        let mut hydrator = Hydrator::new(config);
+
+        let mut fact_a1 = DdlogFact {
+            relation_name: "relation_a".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        fact_a1
+            .attributes
+            .insert("path_a".to_string(), AttributeValue::Path("2".to_string()));
+        fact_a1.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("value_a1".to_string()),
+        );
+
+        let mut fact_a2 = DdlogFact {
+            relation_name: "relation_a".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        fact_a2
+            .attributes
+            .insert("path_a".to_string(), AttributeValue::Path("1".to_string()));
+        fact_a2.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("value_a2".to_string()),
+        );
+
+        let mut fact_b1 = DdlogFact {
+            relation_name: "relation_b".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        fact_b1
+            .attributes
+            .insert("path_b".to_string(), AttributeValue::Path("4".to_string()));
+        fact_b1.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("value_b1".to_string()),
+        );
+
+        let mut fact_b2 = DdlogFact {
+            relation_name: "relation_b".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        fact_b2
+            .attributes
+            .insert("path_b".to_string(), AttributeValue::Path("3".to_string()));
+        fact_b2.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("value_b2".to_string()),
+        );
+
+        hydrator.process_fact(fact_a1);
+        hydrator.process_fact(fact_b1);
+        hydrator.process_fact(fact_a2);
+        hydrator.process_fact(fact_b2);
+
+        let stream_output = hydrator.dump_stream("mixed_stream").unwrap();
+
+        assert!(stream_output.contains("mixed_shape"));
+
+        let pos_a2 = stream_output.find("value_a2").unwrap();
+        let pos_a1 = stream_output.find("value_a1").unwrap();
+        let pos_b2 = stream_output.find("value_b2").unwrap();
+        let pos_b1 = stream_output.find("value_b1").unwrap();
+
+        assert!(
+            pos_a2 < pos_a1,
+            "Facts from bucket_a should be ordered by path_a"
+        );
+        assert!(
+            pos_b2 < pos_b1,
+            "Facts from bucket_b should be ordered by path_b"
+        );
+        assert!(
+            pos_a1 < pos_b2,
+            "All facts should be ordered numerically by path"
+        );
+
+        assert!(stream_output.contains("path: 1"));
+        assert!(stream_output.contains("path: 2"));
+        assert!(stream_output.contains("path: 3"));
+        assert!(stream_output.contains("path: 4"));
+    }
+
+    #[test]
+    fn test_complex_stream_ordering() {
+        let config = BucketConfig::new()
+            .with_bucket_simple("imports", 100, "path", "val", vec!["import_relation"])
+            .with_bucket_simple("functions", 90, "path", "val", vec!["function_relation"])
+            .with_bucket_simple("classes", 80, "path", "val", vec!["class_relation"])
+            .with_bucket_simple("methods", 70, "path", "val", vec!["method_relation"])
+            .with_stream_shape(
+                "code_stream",
+                vec!["imports", "functions", "classes", "methods"],
+                "code_shape",
+            )
+            .with_stream_shape("api_stream", vec!["functions", "methods"], "api_shape");
+
+        let mut hydrator = Hydrator::new(config);
+
+        let mut import1 = DdlogFact {
+            relation_name: "import_relation".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        import1
+            .attributes
+            .insert("path".to_string(), AttributeValue::Path("1".to_string()));
+        import1.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("import os".to_string()),
+        );
+
+        let mut import2 = DdlogFact {
+            relation_name: "import_relation".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        import2
+            .attributes
+            .insert("path".to_string(), AttributeValue::Path("2".to_string()));
+        import2.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("import sys".to_string()),
+        );
+
+        let mut func1 = DdlogFact {
+            relation_name: "function_relation".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        func1
+            .attributes
+            .insert("path".to_string(), AttributeValue::Path("10.1".to_string()));
+        func1.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("def func1(): pass".to_string()),
+        );
+
+        let mut func2 = DdlogFact {
+            relation_name: "function_relation".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        func2
+            .attributes
+            .insert("path".to_string(), AttributeValue::Path("10.2".to_string()));
+        func2.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("def func2(): pass".to_string()),
+        );
+
+        let mut class1 = DdlogFact {
+            relation_name: "class_relation".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        class1
+            .attributes
+            .insert("path".to_string(), AttributeValue::Path("20.1".to_string()));
+        class1.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("class Class1: pass".to_string()),
+        );
+
+        let mut class2 = DdlogFact {
+            relation_name: "class_relation".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        class2
+            .attributes
+            .insert("path".to_string(), AttributeValue::Path("20.2".to_string()));
+        class2.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("class Class2: pass".to_string()),
+        );
+
+        let mut method1 = DdlogFact {
+            relation_name: "method_relation".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        method1.attributes.insert(
+            "path".to_string(),
+            AttributeValue::Path("20.1.1".to_string()),
+        );
+        method1.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("def method1(self): pass".to_string()),
+        );
+
+        let mut method2 = DdlogFact {
+            relation_name: "method_relation".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        method2.attributes.insert(
+            "path".to_string(),
+            AttributeValue::Path("20.1.2".to_string()),
+        );
+        method2.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("def method2(self): pass".to_string()),
+        );
+
+        let mut method3 = DdlogFact {
+            relation_name: "method_relation".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        method3.attributes.insert(
+            "path".to_string(),
+            AttributeValue::Path("20.2.1".to_string()),
+        );
+        method3.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("def method3(self): pass".to_string()),
+        );
+
+        hydrator.process_fact(method2.clone());
+        hydrator.process_fact(import2.clone());
+        hydrator.process_fact(class1.clone());
+        hydrator.process_fact(func2.clone());
+        hydrator.process_fact(method1.clone());
+        hydrator.process_fact(import1.clone());
+        hydrator.process_fact(class2.clone());
+        hydrator.process_fact(func1.clone());
+        hydrator.process_fact(method3.clone());
+
+        let code_stream_output = hydrator.dump_stream("code_stream").unwrap();
+
+        assert!(code_stream_output.contains("code_shape"));
+        assert!(code_stream_output.contains("import os"));
+        assert!(code_stream_output.contains("import sys"));
+
+        assert!(code_stream_output.contains("def func1(): pass"));
+        assert!(code_stream_output.contains("def func2(): pass"));
+
+        assert!(code_stream_output.contains("class Class1: pass"));
+        assert!(code_stream_output.contains("class Class2: pass"));
+
+        assert!(code_stream_output.contains("def method1(self): pass"));
+        assert!(code_stream_output.contains("def method2(self): pass"));
+        assert!(code_stream_output.contains("def method3(self): pass"));
+
+        let import_os_pos = code_stream_output.find("import os").unwrap();
+        let import_sys_pos = code_stream_output.find("import sys").unwrap();
+        let func1_pos = code_stream_output.find("def func1(): pass").unwrap();
+        let func2_pos = code_stream_output.find("def func2(): pass").unwrap();
+        let class1_pos = code_stream_output.find("class Class1: pass").unwrap();
+        let class2_pos = code_stream_output.find("class Class2: pass").unwrap();
+        let method1_pos = code_stream_output.find("def method1(self): pass").unwrap();
+        let method2_pos = code_stream_output.find("def method2(self): pass").unwrap();
+        let method3_pos = code_stream_output.find("def method3(self): pass").unwrap();
+
+        assert!(import_os_pos < import_sys_pos);
+        assert!(import_sys_pos < func1_pos);
+        assert!(func1_pos < func2_pos);
+        assert!(func2_pos < class1_pos);
+        assert!(class1_pos < class2_pos);
+        assert!(class1_pos < method1_pos);
+        assert!(class2_pos < method3_pos);
+        assert!(method1_pos < method2_pos);
+        assert!(method2_pos < method3_pos);
+
+        let api_stream_output = hydrator.dump_stream("api_stream").unwrap();
+
+        assert!(api_stream_output.contains("api_shape"));
+        assert!(!api_stream_output.contains("import os"));
+        assert!(!api_stream_output.contains("import sys"));
+        assert!(!api_stream_output.contains("class Class1: pass"));
+        assert!(!api_stream_output.contains("class Class2: pass"));
+        assert!(api_stream_output.contains("def func1(): pass"));
+        assert!(api_stream_output.contains("def func2(): pass"));
+        assert!(api_stream_output.contains("def method1(self): pass"));
+        assert!(api_stream_output.contains("def method2(self): pass"));
+        assert!(api_stream_output.contains("def method3(self): pass"));
+
+        let api_func1_pos = api_stream_output.find("def func1(): pass").unwrap();
+        let api_func2_pos = api_stream_output.find("def func2(): pass").unwrap();
+        let api_method1_pos = api_stream_output.find("def method1(self): pass").unwrap();
+        let api_method2_pos = api_stream_output.find("def method2(self): pass").unwrap();
+        let api_method3_pos = api_stream_output.find("def method3(self): pass").unwrap();
+
+        assert!(api_func1_pos < api_func2_pos);
+        assert!(api_method1_pos < api_method2_pos);
+        assert!(api_method2_pos < api_method3_pos);
+
+        hydrator.add_stream_with_shape(
+            "doc_stream",
+            vec!["functions".to_string(), "classes".to_string()],
+            "doc_shape",
+        );
+
+        let doc_stream_output = hydrator.dump_stream("doc_stream").unwrap();
+
+        assert!(doc_stream_output.contains("doc_shape"));
+        assert!(!doc_stream_output.contains("import os"));
+        assert!(!doc_stream_output.contains("import sys"));
+        assert!(!doc_stream_output.contains("def method1(self): pass"));
+        assert!(!doc_stream_output.contains("def method2(self): pass"));
+        assert!(!doc_stream_output.contains("def method3(self): pass"));
+        assert!(doc_stream_output.contains("def func1(): pass"));
+        assert!(doc_stream_output.contains("def func2(): pass"));
+        assert!(doc_stream_output.contains("class Class1: pass"));
+        assert!(doc_stream_output.contains("class Class2: pass"));
+
+        let doc_func1_pos = doc_stream_output.find("def func1(): pass").unwrap();
+        let doc_func2_pos = doc_stream_output.find("def func2(): pass").unwrap();
+        let doc_class1_pos = doc_stream_output.find("class Class1: pass").unwrap();
+        let doc_class2_pos = doc_stream_output.find("class Class2: pass").unwrap();
+
+        assert!(doc_func1_pos < doc_func2_pos);
+        assert!(doc_class1_pos < doc_class2_pos);
+        assert!(doc_func2_pos < doc_class1_pos);
     }
 
     #[test]

@@ -1,3 +1,32 @@
+/*
+ * TRAVERSE SMART CONTRACT CALL GRAPH DSL
+ * 
+ * This DSL defines rules for analyzing Solidity smart contract code to generate
+ * sequence diagrams that visualize function call relationships. It works by:
+ * 
+ * 1. Identifying function calls between contracts (inter-contract calls)
+ *    - Captures caller contract and function
+ *    - Captures callee contract and function
+ *    - Tracks return values from called functions
+ * 
+ * 2. Identifying function calls within the same contract (intra-contract calls)
+ *    - Captures internal function relationships
+ *    - Distinguishes between calls with and without return values
+ * 
+ * 3. Creating a mock actor to represent external calls
+ *    - Identifies externally visible functions (with "external" visibility)
+ *    - Models these as entry points from outside the contract system
+ * 
+ * 4. Generating Mermaid sequence diagram syntax
+ *    - Defines participants (contracts and actors)
+ *    - Creates arrows for function calls
+ *    - Shows activation/deactivation of contracts during processing
+ *    - Visualizes return values with dashed arrows
+ * 
+ * The resulting sequence diagram provides a comprehensive view of contract
+ * interactions, helping developers understand the flow of execution and
+ * data across the smart contract system.
+ */
 (rules  
   /* 
    * Infers a complete function call relationship between contracts.
@@ -158,15 +187,32 @@
 
 
  /*
-  * Introduce a mock actor required for mapping out operations that are not 
-  * invoked explicitly. 
+  * Introduces a mock actor required for mapping out operations that are not 
+  * invoked explicitly.
+  * 
+  * This rule creates a synthetic actor that can be used to represent
+  * external calls or system events that trigger contract functions
+  * but aren't explicitly represented in the code.
+  * 
+  * It works by associating the mock actor with a source file ID,
+  * allowing it to be referenced in the visualization.
   */
   (infer MockActor (?source_file_id)
     via ((SourceFile ?source_file_id, _, _))
   )
 
-  /* 
+ /* 
   * Identifies all the functions that are defined within a contract.
+  * 
+  * This rule finds:
+  * - The contract name and ID
+  * - Each function defined in the contract
+  * - The visibility of each function
+  * 
+  * It works by finding function definitions, determining their visibility,
+  * and associating them with their parent contract declaration.
+  * This information is used to identify functions that can be called
+  * by external actors.
   */
   (infer ContractFunction (?contract, ?contract_id, ?mock_actor_func_id, ?func, ?visibility)
     via ((FunctionDefinition ?mock_actor_func_id, _, _)
@@ -178,11 +224,19 @@
     )
  )
 
-
+  /*
+   * Captures the source file ID for the mock actor.
+   * This allows the mock actor to be referenced in the visualization.
+   */
   (capture MockActor
     (source_file_id @MockActorId)
   )
 
+  /*
+   * Captures external functions in contracts that can be called by the mock actor.
+   * This rule filters for functions with "external" visibility,
+   * which are the entry points that can be called from outside the contract.
+   */
   (capture ContractFunction
     (contract @MockActorContract)
     (contract_id @MockActorContractId)
@@ -249,6 +303,11 @@
 
   /* ------- MOCK ACTOR EMISSIONS -------- */
 
+  /*
+   * Emits a Mermaid syntax line that defines the mock actor.
+   * This creates an actor box in the sequence diagram representing
+   * external calls to the contract system.
+   */
   (emit MermaidLineMockActorLine
     @MockActorId
     (do 
@@ -256,6 +315,12 @@
     )
   )
 
+  /*
+   * Emits a Mermaid syntax line that defines a contract as a participant
+   * that can be called by the mock actor.
+   * This creates a participant box in the sequence diagram for each contract
+   * that has externally visible functions.
+   */
   (emit MermaidLineMockActorParticipantLine
     @MockActorContractId
     (do
@@ -263,18 +328,29 @@
     )
   )
 
+  /*
+   * Emits a Mermaid syntax line that represents a call from the mock actor to a contract function.
+   * This creates an arrow in the sequence diagram from the mock actor
+   * to a contract, labeled with the name of the external function being called.
+   */
   (emit MermaidLineMockActorSignalLine
     @:path:MockActorFuncId
     @MockActorContract
     @MockActorFunc
     @Visibility
     (do
-      {(format "MockActor ->>" @MockActorContract ": " @MockActorFunc " " @Visibility)}
+      {(format "MockActor ->>" @MockActorContract ": " @MockActorFunc)}
     )
   )
 
   /* ------- INTRA-CONTRACT EMISSIONS -------- */
 
+  /*
+   * Emits a Mermaid syntax line that defines the caller contract as a participant
+   * in an intra-contract call.
+   * This creates a participant box in the sequence diagram for the contract
+   * that contains both the caller and callee functions.
+   */
   (emit MermaidLineIntraCallerParticipantLine
     @:path:IntraContractId
     @IntraContract
@@ -283,6 +359,12 @@
     )
   )
 
+  /*  
+   * Emits a Mermaid syntax line that defines the callee contract as a participant
+   * in an intra-contract call.
+   * This is redundant with the caller participant line for intra-contract calls,
+   * but is included for consistency with the inter-contract pattern.
+   */
   (emit MermaidLineIntraCalleeParticipantLine
     @:path:IntraContractId
     @IntraContract
@@ -319,7 +401,11 @@
     )
   )
 
-
+  /*
+   * Emits a Mermaid syntax line that activates the contract in an intra-contract call.
+   * This creates an activation bar in the sequence diagram for the contract,
+   * indicating that it is actively processing the internal function call.
+   */
   (emit MermaidLineIntraActivateLine
     @:path:IntraCeId
     @IntraContract
@@ -329,6 +415,11 @@
     )
   )
 
+  /*
+   * Emits a Mermaid syntax line that deactivates the contract in an intra-contract call.
+   * This ends the activation bar in the sequence diagram for the contract,
+   * indicating that it has completed processing the internal function call.
+   */
   (emit MermaidLineIntraDeactivateLine
     @:path:IntraCeId
     @IntraContract
@@ -337,6 +428,11 @@
     )
   )
 
+  /*
+   * Emits a Mermaid syntax line that represents the function return in an intra-contract call.
+   * This creates a dashed self-arrow in the sequence diagram within the contract,
+   * labeled with the return statement, visualizing the internal return flow.
+   */
   (emit MermaidLineIntraReturnSignalLine
     @:path:IntraCeId
     @IntraContract
@@ -448,60 +544,4 @@
       {(format @CalleeContract "-->>" @CallerContract ": " @ReturnStmt)}
     )
   )
-
-  /* ------- INTRA-CONTRACT EMISSIONS -------- */
-  
-  /* REMOVE - DUPLICATE
-
-  (emit MermaidLineIntraCallerParticipantLine
-    @:path:Contract
-    (do
-      {(format "participant " @Contract)}
-    )
-  )
-
-  (emit MermaidLineIntraCalleeParticipantLine
-    @:path:Contract
-    (do
-      {(format "participant " @Contract)}
-    )
-  )
-
-  (emit MermaidLineIntraSignalLine
-    @:path:IntraCeId
-    @:path:Contract
-    @:path:IntraCalleeFunc
-    (do
-      {(format @Contract "->>" @Contract ": " @IntraCalleeFunc)}
-    )
-  )
-
-  (emit MermaidLineIntraActivateLine
-    @:path:IntraCeId
-    @:path:CalleeContract
-    (do
-      {(format "activate " @CalleeContract)}
-    )
-  )
-
-  (emit MermaidLineIntraDeactivateLine
-    @:path:IntraCeId
-    @:path:Contract
-    (do
-      {(format "deactivate " @Contract)}
-    )
-  )
-
-  (emit MermaidLineIntraReturnSignalLine
-    @:path:IntraCeId
-    @:path:Contract
-    @:path:IntraReturnStmt
-    (do
-      {(format @Contract "-->>" @Contract ": " @IntraReturnStmt)}
-    )
-  )
-  */
-
-
-
 )

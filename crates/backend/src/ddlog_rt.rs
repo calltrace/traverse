@@ -442,7 +442,7 @@ DoubledRun(t) :- TestRun(d),
 
         generate_rust_project(dir.path(), project_name, dl_content);
 
-        let build_result = build_ddlog_crate(dir.path(), project_name);
+        let build_result = build_ddlog_crate(dir.path(), project_name, false);
         assert!(build_result.is_ok());
 
         let commands = vec![
