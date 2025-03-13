@@ -156,6 +156,42 @@
     )
   )
 
+
+ /*
+  * Introduce a mock actor required for mapping out operations that are not 
+  * invoked explicitly. 
+  */
+  (infer MockActor (?source_file_id)
+    via ((SourceFile ?source_file_id, _, _))
+  )
+
+  /* 
+  * Identifies all the functions that are defined within a contract.
+  */
+  (infer ContractFunction (?contract, ?contract_id, ?func_id, ?func, ?visibility)
+    via ((FunctionDefinition ?func_id, _, _)
+        (Visibility _, ?func_id, ?visibility)
+        (Identifier _, ?func_id, ?func)
+        (ContractDeclaration ?contract_id, _, _)
+        (Identifier _, ?contract_id, ?contract)
+        (Ancestor ?func_id, ?contract_id)
+    )
+ )
+
+
+  (capture MockActor
+    (source_file_id @MockActorId)
+  )
+
+  (capture ContractFunction
+    (contract @MockActorContract)
+    (contract_id @MockActorContractId)
+    (func_id @MockActorFuncId)
+    (func @MockActorFunc)
+    (visibility @Visibility)
+    (when (eq @visibility "external"))
+  )
+  
   /* 
    * Captures the essential elements of a cross-contract function call.
    * This rule extracts and names the key components needed for visualization:
@@ -210,6 +246,28 @@
     (callee_func @IntraCalleeFuncNoReturn)
   )
 
+  /* ------- MOCK ACTOR EMISSIONS -------- */
+  (emit MermaidLineMockActorLine
+    @:path:MockActorId
+    (do 
+      {(format "actor MockActor")}
+    )
+  )
+
+  (emit MermaidLineMockActorParticipantLine
+    @:path:MockActorContractId
+    (do
+      {(format "participant " @MockActorContract)}
+    )
+  )
+
+  (emit MermaidLineMockActorSignalLine
+    @:path:MockActorFuncId
+    (do
+      {(format "MockActor ->>" @MockActorContract ": " @MockActorFunc " " @Visibility)}
+    )
+  )
+
   /* ------- INTRA-CONTRACT EMISSIONS -------- */
 
   (emit MermaidLineIntraCallerParticipantLine
@@ -237,7 +295,7 @@
     @:path:Contract
     @:path:IntraCalleeFunc
     (do
-      {(format @Contract "->>" @Contract ": " @CalleeFunc)}
+      {(format @Contract "->>" @Contract ": " @IntraCalleeFunc)}
     )
   )
 
@@ -433,4 +491,7 @@
       {(format @Contract "-->>" @Contract ": " @IntraReturnStmt)}
     )
   )
+
+
+
 )

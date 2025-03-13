@@ -57,7 +57,7 @@ impl SymbolTable {
         };
 
         // Insert into global captures map
-        self.captures.insert(capture_name.to_string(), symbol);
+        self.captures.insert(capture_name.to_string(), symbol.clone());
 
         // Add to relation-specific set
         self.relation_captures
@@ -71,6 +71,16 @@ impl SymbolTable {
     /// Looks up a capture by name, returning its full symbol info if found
     pub fn lookup_capture(&self, capture_name: &str) -> Option<&CaptureSymbol> {
         self.captures.get(capture_name)
+    }
+
+    /// Looks up a capture by name and relation role, returning its full symbol info if found
+    pub fn lookup_capture_by_role(&self, capture_name: &str, role: IRRelationRole) -> Option<&CaptureSymbol> {
+        self.captures.get(capture_name).filter(|symbol| symbol.relationref.role == role)
+    }
+
+    /// Looks up a capture by name and relation name, returning its full symbol info if found
+    pub fn lookup_capture_by_relation(&self, capture_name: &str, relation_name: &str) -> Option<&CaptureSymbol> {
+        self.captures.get(capture_name).filter(|symbol| symbol.relationref.name == relation_name)
     }
 
     pub fn lookup_capture_for_relation(&self, relation_name: &str) -> Option<&CaptureSymbol> {
@@ -730,18 +740,18 @@ impl IrGenerator {
 
                 for capture_ref in captures {
                     if let Lval::Capture(capture_name, provenance_type) = &**capture_ref {
-                        // Look up the capture's relation
-                        let symbol =
-                            self.symbol_table
-                                .lookup_capture(capture_name)
-                                .ok_or_else(|| {
-                                    Error::ResolveError(format!(
-                                        "Referenced capture '{}' not found",
-                                        capture_name
-                                    ))
-                                })?;
+                        // Look up the capture's relation, prioritizing internal relations
+                        let symbol = self.symbol_table
+                            .lookup_capture_by_role(capture_name, IRRelationRole::Internal)
+                            .or_else(|| self.symbol_table.lookup_capture_by_role(capture_name, IRRelationRole::Intermediate))
+                            .or_else(|| self.symbol_table.lookup_capture(capture_name))
+                            .ok_or_else(|| {
+                                Error::ResolveError(format!(
+                                    "Referenced capture '{}' not found",
+                                    capture_name
+                                ))
+                            })?;
                         let referenced_rel = &symbol.relationref.name;
-                        println!("Referenced relation: {}", referenced_rel);
 
                         if let Some(relation) =
                             Self::lookup_relation(ir_program, referenced_rel, None)
@@ -752,7 +762,6 @@ impl IrGenerator {
                             let exists = rhs_nodes.iter().any(|rhs_node| {
                                 if let RHSVal::RHSNode(rhs_node) = rhs_node {
                                     rhs_node.relation_name == *referenced_rel
-                                        && relation.category == Some(ir::RelationCategory::Domain)
                                 } else {
                                     false
                                 }
@@ -884,7 +893,7 @@ impl IrGenerator {
                 )?;
 
                 // Process current capture form's attributes
-                process_current_captures(
+                let capture_decls = process_current_captures(
                     attrs_map,
                     rel_name,
                     symbol_table,
@@ -916,7 +925,8 @@ impl IrGenerator {
 
                 // Update symbol table with internal relation captures
                 register_internal_relation_captures(
-                    &internal_relation,
+                    capture_decls,
+                    //&internal_relation,
                     &internal_relation_name,
                     symbol_table,
                 )?;
@@ -1059,7 +1069,8 @@ impl IrGenerator {
             symbol_table: &mut SymbolTable,
             outbound_attrs: &mut VecDeque<Attribute>,
             context: &mut SSAContext,
-        ) -> Result<()> {
+        ) -> Result<Vec<String>> {
+            let mut processed_captures = Vec::new();
             for (attr_name, lval_box) in attrs_map {
                 if let Lval::Capture(capture_name, provenance) = lval_box.as_ref() {
                     symbol_table.insert_capture(
@@ -1107,9 +1118,11 @@ impl IrGenerator {
                             }
                         }
                     }
+
+                    processed_captures.push(capture_name.clone());
                 }
             }
-            Ok(())
+            Ok(processed_captures)
         }
 
         fn process_capture_refs(
@@ -1363,10 +1376,18 @@ impl IrGenerator {
         }
 
         fn register_internal_relation_captures(
-            internal_relation: &IRRelationType,
+            capture_decls: Vec<String>,
+            //internal_relation: &IRRelationType,
             internal_relation_name: &str,
             symbol_table: &mut SymbolTable,
         ) -> Result<()> {
+            for capture in capture_decls {
+                symbol_table.insert_capture(
+                    &capture,
+                    RelationRef::new(internal_relation_name.to_string(), IRRelationRole::Internal),
+                )?;
+            }
+            /*
             for attr in &internal_relation.attributes {
                 symbol_table.insert_capture(
                     &normalize_string(&attr.name),
@@ -1375,7 +1396,7 @@ impl IrGenerator {
                         IRRelationRole::Intermediate,
                     ),
                 )?;
-            }
+            }*/
             Ok(())
         }
 
@@ -2068,26 +2089,14 @@ impl IrGenerator {
                 }
                 Lval::Capture(capture_name, _provenance) => {
                     // Validate that the capture exists in the symbol table
-                    let symbol = symbol_table.lookup_capture(capture_name).ok_or_else(|| {
+                    let _ = symbol_table.lookup_capture(capture_name).ok_or_else(|| {
                         Error::ResolveError(format!(
                             "Referenced capture '{}' not found in do block",
                             capture_name
                         ))
                     })?;
 
-                    // Look up the attribute mapping in the SSA context
-                    if let Some(mappings) = context.get_capture_mappings(capture_name) {
-                        if let Some(mapping) = mappings.first() {
-                            // Use the attribute identifier from the mapping instead of the capture name
-                            return Ok(StringPart::Dynamic(format!(
-                                "rhs_{}",
-                                normalize_string(&mapping.symbol)
-                            )));
-                        }
-                    }
-
-                    // Fallback to using the capture name if no mapping is found
-                    Ok(StringPart::Dynamic(format!("rhs_{}", capture_name)))
+                    Ok(StringPart::Dynamic(format!("rhs_{}", normalize_string(capture_name))))
                 }
                 Lval::String(s) => Ok(StringPart::Static(s[1..s.len() - 1].to_string())),
                 _ => Err(Error::GenerationError(format!(

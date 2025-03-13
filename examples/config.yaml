@@ -1,24 +1,23 @@
 priorities:
-  participants: 100
   flow: 90
+  participants: 100
+  mock-actor-flows: 95
 path_attributes:
+  mock-actor-flows: mock_actor_func_id_path
   participants: path
   flow: ce_id_path
 value_attributes:
-  participants: val
   flow: val
+  participants: val
+  mock-actor-flows: val
 default_path_attribute: path
 default_value_attribute: val
 default_priority: 0
 pool_shape: sequenceDiagram
 bucket_relations:
-  participants:
-  - relation_name: EmitMermaidLineCallerParticipantLine
+  mock-actor-flows:
+  - relation_name: EmitMermaidLineMockActorSignalLine
     priority: 100
-  - relation_name: EmitMermaidLineCalleeParticipantLine
-    priority: 90
-  - relation_name: EmitMermaidLineContractParticipantLine
-    priority: 90
   flow:
   - relation_name: EmitMermaidLineSignalLine
     priority: 100
@@ -42,33 +41,50 @@ bucket_relations:
     priority: 70
   - relation_name: EmitMermaidLineIntraDeactivateLineNoReturn
     priority: 70
+  participants:
+  - relation_name: EmitMermaidLineMockActorLine
+    priority: 100
+  - relation_name: EmitMermaidLineMockActorParticipantLine
+    priority: 99
+  - relation_name: EmitMermaidLineCallerParticipantLine
+    priority: 95
+  - relation_name: EmitMermaidLineCalleeParticipantLine
+    priority: 90
+  - relation_name: EmitMermaidLineContractParticipantLine
+    priority: 90
 relation_to_bucket:
-  EmitMermaidLineIntraActivateLine: flow
-  EmitMermaidLineDeactivateLine: flow
-  EmitMermaidLineContractParticipantLine: participants
-  EmitMermaidLineIntraDeactivateLine: flow
+  EmitMermaidLineMockActorSignalLine: mock-actor-flows
+  EmitMermaidLineMockActorParticipantLine: participants
   EmitMermaidLineIntraActivateLineNoReturn: flow
-  EmitMermaidLineReturnSignalLine: flow
-  EmitMermaidLineIntraReturnSignalLine: flow
   EmitMermaidLineIntraDeactivateLineNoReturn: flow
-  EmitMermaidLineIntraSignalLineNoReturn: flow
-  EmitMermaidLineSignalLine: flow
+  EmitMermaidLineIntraActivateLine: flow
+  EmitMermaidLineIntraDeactivateLine: flow
   EmitMermaidLineCallerParticipantLine: participants
   EmitMermaidLineCalleeParticipantLine: participants
+  EmitMermaidLineMockActorLine: participants
   EmitMermaidLineActivateLine: flow
   EmitMermaidLineIntraSignalLine: flow
+  EmitMermaidLineSignalLine: flow
+  EmitMermaidLineContractParticipantLine: participants
+  EmitMermaidLineIntraReturnSignalLine: flow
+  EmitMermaidLineIntraSignalLineNoReturn: flow
+  EmitMermaidLineReturnSignalLine: flow
+  EmitMermaidLineDeactivateLine: flow
 relation_priorities:
-  EmitMermaidLineIntraActivateLineNoReturn: 90
-  EmitMermaidLineCalleeParticipantLine: 90
-  EmitMermaidLineIntraReturnSignalLine: 80
-  EmitMermaidLineDeactivateLine: 70
-  EmitMermaidLineActivateLine: 90
-  EmitMermaidLineContractParticipantLine: 90
-  EmitMermaidLineReturnSignalLine: 80
-  EmitMermaidLineIntraDeactivateLine: 70
-  EmitMermaidLineIntraDeactivateLineNoReturn: 70
-  EmitMermaidLineIntraSignalLineNoReturn: 100
-  EmitMermaidLineCallerParticipantLine: 100
-  EmitMermaidLineSignalLine: 100
   EmitMermaidLineIntraSignalLine: 100
+  EmitMermaidLineActivateLine: 90
+  EmitMermaidLineSignalLine: 100
+  EmitMermaidLineReturnSignalLine: 80
+  EmitMermaidLineCallerParticipantLine: 95
   EmitMermaidLineIntraActivateLine: 90
+  EmitMermaidLineIntraSignalLineNoReturn: 100
+  EmitMermaidLineCalleeParticipantLine: 90
+  EmitMermaidLineMockActorLine: 100
+  EmitMermaidLineIntraDeactivateLineNoReturn: 70
+  EmitMermaidLineContractParticipantLine: 90
+  EmitMermaidLineMockActorSignalLine: 100
+  EmitMermaidLineIntraReturnSignalLine: 80
+  EmitMermaidLineIntraActivateLineNoReturn: 90
+  EmitMermaidLineMockActorParticipantLine: 99
+  EmitMermaidLineIntraDeactivateLine: 70
+  EmitMermaidLineDeactivateLine: 70
