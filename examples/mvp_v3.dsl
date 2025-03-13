@@ -108,9 +108,9 @@
    * Combines the information from the previous rules to create a complete
    * view of an intra-contract function call with callees that return values.
    */
-  (infer IntraContractFunctionCall (?intra_ce_id, ?contract, ?contract_id, ?caller_func, ?caller_func_id, ?callee_func, ?callee_func_id, ?return_stmt_id, ?return_stmt)
-    via ((IntraContractCaller ?intra_ce_id, ?contract, ?contract_id, ?caller_func, ?caller_func_id)
-        (IntraContractCallee ?intra_ce_id, ?contract_id, ?callee_func, ?callee_func_id)
+  (infer IntraContractFunctionCall (?intra_ce_id, ?intra_contract, ?intra_contract_id, ?caller_func, ?caller_func_id, ?callee_func, ?callee_func_id, ?return_stmt_id, ?return_stmt)
+    via ((IntraContractCaller ?intra_ce_id, ?intra_contract, ?intra_contract_id, ?caller_func, ?caller_func_id)
+        (IntraContractCallee ?intra_ce_id, ?intra_contract_id, ?callee_func, ?callee_func_id)
         (IntraContractReturn ?callee_func_id, ?return_stmt_id, ?return_stmt)
     )
   )
@@ -119,9 +119,9 @@
    * Combines the information from the previous rules to create a complete
    * view of an intra-contract function calls with callees that to not return values.
    */
-  (infer IntraContractFunctionCallNoReturn (?intra_ce_id, ?contract, ?contract_id, ?caller_func, ?caller_func_id, ?callee_func, ?callee_func_id)
-    via ((IntraContractCaller ?intra_ce_id, ?contract, ?contract_id, ?caller_func, ?caller_func_id)
-        (IntraContractCallee ?intra_ce_id, ?contract_id, ?callee_func, ?callee_func_id))
+  (infer IntraContractFunctionCallNoReturn (?intra_ce_no_return_id, ?intra_contract, ?intra_contract_id, ?caller_func, ?caller_func_id, ?callee_func, ?callee_func_id)
+    via ((IntraContractCaller ?intra_ce_no_return_id, ?intra_contract, ?intra_contract_id, ?caller_func, ?caller_func_id)
+        (IntraContractCallee ?intra_ce_no_return_id, ?intra_contract_id, ?callee_func, ?callee_func_id))
   )
 
   /* 
@@ -168,10 +168,10 @@
   /* 
   * Identifies all the functions that are defined within a contract.
   */
-  (infer ContractFunction (?contract, ?contract_id, ?func_id, ?func, ?visibility)
-    via ((FunctionDefinition ?func_id, _, _)
-        (Visibility _, ?func_id, ?visibility)
-        (Identifier _, ?func_id, ?func)
+  (infer ContractFunction (?contract, ?contract_id, ?mock_actor_func_id, ?func, ?visibility)
+    via ((FunctionDefinition ?mock_actor_func_id, _, _)
+        (Visibility _, ?mock_actor_func_id, ?visibility)
+        (Identifier _, ?mock_actor_func_id, ?func)
         (ContractDeclaration ?contract_id, _, _)
         (Identifier _, ?contract_id, ?contract)
         (Ancestor ?func_id, ?contract_id)
@@ -186,7 +186,7 @@
   (capture ContractFunction
     (contract @MockActorContract)
     (contract_id @MockActorContractId)
-    (func_id @MockActorFuncId)
+    (mock_actor_func_id @MockActorFuncId)
     (func @MockActorFunc)
     (visibility @Visibility)
     (when (eq @visibility "external"))
@@ -225,7 +225,8 @@
    */
   (capture IntraContractFunctionCall
     (intra_ce_id @IntraCeId)
-    (contract @Contract)
+    (intra_contract @IntraContract)
+    (intra_contract_id @IntraContractId)
     (caller_func @IntraCallerFunc)
     (callee_func @IntraCalleeFunc)
     (return_stmt @IntraReturnStmt)
@@ -240,22 +241,23 @@
    * - CalleeFunc: The name of the function being called
    */
   (capture IntraContractFunctionCallNoReturn
-    (intra_ce_id @IntraCeIdNoReturn)
-    (contract @Contract)
+    (intra_ce_no_return_id @IntraCeNoReturnId)
+    (intra_contract @IntraContractNoReturn)
     (caller_func @IntraCallerFuncNoReturn)
     (callee_func @IntraCalleeFuncNoReturn)
   )
 
   /* ------- MOCK ACTOR EMISSIONS -------- */
+
   (emit MermaidLineMockActorLine
-    @:path:MockActorId
+    @MockActorId
     (do 
       {(format "actor MockActor")}
     )
   )
 
   (emit MermaidLineMockActorParticipantLine
-    @:path:MockActorContractId
+    @MockActorContractId
     (do
       {(format "participant " @MockActorContract)}
     )
@@ -263,6 +265,9 @@
 
   (emit MermaidLineMockActorSignalLine
     @:path:MockActorFuncId
+    @MockActorContract
+    @MockActorFunc
+    @Visibility
     (do
       {(format "MockActor ->>" @MockActorContract ": " @MockActorFunc " " @Visibility)}
     )
@@ -271,16 +276,18 @@
   /* ------- INTRA-CONTRACT EMISSIONS -------- */
 
   (emit MermaidLineIntraCallerParticipantLine
-    @:path:Contract
+    @:path:IntraContractId
+    @IntraContract
     (do
-      {(format "participant " @Contract)}
+      {(format "participant " @IntraContract)}
     )
   )
 
   (emit MermaidLineIntraCalleeParticipantLine
-    @:path:Contract
+    @:path:IntraContractId
+    @IntraContract
     (do
-      {(format "participant " @Contract)}
+      {(format "participant " @IntraContract)}
     )
   )
 
@@ -291,11 +298,10 @@
    */
   (emit MermaidLineIntraSignalLine
     @:path:IntraCeId
-    @:path:Contract
-    @:path:Contract
-    @:path:IntraCalleeFunc
+    @IntraContract
+    @IntraCalleeFunc
     (do
-      {(format @Contract "->>" @Contract ": " @IntraCalleeFunc)}
+      {(format @IntraContract "->>" @IntraContract ": " @IntraCalleeFunc)}
     )
   )
 
@@ -305,37 +311,38 @@
    * labeled with the name of the function being called.
    */
   (emit MermaidLineIntraSignalLineNoReturn
-    @:path:IntraCeIdNoReturn
-    @:path:Contract
-    @:path:IntraCalleeFuncNoReturn
+    @:path:IntraCeNoReturnId
+    @IntraContractNoReturn
+    @IntraCalleeFuncNoReturn
     (do
-      {(format @Contract "->>" @Contract ": " @IntraCalleeFuncNoReturn)}
+      {(format @IntraContractNoReturn "->>" @IntraContractNoReturn ": " @IntraCalleeFuncNoReturn)}
     )
   )
 
 
   (emit MermaidLineIntraActivateLine
     @:path:IntraCeId
-    @:path:Contract
+    @IntraContract
+    @IntraCalleeFunc
     (do
-      {(format "activate " @Contract)}
+      {(format "activate " @IntraContract)}
     )
   )
 
   (emit MermaidLineIntraDeactivateLine
     @:path:IntraCeId
-    @:path:Contract
+    @IntraContract
     (do
-      {(format "deactivate " @Contract)}
+      {(format "deactivate " @IntraContract)}
     )
   )
 
   (emit MermaidLineIntraReturnSignalLine
     @:path:IntraCeId
-    @:path:Contract
-    @:path:IntraReturnStmt
+    @IntraContract
+    @IntraReturnStmt
     (do
-      {(format @Contract "-->>" @Contract ": " @IntraReturnStmt)}
+      {(format @IntraContract "-->>" @IntraContract ": " @IntraReturnStmt)}
     )
   )
 
@@ -351,7 +358,7 @@
    * only appears once in the diagram, regardless of how many calls it makes.
    */
   (emit MermaidLineCallerParticipantLine
-    @:path:CallerContract
+    @CallerContract
     (do
       {(format "participant " @CallerContract)}
     )
@@ -366,7 +373,7 @@
    * only appears once in the diagram, regardless of how many calls it receives.
    */
   (emit MermaidLineCalleeParticipantLine
-    @:path:CalleeContract
+    @CalleeContract
     (do
       {(format "participant " @CalleeContract)}
     )
@@ -383,9 +390,9 @@
    */
   (emit MermaidLineSignalLine
     @:path:CeId
-    @:path:CallerContract
-    @:path:CalleeContract
-    @:path:CalleeFunc
+    @CallerContract
+    @CalleeContract
+    @CalleeFunc
     (do
       {(format @CallerContract "->>" @CalleeContract ": " @CalleeFunc)}
     )
@@ -401,7 +408,7 @@
    */
   (emit MermaidLineActivateLine
     @:path:CeId
-    @:path:CalleeContract
+    @CalleeContract
     (do
       {(format "activate " @CalleeContract)}
     )
@@ -417,7 +424,7 @@
    */
   (emit MermaidLineDeactivateLine
     @:path:CeId
-    @:path:CalleeContract
+    @CalleeContract
     (do
       {(format "deactivate " @CalleeContract)}
     )
@@ -434,15 +441,17 @@
    */
   (emit MermaidLineReturnSignalLine
     @:path:CeId
-    @:path:CallerContract
-    @:path:CalleeContract
-    @:path:ReturnStmt
+    @CallerContract
+    @CalleeContract
+    @ReturnStmt
     (do
       {(format @CalleeContract "-->>" @CallerContract ": " @ReturnStmt)}
     )
   )
 
   /* ------- INTRA-CONTRACT EMISSIONS -------- */
+  
+  /* REMOVE - DUPLICATE
 
   (emit MermaidLineIntraCallerParticipantLine
     @:path:Contract
@@ -471,7 +480,7 @@
     @:path:IntraCeId
     @:path:CalleeContract
     (do
-      {(format "activate " @Contract)}
+      {(format "activate " @CalleeContract)}
     )
   )
 
@@ -491,6 +500,7 @@
       {(format @Contract "-->>" @Contract ": " @IntraReturnStmt)}
     )
   )
+  */
 
 
 
