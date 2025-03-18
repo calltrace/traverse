@@ -77,9 +77,13 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
                 }
             }
 
-            let params_option = if params.is_empty() { None } else { Some(params) };
+            let params_option = if params.is_empty() {
+                None
+            } else {
+                Some(params)
+            };
             let paths_option = if paths.is_empty() { None } else { Some(paths) };
-            
+
             Ok(Lval::inference(relation, params_option, paths_option))
         }
         Rule::inference_paths => {
@@ -393,9 +397,8 @@ impl From<rustyline::error::ReadlineError> for Error {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use super::*;
+    use std::collections::HashMap;
 
     #[test]
     fn test_parse_simple_emit_2() {
@@ -410,31 +413,48 @@ mod tests {
         "#;
 
         // When: Parsing the input
-        let parsed = Dsl::parse(Rule::program, input)
+        let parsed = Dsl::parse(Rule::rulebook, input)
             .expect("Parse failed")
             .next()
             .unwrap();
         let result = lval_read(parsed).expect("Lval construction failed");
 
         // Then: Verify the structure matches expectations
+        // Create capture reference for emit
+        let capture_var1 = Box::new(Lval::Capture("@var1".to_string(), None));
+        let emit_capture_refs = vec![capture_var1];
+
+        // Create attributes for capture form
+        let mut capture_attributes = IndexMap::new();
+        capture_attributes.insert(
+            "key2".to_string(),
+            Box::new(Lval::Sym("value2".to_string())),
+        );
+
+        // Create expected Lval structure
         let expected = Box::new(Lval::Rulebook(vec![
             // Emit node
             Box::new(Lval::Emit(
                 "output_type".to_string(),
-                attrs(&[("key1", capture("var1"))]),
+                emit_capture_refs,
                 None,
                 None,
             )),
             // Capture node
             Box::new(Lval::CaptureForm(
                 "input_type".to_string(),
-                attrs(&[("key2", sym("value2"))]),
+                capture_attributes,
+                vec![],
+                None,
                 None,
                 None,
             )),
         ]));
 
-        assert_eq!(result, expected);
+        assert_eq!(
+            result, expected,
+            "Parsed result does not match expected structure"
+        );
     }
 
     #[test]
@@ -445,44 +465,49 @@ mod tests {
                        (capture input_node_type (key2 some_variable))
         "#;
 
-        let parse_result = Dsl::parse(Rule::program, input);
-        assert!(
-            parse_result.is_ok(),
-            "Failed to parse input: {:?}",
-            parse_result
-        );
+        // When: Parsing the input
+        let parsed = Dsl::parse(Rule::rulebook, input)
+            .expect("Parse failed")
+            .next()
+            .unwrap();
+        let result = lval_read(parsed).expect("Lval construction failed");
 
-        let parsed = parse_result.unwrap();
-        let mut emit_attributes = HashMap::new();
-        emit_attributes.insert(
-            "key1".to_string(),
-            Box::new(Lval::Capture("@some_variable".to_string())),
-        );
+        // Then: Verify the structure matches expectations
+        // Create capture reference for emit
+        let capture_var = Box::new(Lval::Capture("@some_variable".to_string(), None));
+        let emit_capture_refs = vec![capture_var];
 
-        let mut capture_form_attributes = HashMap::new();
-        capture_form_attributes.insert(
+        // Create attributes for capture form
+        let mut capture_attributes = IndexMap::new();
+        capture_attributes.insert(
             "key2".to_string(),
             Box::new(Lval::Sym("some_variable".to_string())),
         );
 
+        // Create expected Lval structure
         let expected = Box::new(Lval::Rulebook(vec![
+            // Emit node
             Box::new(Lval::Emit(
                 "output_node_type".to_string(),
-                emit_attributes,
+                emit_capture_refs,
+                None,
                 None,
             )),
+            // Capture node
             Box::new(Lval::CaptureForm(
                 "input_node_type".to_string(),
-                capture_form_attributes,
+                capture_attributes,
+                vec![],
+                None,
                 None,
                 None,
             )),
         ]));
 
-        let parsed_lval =
-            lval_read(parsed.into_iter().next().unwrap()).expect("Failed to build Lval");
-
-        assert_eq!(parsed_lval, expected);
+        assert_eq!(
+            result, expected,
+            "Parsed result does not match expected structure"
+        );
     }
 
     #[test]
@@ -495,51 +520,55 @@ mod tests {
                    )
         "#;
 
-        let parse_result = Dsl::parse(Rule::program, input);
-        assert!(
-            parse_result.is_ok(),
-            "Failed to parse input: {:?}",
-            parse_result
-        );
+        // When: Parsing the input
+        let parsed = Dsl::parse(Rule::rulebook, input)
+            .expect("Parse failed")
+            .next()
+            .unwrap();
+        let result = lval_read(parsed).expect("Lval construction failed");
 
-        let parsed = parse_result.unwrap();
+        // Then: Verify the structure matches expectations
+        // Create capture reference for emit
+        let capture_var = Box::new(Lval::Capture("@some_variable".to_string(), None));
+        let emit_capture_refs = vec![capture_var];
 
-        // Define emit attributes
-        let mut emit_attributes = HashMap::new();
-        emit_attributes.insert(
-            "key1".to_string(),
-            Box::new(Lval::Capture("@some_variable".to_string())),
-        );
+        // Create nested key-value for capture form
+        let mut nested_kv = Lval::keyvalue();
+        Lval::add(&mut nested_kv, &Lval::Sym("key3".to_string())).unwrap();
+        Lval::add(
+            &mut nested_kv,
+            &Lval::Capture("@some_other_variable".to_string(), None),
+        )
+        .unwrap();
 
-        // Define nested attributes for key3
-        let mut nested_attributes = HashMap::new();
-        nested_attributes.insert(
-            "key2".to_string(),
-            Box::new(Lval::KeyVal(vec![
-                Box::new(Lval::Sym("key3".to_string())),
-                Box::new(Lval::Capture("@some_other_variable".to_string())),
-            ])),
-        );
+        // Create attributes for capture form
+        let mut capture_attributes = IndexMap::new();
+        capture_attributes.insert("key2".to_string(), nested_kv);
 
-        // Expected query instantiation
+        // Create expected Lval structure
         let expected = Box::new(Lval::Rulebook(vec![
+            // Emit node
             Box::new(Lval::Emit(
                 "output_node_type".to_string(),
-                emit_attributes,
+                emit_capture_refs,
+                None,
                 None,
             )),
+            // Capture node with nested key-value
             Box::new(Lval::CaptureForm(
                 "input_node_type".to_string(),
-                nested_attributes,
+                capture_attributes,
+                vec![],
+                None,
                 None,
                 None,
             )),
         ]));
 
-        let parsed_lval =
-            lval_read(parsed.into_iter().next().unwrap()).expect("Failed to build Lval");
-
-        assert_eq!(parsed_lval, expected);
+        assert_eq!(
+            result, expected,
+            "Parsed result does not match expected structure"
+        );
     }
 
     #[test]
@@ -552,51 +581,55 @@ mod tests {
                    )
         "#;
 
-        let parse_result = Dsl::parse(Rule::program, input);
-        assert!(
-            parse_result.is_ok(),
-            "Failed to parse input: {:?}",
-            parse_result
-        );
+        // When: Parsing the input
+        let parsed = Dsl::parse(Rule::rulebook, input)
+            .expect("Parse failed")
+            .next()
+            .unwrap();
+        let result = lval_read(parsed).expect("Lval construction failed");
 
-        let parsed = parse_result.unwrap();
+        // Then: Verify the structure matches expectations
+        // Create nested key-value for emit
+        let mut nested_kv = Lval::keyvalue();
+        Lval::add(&mut nested_kv, &Lval::Sym("key2".to_string())).unwrap();
+        Lval::add(
+            &mut nested_kv,
+            &Lval::Capture("@some_nested_variable".to_string(), None),
+        )
+        .unwrap();
+        let emit_capture_refs = vec![nested_kv];
 
-        // Define nested attributes for key2 in the emit block
-        let mut nested_emit_attributes = HashMap::new();
-        nested_emit_attributes.insert(
-            "key1".to_string(),
-            Box::new(Lval::KeyVal(vec![
-                Box::new(Lval::Sym("key2".to_string())),
-                Box::new(Lval::Capture("@some_nested_variable".to_string())),
-            ])),
-        );
-
-        // Define capture attributes
-        let mut capture_attributes = HashMap::new();
+        // Create attributes for capture form
+        let mut capture_attributes = IndexMap::new();
         capture_attributes.insert(
             "key3".to_string(),
-            Box::new(Lval::Capture("@some_capture_variable".to_string())),
+            Box::new(Lval::Capture("@some_capture_variable".to_string(), None)),
         );
 
-        // Expected query instantiation
+        // Create expected Lval structure
         let expected = Box::new(Lval::Rulebook(vec![
+            // Emit node with nested key-value
             Box::new(Lval::Emit(
                 "output_node_type".to_string(),
-                nested_emit_attributes,
+                emit_capture_refs,
+                None,
                 None,
             )),
+            // Capture node
             Box::new(Lval::CaptureForm(
                 "input_node_type".to_string(),
                 capture_attributes,
+                vec![],
+                None,
                 None,
                 None,
             )),
         ]));
 
-        let parsed_lval =
-            lval_read(parsed.into_iter().next().unwrap()).expect("Failed to build Lval");
-
-        assert_eq!(parsed_lval, expected);
+        assert_eq!(
+            result, expected,
+            "Parsed result does not match expected structure"
+        );
     }
 
     #[test]
@@ -613,61 +646,84 @@ mod tests {
                    )
         "#;
 
-        let parse_result = Dsl::parse(Rule::program, input);
-        assert!(
-            parse_result.is_ok(),
-            "Failed to parse input: {:?}",
-            parse_result
-        );
+        // When: Parsing the input
+        let parsed = Dsl::parse(Rule::rulebook, input)
+            .expect("Parse failed")
+            .next()
+            .unwrap();
+        let result = lval_read(parsed).expect("Lval construction failed");
 
-        let parsed = parse_result.unwrap();
+        // Then: Verify the structure matches expectations
+        // Create capture references for emit
+        let capture_var1 = Box::new(Lval::Capture("@first_capture_variable".to_string(), None));
+        let capture_var2 = Box::new(Lval::Capture("@second_capture_variable".to_string(), None));
 
-        let mut emit_attributes = HashMap::new();
-        emit_attributes.insert(
-            "key1".to_string(),
-            Box::new(Lval::Capture("@first_capture_variable".to_string())),
-        );
-        emit_attributes.insert(
+        // Create key-value pairs for emit
+        let mut kv1 = Lval::keyvalue();
+        Lval::add(&mut kv1, &Lval::Sym("key1".to_string())).unwrap();
+        Lval::add(
+            &mut kv1,
+            &Lval::Capture("@first_capture_variable".to_string(), None),
+        )
+        .unwrap();
+
+        let mut kv2 = Lval::keyvalue();
+        Lval::add(&mut kv2, &Lval::Sym("key2".to_string())).unwrap();
+        Lval::add(
+            &mut kv2,
+            &Lval::Capture("@second_capture_variable".to_string(), None),
+        )
+        .unwrap();
+
+        let emit_capture_refs = vec![kv1, kv2];
+
+        // Create attributes for first capture form
+        let mut capture1_attributes = IndexMap::new();
+        capture1_attributes.insert(
             "key2".to_string(),
-            Box::new(Lval::Capture("@second_capture_variable".to_string())),
+            Box::new(Lval::Capture("@first_capture_variable".to_string(), None)),
         );
 
-        let mut capture_1_attributes = HashMap::new();
-        capture_1_attributes.insert(
-            "key2".to_string(),
-            Box::new(Lval::Capture("@first_capture_variable".to_string())),
-        );
-
-        let mut capture_2_attributes = HashMap::new();
-        capture_2_attributes.insert(
+        // Create attributes for second capture form
+        let mut capture2_attributes = IndexMap::new();
+        capture2_attributes.insert(
             "key3".to_string(),
-            Box::new(Lval::Capture("@second_capture_variable".to_string())),
+            Box::new(Lval::Capture("@second_capture_variable".to_string(), None)),
         );
 
+        // Create expected Lval structure
         let expected = Box::new(Lval::Rulebook(vec![
+            // Emit node with two key-value pairs
             Box::new(Lval::Emit(
                 "output_node_type".to_string(),
-                emit_attributes,
+                emit_capture_refs,
+                None,
                 None,
             )),
+            // First capture node
             Box::new(Lval::CaptureForm(
                 "input_node_type_1".to_string(),
-                capture_1_attributes,
+                capture1_attributes,
+                vec![],
+                None,
                 None,
                 None,
             )),
+            // Second capture node
             Box::new(Lval::CaptureForm(
                 "input_node_type_2".to_string(),
-                capture_2_attributes,
+                capture2_attributes,
+                vec![],
+                None,
                 None,
                 None,
             )),
         ]));
 
-        let parsed_lval =
-            lval_read(parsed.into_iter().next().unwrap()).expect("Failed to build Lval");
-
-        assert_eq!(parsed_lval, expected);
+        assert_eq!(
+            result, expected,
+            "Parsed result does not match expected structure"
+        );
     }
 
     #[test]
@@ -684,66 +740,74 @@ mod tests {
                    )
         "#;
 
-        let parse_result = Dsl::parse(Rule::program, input);
-        assert!(
-            parse_result.is_ok(),
-            "Failed to parse input: {:?}",
-            parse_result
-        );
+        // When: Parsing the input
+        let parsed = Dsl::parse(Rule::rulebook, input)
+            .expect("Parse failed")
+            .next()
+            .unwrap();
+        let result = lval_read(parsed).expect("Lval construction failed");
 
-        let parsed = parse_result.unwrap();
+        // Then: Verify the structure matches expectations
+        // Create key-value pair for outer emit
+        let mut kv1 = Lval::keyvalue();
+        Lval::add(&mut kv1, &Lval::Sym("key1".to_string())).unwrap();
+        Lval::add(&mut kv1, &Lval::Capture("@variable1".to_string(), None)).unwrap();
 
-        // Attributes for the inner emit
-        let mut inner_emit_attributes = HashMap::new();
-        inner_emit_attributes.insert(
-            "key2".to_string(),
-            Box::new(Lval::Capture("@variable2".to_string())),
-        );
+        // Create nested emit
+        let nested_capture_var = Box::new(Lval::Capture("@variable2".to_string(), None));
+        let mut nested_kv = Lval::keyvalue();
+        Lval::add(&mut nested_kv, &Lval::Sym("key2".to_string())).unwrap();
+        Lval::add(
+            &mut nested_kv,
+            &Lval::Capture("@variable2".to_string(), None),
+        )
+        .unwrap();
 
-        let inner_emit = Box::new(Lval::Emit(
+        let nested_emit = Box::new(Lval::Emit(
             "output_node_type_2".to_string(),
-            inner_emit_attributes,
+            vec![nested_kv],
+            None,
             None,
         ));
 
-        // Attributes for the outer emit
-        let mut outer_emit_attributes = HashMap::new();
-        outer_emit_attributes.insert(
-            "key1".to_string(),
-            Box::new(Lval::Capture("@variable1".to_string())),
-        );
-        outer_emit_attributes.insert("nested_emit".to_string(), inner_emit);
+        // Combine for outer emit
+        let emit_capture_refs = vec![kv1, nested_emit];
 
-        let outer_emit = Box::new(Lval::Emit(
-            "output_node_type_1".to_string(),
-            outer_emit_attributes,
-            None,
-        ));
-
-        // Attributes for the capture block
-        let mut capture_attributes = HashMap::new();
+        // Create attributes for capture form
+        let mut capture_attributes = IndexMap::new();
         capture_attributes.insert(
             "key3".to_string(),
-            Box::new(Lval::Capture("@variable3".to_string())),
+            Box::new(Lval::Capture("@variable3".to_string(), None)),
         );
         capture_attributes.insert(
             "key4".to_string(),
-            Box::new(Lval::Capture("@variable1".to_string())),
+            Box::new(Lval::Capture("@variable1".to_string(), None)),
         );
 
-        let capture_block = Box::new(Lval::CaptureForm(
-            "input_node_type".to_string(),
-            capture_attributes,
-            None,
-            None,
-        ));
+        // Create expected Lval structure
+        let expected = Box::new(Lval::Rulebook(vec![
+            // Outer emit node with nested emit
+            Box::new(Lval::Emit(
+                "output_node_type_1".to_string(),
+                emit_capture_refs,
+                None,
+                None,
+            )),
+            // Capture node
+            Box::new(Lval::CaptureForm(
+                "input_node_type".to_string(),
+                capture_attributes,
+                vec![],
+                None,
+                None,
+                None,
+            )),
+        ]));
 
-        let expected = Box::new(Lval::Rulebook(vec![outer_emit, capture_block]));
-
-        let parsed_lval =
-            lval_read(parsed.into_iter().next().unwrap()).expect("Failed to build Lval");
-
-        assert_eq!(parsed_lval, expected);
+        assert_eq!(
+            result, expected,
+            "Parsed result does not match expected structure"
+        );
     }
 
     #[test]
@@ -755,37 +819,48 @@ mod tests {
             )
         "#;
 
-        // Parse the input
-        let parse_result = Dsl::parse(Rule::program, input);
-        assert!(
-            parse_result.is_ok(),
-            "Failed to parse input: {:?}",
-            parse_result
+        // When: Parsing the input
+        let parsed = Dsl::parse(Rule::rulebook, input)
+            .expect("Parse failed")
+            .next()
+            .unwrap();
+        let result = lval_read(parsed).expect("Lval construction failed");
+
+        // Then: Verify the structure matches expectations
+        // Create key-value pairs for emit
+        let mut kv1 = Lval::keyvalue();
+        Lval::add(&mut kv1, &Lval::Sym("key1".to_string())).unwrap();
+        Lval::add(
+            &mut kv1,
+            &Lval::Capture("@some_variable".to_string(), None),
+        )
+        .unwrap();
+
+        let mut kv2 = Lval::keyvalue();
+        Lval::add(&mut kv2, &Lval::Sym("key2".to_string())).unwrap();
+        Lval::add(
+            &mut kv2,
+            &Lval::Capture("@some_other_variable".to_string(), None),
+        )
+        .unwrap();
+
+        let emit_capture_refs = vec![kv1, kv2];
+
+        // Create expected Lval structure
+        let expected = Box::new(Lval::Rulebook(vec![
+            // Emit node with two key-value pairs
+            Box::new(Lval::Emit(
+                "output_node_type".to_string(),
+                emit_capture_refs,
+                None,
+                None,
+            )),
+        ]));
+
+        assert_eq!(
+            result, expected,
+            "Parsed result does not match expected structure"
         );
-
-        let parsed = parse_result.unwrap();
-
-        // Build the expected Lval for comparison
-        let mut attributes = HashMap::new();
-        attributes.insert(
-            "key1".to_string(),
-            Box::new(Lval::Capture("@some_variable".to_string())),
-        );
-        attributes.insert(
-            "key2".to_string(),
-            Box::new(Lval::Capture("@some_other_variable".to_string())),
-        );
-
-        let expected = Box::new(Lval::Rulebook(vec![Box::new(Lval::Emit(
-            "output_node_type".to_string(),
-            attributes,
-            None,
-        ))]));
-
-        let parsed_lval =
-            lval_read(parsed.into_iter().next().unwrap()).expect("Failed to build Lval");
-
-        assert_eq!(parsed_lval, expected);
     }
 
     #[test]
@@ -796,37 +871,45 @@ mod tests {
               (key2 some_constant_value)
             )"#;
 
-        let parse_result = Dsl::parse(Rule::program, input);
-        assert!(
-            parse_result.is_ok(),
-            "Failed to parse input: {:?}",
-            parse_result
+        // When: Parsing the input
+        let parsed = Dsl::parse(Rule::rulebook, input)
+            .expect("Parse failed")
+            .next()
+            .unwrap();
+        let result = lval_read(parsed).expect("Lval construction failed");
+
+        // Then: Verify the structure matches expectations
+        // Create key-value pairs for emit
+        let mut kv1 = Lval::keyvalue();
+        Lval::add(&mut kv1, &Lval::Sym("key1".to_string())).unwrap();
+        Lval::add(
+            &mut kv1,
+            &Lval::Capture("@some_variable".to_string(), None),
+        )
+        .unwrap();
+
+        let mut kv2 = Lval::keyvalue();
+        Lval::add(&mut kv2, &Lval::Sym("key2".to_string())).unwrap();
+        Lval::add(&mut kv2, &Lval::Sym("some_constant_value".to_string())).unwrap();
+
+        let emit_capture_refs = vec![kv1, kv2];
+
+        // Create expected Lval structure
+        let expected = Box::new(Lval::Rulebook(vec![
+            // Emit node with variable and constant value
+            Box::new(Lval::Emit(
+                "output_node_type".to_string(),
+                emit_capture_refs,
+                None,
+                None,
+            )),
+        ]));
+
+        assert_eq!(
+            result, expected,
+            "Parsed result does not match expected structure"
         );
-
-        let parsed = parse_result.unwrap();
-
-        let mut attributes = HashMap::new();
-        attributes.insert(
-            "key1".to_string(),
-            Box::new(Lval::Capture("@some_variable".to_string())),
-        );
-        attributes.insert(
-            "key2".to_string(),
-            Box::new(Lval::Sym("some_constant_value".to_string())),
-        );
-
-        let expected = Box::new(Lval::Rulebook(vec![Box::new(Lval::Emit(
-            "output_node_type".to_string(),
-            attributes,
-            None,
-        ))]));
-
-        let parsed_lval =
-            lval_read(parsed.into_iter().next().unwrap()).expect("Failed to build Lval");
-
-        assert_eq!(parsed_lval, expected);
     }
-
     #[test]
     fn test_parse_do_form_within_capture() {
         let input = r#"
@@ -841,56 +924,57 @@ mod tests {
         )
     "#;
 
-        let parse_result = Dsl::parse(Rule::program, input);
-        assert!(
-            parse_result.is_ok(),
-            "Failed to parse input: {:?}",
-            parse_result
-        );
+        // When: Parsing the input
+        let parsed = Dsl::parse(Rule::rulebook, input)
+            .expect("Parse failed")
+            .next()
+            .unwrap();
+        let result = lval_read(parsed).expect("Lval construction failed");
 
-        let parsed = parse_result.unwrap();
+        // Then: Verify the structure matches expectations
+        // Create key-value pair for emit
+        let mut kv1 = Lval::keyvalue();
+        Lval::add(&mut kv1, &Lval::Sym("key1".to_string())).unwrap();
+        Lval::add(&mut kv1, &Lval::Capture("@variable1".to_string(), None)).unwrap();
 
-        // Define emit attributes
-        let mut emit_attributes = HashMap::new();
-        emit_attributes.insert(
-            "key1".to_string(),
-            Box::new(Lval::Capture("@variable1".to_string())),
-        );
+        let emit_capture_refs = vec![kv1];
 
-        let emit = Box::new(Lval::Emit(
-            "output_node_type".to_string(),
-            emit_attributes,
-            None,
-        ));
+        // Create do form for capture
+        let mut qexpr = Lval::qexpr();
+        Lval::add(&mut qexpr, &Lval::Sym("execute_task1".to_string())).unwrap();
+        let do_form = Lval::do_form(vec![qexpr]);
 
-        let mut capture_attributes = HashMap::new();
+        // Create attributes for capture form
+        let mut capture_attributes = IndexMap::new();
         capture_attributes.insert(
             "key2".to_string(),
-            Box::new(Lval::Capture("@variable2".to_string())),
+            Box::new(Lval::Capture("@variable2".to_string(), None)),
         );
 
-        // Define the do form with two code blocks
-        let do_form = Box::new(Lval::DoForm(vec![Box::new(Lval::Qexpr(vec![Box::new(
-            Lval::Sym("execute_task1".to_string()),
-        )]))]));
+        // Create expected Lval structure
+        let expected = Box::new(Lval::Rulebook(vec![
+            // Emit node
+            Box::new(Lval::Emit(
+                "output_node_type".to_string(),
+                emit_capture_refs,
+                None,
+                None,
+            )),
+            // Capture node with do form
+            Box::new(Lval::CaptureForm(
+                "input_node_type".to_string(),
+                capture_attributes,
+                vec![],
+                None,
+                None,
+                Some(do_form),
+            )),
+        ]));
 
-        // Define the capture form with attributes and the do form
-        let capture_form = Box::new(Lval::CaptureForm(
-            "input_node_type".to_string(),
-            capture_attributes,
-            None,
-            Some(Box::new(Lval::DoForm(vec![Box::new(Lval::Qexpr(vec![
-                Box::new(Lval::Sym("execute_task1".to_string())),
-            ]))]))),
-        ));
-
-        // Expected Lval structure
-        let expected = Box::new(Lval::Rulebook(vec![emit, capture_form]));
-
-        let parsed_lval =
-            lval_read(parsed.into_iter().next().unwrap()).expect("Failed to build Lval");
-
-        assert_eq!(parsed_lval, expected);
+        assert_eq!(
+            result, expected,
+            "Parsed result does not match expected structure"
+        );
     }
 
     #[test]
@@ -917,83 +1001,86 @@ mod tests {
         )
     "#;
 
-        // Parse the input using the defined Pest grammar.
-        let parse_result = Dsl::parse(Rule::program, input);
-        assert!(
-            parse_result.is_ok(),
-            "Failed to parse input: {:?}",
-            parse_result
-        );
+        // When: Parsing the input
+        let parsed = Dsl::parse(Rule::rulebook, input)
+            .expect("Parse failed")
+            .next()
+            .unwrap();
+        let result = lval_read(parsed).expect("Lval construction failed");
 
-        // Unwrap the parsed result.
-        let parsed = parse_result.unwrap();
+        // Then: Verify the structure matches expectations
+        // Create key-value pair for first emit
+        let mut kv1 = Lval::keyvalue();
+        Lval::add(&mut kv1, &Lval::Sym("key1".to_string())).unwrap();
+        Lval::add(&mut kv1, &Lval::Capture("@var1".to_string(), None)).unwrap();
 
-        let mut emit1_attributes = HashMap::new();
-        emit1_attributes.insert(
-            "key1".to_string(),
-            Box::new(Lval::Capture("@var1".to_string())),
-        );
+        let emit1_capture_refs = vec![kv1];
 
-        let emit1 = Box::new(Lval::Emit(
-            "output_node_type".to_string(),
-            emit1_attributes,
-            None,
-        ));
-
-        let mut capture_attributes = HashMap::new();
+        // Create attributes for capture form
+        let mut capture_attributes = IndexMap::new();
         capture_attributes.insert(
             "key2".to_string(),
-            Box::new(Lval::Capture("@var2".to_string())),
+            Box::new(Lval::Capture("@var2".to_string(), None)),
         );
 
-        let capture_form = Box::new(Lval::CaptureForm(
-            "input_node_type".to_string(),
-            capture_attributes,
-            None,
-            None, // No `do_form` associated
-        ));
+        // Create logical condition for when form
+        let logical_op = Lval::predicate_operator("and");
+        let operand1 = Box::new(Lval::Capture("@var1".to_string(), None));
+        let operand2 = Box::new(Lval::Capture("@var2".to_string(), None));
+        let condition = Box::new(Lval::Logical(logical_op, vec![operand1, operand2]));
 
-        let var1_capture = Box::new(Lval::Capture("@var1".to_string()));
-        let var2_capture = Box::new(Lval::Capture("@var2".to_string()));
-        let logical_condition = Box::new(Lval::Logical(
-            "and".to_string(),
-            vec![var1_capture, var2_capture],
-        ));
+        // Create emits for when form body
+        let mut kv_when1 = Lval::keyvalue();
+        Lval::add(&mut kv_when1, &Lval::Sym("key4".to_string())).unwrap();
+        Lval::add(&mut kv_when1, &Lval::Capture("@var1".to_string(), None)).unwrap();
 
-        let mut emit2_attributes = HashMap::new();
-        emit2_attributes.insert(
-            "key4".to_string(),
-            Box::new(Lval::Capture("@var1".to_string())),
-        );
-
-        let emit2 = Box::new(Lval::Emit(
+        let emit_when1 = Box::new(Lval::Emit(
             "conditional_output1".to_string(),
-            emit2_attributes,
+            vec![kv_when1],
+            None,
             None,
         ));
 
-        let mut emit3_attributes = HashMap::new();
-        emit3_attributes.insert(
-            "key5".to_string(),
-            Box::new(Lval::Capture("@var2".to_string())),
-        );
+        let mut kv_when2 = Lval::keyvalue();
+        Lval::add(&mut kv_when2, &Lval::Sym("key5".to_string())).unwrap();
+        Lval::add(&mut kv_when2, &Lval::Capture("@var2".to_string(), None)).unwrap();
 
-        let emit3 = Box::new(Lval::Emit(
+        let emit_when2 = Box::new(Lval::Emit(
             "conditional_output2".to_string(),
-            emit3_attributes,
+            vec![kv_when2],
+            None,
             None,
         ));
 
-        // 10. Create the `when_form` Lval with the logical condition and conditional emits.
-        let when_form = Box::new(Lval::WhenForm(logical_condition, vec![emit2, emit3]));
+        // Create when form
+        let when_form = Box::new(Lval::WhenForm(condition, vec![emit_when1, emit_when2]));
 
-        // 11. Construct the expected top-level `Query` Lval containing the `emit1`, `capture_form`, and `when_form`.
-        let expected = Box::new(Lval::Rulebook(vec![emit1, capture_form, when_form]));
+        // Create expected Lval structure
+        let expected = Box::new(Lval::Rulebook(vec![
+            // First emit node
+            Box::new(Lval::Emit(
+                "output_node_type".to_string(),
+                emit1_capture_refs,
+                None,
+                None,
+            )),
+            // Capture node
+            Box::new(Lval::CaptureForm(
+                "input_node_type".to_string(),
+                capture_attributes,
+                vec![],
+                None,
+                None,
+                None,
+            )),
+            // When form with conditional emits
+            when_form,
+        ]));
 
-        let parsed_lval =
-            lval_read(parsed.into_iter().next().unwrap()).expect("Failed to build Lval");
-
-        assert_eq!(parsed_lval, expected);
+        assert_eq!(
+            result, expected,
+            "Parsed result does not match expected structure"
+        );
     }
 
     #[test]
@@ -1021,84 +1108,92 @@ mod tests {
         )
     "#;
 
-        // Parse the input using the defined Pest grammar.
-        let parse_result = Dsl::parse(Rule::program, input);
-        assert!(
-            parse_result.is_ok(),
-            "Failed to parse input: {:?}",
-            parse_result
-        );
+        // When: Parsing the input
+        let parsed = Dsl::parse(Rule::rulebook, input)
+            .expect("Parse failed")
+            .next()
+            .unwrap();
+        let result = lval_read(parsed).expect("Lval construction failed");
 
-        let parsed = parse_result.unwrap();
+        // Then: Verify the structure matches expectations
+        // Create key-value pair for first emit
+        let mut kv1 = Lval::keyvalue();
+        Lval::add(&mut kv1, &Lval::Sym("key1".to_string())).unwrap();
+        Lval::add(&mut kv1, &Lval::Capture("@var1".to_string(), None)).unwrap();
 
-        let mut emit1_attributes = HashMap::new();
-        emit1_attributes.insert(
-            "key1".to_string(),
-            Box::new(Lval::Capture("@var1".to_string())),
-        );
+        let emit1_capture_refs = vec![kv1];
 
-        let emit1 = Box::new(Lval::Emit(
-            "output_node_type".to_string(),
-            emit1_attributes,
-            None,
-        ));
-
-        // 3. Define attributes for the `capture_form`.
-        let mut capture_attributes = HashMap::new();
+        // Create attributes for capture form
+        let mut capture_attributes = IndexMap::new();
         capture_attributes.insert(
             "key2".to_string(),
-            Box::new(Lval::Capture("@var2".to_string())),
+            Box::new(Lval::Capture("@var2".to_string(), None)),
         );
 
-        // 4. Create the `capture_form` Lval.
-        let capture_form = Box::new(Lval::CaptureForm(
-            "input_node_type".to_string(),
-            capture_attributes,
-            None,
-            None, // No `do_form` associated
-        ));
+        // Create logical condition for when form with nested 'not' operator
+        let and_op = Lval::predicate_operator("and");
+        let not_op = Lval::predicate_operator("not");
+        let operand1 = Box::new(Lval::Capture("@var1".to_string(), None));
+        let operand2 = Box::new(Lval::Capture("@var2".to_string(), None));
+        
+        // Create the nested 'not' logical expression
+        let not_expr = Box::new(Lval::Logical(not_op, vec![operand2]));
+        
+        // Create the top-level 'and' logical expression
+        let condition = Box::new(Lval::Logical(and_op, vec![operand1, not_expr]));
 
-        let var1_capture = Box::new(Lval::Capture("@var1".to_string()));
-        let var2_capture = Box::new(Lval::Capture("@var2".to_string()));
-        let not_var2 = Box::new(Lval::Logical("not".to_string(), vec![var2_capture]));
-        let logical_condition = Box::new(Lval::Logical(
-            "and".to_string(),
-            vec![var1_capture, not_var2],
-        ));
+        // Create emits for when form body
+        let mut kv_when1 = Lval::keyvalue();
+        Lval::add(&mut kv_when1, &Lval::Sym("key4".to_string())).unwrap();
+        Lval::add(&mut kv_when1, &Lval::Capture("@var1".to_string(), None)).unwrap();
 
-        let mut emit2_attributes = HashMap::new();
-        emit2_attributes.insert(
-            "key4".to_string(),
-            Box::new(Lval::Capture("@var1".to_string())),
-        );
-
-        let emit2 = Box::new(Lval::Emit(
+        let emit_when1 = Box::new(Lval::Emit(
             "conditional_output1".to_string(),
-            emit2_attributes,
+            vec![kv_when1],
+            None,
             None,
         ));
 
-        let mut emit3_attributes = HashMap::new();
-        emit3_attributes.insert(
-            "key5".to_string(),
-            Box::new(Lval::Capture("@var2".to_string())),
-        );
+        let mut kv_when2 = Lval::keyvalue();
+        Lval::add(&mut kv_when2, &Lval::Sym("key5".to_string())).unwrap();
+        Lval::add(&mut kv_when2, &Lval::Capture("@var2".to_string(), None)).unwrap();
 
-        // 9. Create the second conditional `emit` Lval.
-        let emit3 = Box::new(Lval::Emit(
+        let emit_when2 = Box::new(Lval::Emit(
             "conditional_output2".to_string(),
-            emit3_attributes,
+            vec![kv_when2],
+            None,
             None,
         ));
 
-        let when_form = Box::new(Lval::WhenForm(logical_condition, vec![emit2, emit3]));
+        // Create when form
+        let when_form = Box::new(Lval::WhenForm(condition, vec![emit_when1, emit_when2]));
 
-        let expected = Box::new(Lval::Rulebook(vec![emit1, capture_form, when_form]));
+        // Create expected Lval structure
+        let expected = Box::new(Lval::Rulebook(vec![
+            // First emit node
+            Box::new(Lval::Emit(
+                "output_node_type".to_string(),
+                emit1_capture_refs,
+                None,
+                None,
+            )),
+            // Capture node
+            Box::new(Lval::CaptureForm(
+                "input_node_type".to_string(),
+                capture_attributes,
+                vec![],
+                None,
+                None,
+                None,
+            )),
+            // When form with conditional emits
+            when_form,
+        ]));
 
-        let parsed_lval =
-            lval_read(parsed.into_iter().next().unwrap()).expect("Failed to build Lval");
-
-        assert_eq!(parsed_lval, expected);
+        assert_eq!(
+            result, expected,
+            "Parsed result does not match expected structure"
+        );
     }
 
     #[test]
@@ -1115,54 +1210,68 @@ mod tests {
             )
         "#;
 
-        let parse_result = Dsl::parse(Rule::program, input);
-        assert!(
-            parse_result.is_ok(),
-            "Grammar::parse failed unexpectedly: {:?}",
-            parse_result
-        );
+        // When: Parsing the input
+        let parsed = Dsl::parse(Rule::rulebook, input)
+            .expect("Parse failed")
+            .next()
+            .unwrap();
+        let result = lval_read(parsed).expect("Lval construction failed");
 
-        let parsed = parse_result.unwrap();
+        // Then: Verify the structure matches expectations
+        // Create key-value pair for emit
+        let mut kv1 = Lval::keyvalue();
+        Lval::add(&mut kv1, &Lval::Sym("key1".to_string())).unwrap();
+        Lval::add(&mut kv1, &Lval::Capture("@var1".to_string(), None)).unwrap();
 
-        let parsed_lval =
-            lval_read(parsed.into_iter().next().unwrap()).expect("Failed to build Lval");
+        let emit_capture_refs = vec![kv1];
 
-        let mut root_emit_attrs = HashMap::new();
-        root_emit_attrs.insert(
-            "key1".to_string(),
-            Box::new(Lval::Capture("@var1".to_string())),
-        );
-        let emit_root = Lval::Emit("root_node".to_string(), root_emit_attrs, None);
-
-        let mut grandchild_attrs = HashMap::new();
-        grandchild_attrs.insert(
-            "key3".to_string(),
-            Box::new(Lval::Capture("@var3".to_string())),
-        );
-        let grandchild_capture =
-            Lval::CaptureForm("grandchild_node".to_string(), grandchild_attrs, None, None);
-
-        // 4c) Create attributes for the child_node
-        let mut child_attrs = HashMap::new();
-        child_attrs.insert(
+        // Create attributes for child capture form
+        let mut child_attributes = IndexMap::new();
+        child_attributes.insert(
             "key2".to_string(),
-            Box::new(Lval::Capture("@var2".to_string())),
-        );
-        let child_capture = Lval::CaptureForm(
-            "child_node".to_string(),
-            child_attrs,
-            Some(Box::new(grandchild_capture)),
-            None,
+            Box::new(Lval::Capture("@var2".to_string(), None)),
         );
 
-        let expected_lval = Box::new(Lval::Rulebook(vec![
-            Box::new(emit_root),
-            Box::new(child_capture),
+        // Create attributes for grandchild capture form
+        let mut grandchild_attributes = IndexMap::new();
+        grandchild_attributes.insert(
+            "key3".to_string(),
+            Box::new(Lval::Capture("@var3".to_string(), None)),
+        );
+
+        // Create grandchild capture form
+        let grandchild_capture = Box::new(Lval::CaptureForm(
+            "grandchild_node".to_string(),
+            grandchild_attributes,
+            vec![],
+            None,
+            None,
+            None,
+        ));
+
+        // Create expected Lval structure
+        let expected = Box::new(Lval::Rulebook(vec![
+            // Emit node
+            Box::new(Lval::Emit(
+                "root_node".to_string(),
+                emit_capture_refs,
+                None,
+                None,
+            )),
+            // Child capture node with nested grandchild capture
+            Box::new(Lval::CaptureForm(
+                "child_node".to_string(),
+                child_attributes,
+                vec![],
+                Some(grandchild_capture),
+                None,
+                None,
+            )),
         ]));
 
         assert_eq!(
-            parsed_lval, expected_lval,
-            "Parsed Lval does not match the expected nested capture structure"
+            result, expected,
+            "Parsed result does not match expected structure"
         );
     }
 
@@ -1181,64 +1290,78 @@ mod tests {
             )
         "#;
 
-        let parse_result = Dsl::parse(Rule::program, input);
-        assert!(
-            parse_result.is_ok(),
-            "Grammar::parse failed unexpectedly: {:?}",
-            parse_result
-        );
+        // When: Parsing the input
+        let parsed = Dsl::parse(Rule::rulebook, input)
+            .expect("Parse failed")
+            .next()
+            .unwrap();
+        let result = lval_read(parsed).expect("Lval construction failed");
 
-        let parsed = parse_result.unwrap();
-        let parsed_lval =
-            lval_read(parsed.into_iter().next().unwrap()).expect("Failed to build Lval");
+        // Then: Verify the structure matches expectations
+        // Create key-value pair for emit
+        let mut kv1 = Lval::keyvalue();
+        Lval::add(&mut kv1, &Lval::Sym("key1".to_string())).unwrap();
+        Lval::add(&mut kv1, &Lval::Capture("@var1".to_string(), None)).unwrap();
 
-        let mut root_emit_attrs = HashMap::new();
-        root_emit_attrs.insert(
-            "key1".to_string(),
-            Box::new(Lval::Capture("@var1".to_string())),
-        );
-        let emit_root = Lval::Emit("root_node".to_string(), root_emit_attrs, None);
+        let emit_capture_refs = vec![kv1];
 
-        let mut grandchild_attrs = HashMap::new();
-        grandchild_attrs.insert(
-            "key3".to_string(),
-            Box::new(Lval::Capture("@var3".to_string())),
-        );
-
-        let sexpr_in_qexpr = Lval::Sexpr(vec![
-            Box::new(Lval::Sym("func1".to_string())),
-            Box::new(Lval::Capture("@var3".to_string())),
-        ]);
-        let qexpr_inner = Lval::Qexpr(vec![Box::new(sexpr_in_qexpr)]);
-        let do_form_for_grandchild = Lval::DoForm(vec![Box::new(qexpr_inner)]);
-
-        let grandchild_capture = Lval::CaptureForm(
-            "grandchild_node".to_string(),
-            grandchild_attrs,
-            None,
-            Some(Box::new(do_form_for_grandchild)),
-        );
-
-        let mut child_attrs = HashMap::new();
-        child_attrs.insert(
+        // Create attributes for child capture form
+        let mut child_attributes = IndexMap::new();
+        child_attributes.insert(
             "key2".to_string(),
-            Box::new(Lval::Capture("@var2".to_string())),
-        );
-        let child_capture = Lval::CaptureForm(
-            "child_node".to_string(),
-            child_attrs,
-            Some(Box::new(grandchild_capture)),
-            None,
+            Box::new(Lval::Capture("@var2".to_string(), None)),
         );
 
-        let expected_lval = Box::new(Lval::Rulebook(vec![
-            Box::new(emit_root),
-            Box::new(child_capture),
+        // Create attributes for grandchild capture form
+        let mut grandchild_attributes = IndexMap::new();
+        grandchild_attributes.insert(
+            "key3".to_string(),
+            Box::new(Lval::Capture("@var3".to_string(), None)),
+        );
+
+        // Create do form for grandchild capture
+        let mut sexpr = Lval::sexpr();
+        Lval::add(&mut sexpr, &Lval::Sym("func1".to_string())).unwrap();
+        Lval::add(&mut sexpr, &Lval::Capture("@var3".to_string(), None)).unwrap();
+        
+        let mut qexpr = Lval::qexpr();
+        Lval::add(&mut qexpr, &*sexpr).unwrap();
+        
+        let do_form = Lval::do_form(vec![qexpr]);
+
+        // Create grandchild capture form with do form
+        let grandchild_capture = Box::new(Lval::CaptureForm(
+            "grandchild_node".to_string(),
+            grandchild_attributes,
+            vec![],
+            None,
+            None,
+            Some(do_form),
+        ));
+
+        // Create expected Lval structure
+        let expected = Box::new(Lval::Rulebook(vec![
+            // Emit node
+            Box::new(Lval::Emit(
+                "root_node".to_string(),
+                emit_capture_refs,
+                None,
+                None,
+            )),
+            // Child capture node with nested grandchild capture
+            Box::new(Lval::CaptureForm(
+                "child_node".to_string(),
+                child_attributes,
+                vec![],
+                Some(grandchild_capture),
+                None,
+                None,
+            )),
         ]));
 
         assert_eq!(
-            parsed_lval, expected_lval,
-            "Parsed Lval does not match expected nested capture with do block on deepest level"
+            result, expected,
+            "Parsed result does not match expected structure"
         );
     }
 }
