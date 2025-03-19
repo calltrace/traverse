@@ -1,0 +1,1153 @@
+%% Stream: solidity-to-mermaid (shape: sequenceDiagram, buckets: ["mock-actor-flows", "intra-contract-flows", "inter-contract-flows"])
+sequenceDiagram
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: )
+
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLine, path: )
+
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLine, path: )
+SafeSplitsDaoEscrowZap->>SafeSplitsDaoEscrowZap: _createSplit
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLine, path: )
+SafeSplitsDaoEscrowZap->>SafeSplitsDaoEscrowZap: _handleEscrowParams
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLine, path: )
+SafeSplitsEscrowZap->>SafeSplitsEscrowZap: _createSplit
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLine, path: )
+SafeSplitsEscrowZap->>SafeSplitsEscrowZap: _deployEscrow
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLine, path: )
+SafeSplitsEscrowZap->>SafeSplitsEscrowZap: _deploySafe
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLine, path: )
+SafeSplitsEscrowZap->>SafeSplitsEscrowZap: _handleEscrowData
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLine, path: )
+SafeSplitsEscrowZap->>SafeSplitsEscrowZap: _handleEscrowParams
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLine, path: )
+SmartInvoiceFactoryBundler->>SmartInvoiceFactoryBundler: _decodeEscrowData
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLine, path: )
+SmartInvoiceInstant->>SmartInvoiceInstant: getTotalDue
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: )
+
+%% Stream Fact: (bucket: EmitMermaidLineIntraActivateLine, path: )
+
+%% Stream Fact: (bucket: EmitMermaidLineIntraActivateLine, path: )
+activate SafeSplitsDaoEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineIntraActivateLine, path: )
+activate SafeSplitsDaoEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineIntraActivateLine, path: )
+activate SafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineIntraActivateLine, path: )
+activate SafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineIntraActivateLine, path: )
+activate SafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineIntraActivateLine, path: )
+activate SafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineIntraActivateLine, path: )
+activate SafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineIntraActivateLine, path: )
+activate SmartInvoiceFactoryBundler
+%% Stream Fact: (bucket: EmitMermaidLineIntraActivateLine, path: )
+activate SmartInvoiceInstant
+%% Stream Fact: (bucket: EmitMermaidLineIntraReturnSignalLine, path: )
+
+%% Stream Fact: (bucket: EmitMermaidLineIntraReturnSignalLine, path: )
+SafeSplitsDaoEscrowZap-->>SafeSplitsDaoEscrowZap: return _daoZapData;
+%% Stream Fact: (bucket: EmitMermaidLineIntraReturnSignalLine, path: )
+SafeSplitsDaoEscrowZap-->>SafeSplitsDaoEscrowZap: return escrowParams;
+%% Stream Fact: (bucket: EmitMermaidLineIntraReturnSignalLine, path: )
+SafeSplitsEscrowZap-->>SafeSplitsEscrowZap: return\n            EscrowData({\n                client: client,\n                arbitration: uint8(arbitration),\n                resolver: resolver,\n                token: token,\n                terminationTime: terminationTime,\n                saltNonce: bytes32(_saltNonce),\n                details: details,\n                providerReceiver: address(0)\n            });
+%% Stream Fact: (bucket: EmitMermaidLineIntraReturnSignalLine, path: )
+SafeSplitsEscrowZap-->>SafeSplitsEscrowZap: return _zapData;
+%% Stream Fact: (bucket: EmitMermaidLineIntraReturnSignalLine, path: )
+SafeSplitsEscrowZap-->>SafeSplitsEscrowZap: return _zapData;
+%% Stream Fact: (bucket: EmitMermaidLineIntraReturnSignalLine, path: )
+SafeSplitsEscrowZap-->>SafeSplitsEscrowZap: return _zapData;
+%% Stream Fact: (bucket: EmitMermaidLineIntraReturnSignalLine, path: )
+SafeSplitsEscrowZap-->>SafeSplitsEscrowZap: return escrowParams;
+%% Stream Fact: (bucket: EmitMermaidLineIntraReturnSignalLine, path: )
+SmartInvoiceFactoryBundler-->>SmartInvoiceFactoryBundler: return\n            EscrowData({\n                client: client,\n                resolver: resolver,\n                resolverType: resolverType,\n                token: token,\n                terminationTime: terminationTime,\n                details: details,\n                provider: provider,\n                providerReceiver: providerReceiver,\n                requireVerification: requireVerification,\n                escrowType: escrowType\n            });
+%% Stream Fact: (bucket: EmitMermaidLineIntraReturnSignalLine, path: )
+SmartInvoiceInstant-->>SmartInvoiceInstant: return total + totalLateFee;
+%% Stream Fact: (bucket: EmitMermaidLineIntraDeactivateLine, path: )
+
+%% Stream Fact: (bucket: EmitMermaidLineIntraDeactivateLine, path: )
+deactivate SafeSplitsDaoEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineIntraDeactivateLine, path: )
+deactivate SafeSplitsDaoEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineIntraDeactivateLine, path: )
+deactivate SafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineIntraDeactivateLine, path: )
+deactivate SafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineIntraDeactivateLine, path: )
+deactivate SafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineIntraDeactivateLine, path: )
+deactivate SafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineIntraDeactivateLine, path: )
+deactivate SafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineIntraDeactivateLine, path: )
+deactivate SmartInvoiceFactoryBundler
+%% Stream Fact: (bucket: EmitMermaidLineIntraDeactivateLine, path: )
+deactivate SmartInvoiceInstant
+%% Stream Fact: (bucket: EmitMermaidLineSignalLine, path: )
+
+%% Stream Fact: (bucket: EmitMermaidLineActivateLine, path: )
+
+%% Stream Fact: (bucket: EmitMermaidLineReturnSignalLine, path: )
+
+%% Stream Fact: (bucket: EmitMermaidLineDeactivateLine, path: )
+
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.1.19.24.296.320.322.323.329.330)
+SmartInvoiceFactoryBundler->>SmartInvoiceFactoryBundler: _decodeEscrowData
+%% Stream Fact: (bucket: EmitMermaidLineSignalLine, path: 0.1.19.24.296.320.400.401.402.403.406.407)
+SmartInvoiceFactoryBundler->>SmartInvoiceFactory: create
+%% Stream Fact: (bucket: EmitMermaidLineActivateLine, path: 0.1.19.24.296.320.400.401.402.403.406.407)
+activate SmartInvoiceFactory
+%% Stream Fact: (bucket: EmitMermaidLineReturnSignalLine, path: 0.1.19.24.296.320.400.401.402.403.406.407)
+SmartInvoiceFactory-->>SmartInvoiceFactoryBundler: return invoiceAddress;
+%% Stream Fact: (bucket: EmitMermaidLineDeactivateLine, path: 0.1.19.24.296.320.400.401.402.403.406.407)
+deactivate SmartInvoiceFactory
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.620)
+MockActor ->>SafeSplitsDaoEscrowZap: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.620)
+MockActor ->>SafeSplitsEscrowZap: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.620)
+MockActor ->>SafeSplitsEscrowZapFactory: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.620)
+MockActor ->>SmartInvoiceEscrow: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.620)
+MockActor ->>SmartInvoiceFactory: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.620)
+MockActor ->>SmartInvoiceFactoryBundler: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.620)
+MockActor ->>SmartInvoiceInstant: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.620)
+MockActor ->>SmartInvoiceSplitEscrow: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.620)
+MockActor ->>SmartInvoiceUpdatable: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.620)
+MockActor ->>SmartInvoiceUpdatableV2: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.620)
+MockActor ->>SpoilsManager: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.620)
+MockActor ->>SpoilsManagerFactory: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.677)
+MockActor ->>SafeSplitsDaoEscrowZap: setSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.677)
+MockActor ->>SafeSplitsEscrowZap: setSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.677)
+MockActor ->>SafeSplitsEscrowZapFactory: setSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.677)
+MockActor ->>SmartInvoiceEscrow: setSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.677)
+MockActor ->>SmartInvoiceFactory: setSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.677)
+MockActor ->>SmartInvoiceFactoryBundler: setSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.677)
+MockActor ->>SmartInvoiceInstant: setSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.677)
+MockActor ->>SmartInvoiceSplitEscrow: setSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.677)
+MockActor ->>SmartInvoiceUpdatable: setSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.677)
+MockActor ->>SmartInvoiceUpdatableV2: setSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.677)
+MockActor ->>SpoilsManager: setSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.677)
+MockActor ->>SpoilsManagerFactory: setSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.696)
+MockActor ->>SafeSplitsDaoEscrowZap: setReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.696)
+MockActor ->>SafeSplitsEscrowZap: setReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.696)
+MockActor ->>SafeSplitsEscrowZapFactory: setReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.696)
+MockActor ->>SmartInvoiceEscrow: setReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.696)
+MockActor ->>SmartInvoiceFactory: setReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.696)
+MockActor ->>SmartInvoiceFactoryBundler: setReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.696)
+MockActor ->>SmartInvoiceInstant: setReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.696)
+MockActor ->>SmartInvoiceSplitEscrow: setReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.696)
+MockActor ->>SmartInvoiceUpdatable: setReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.696)
+MockActor ->>SmartInvoiceUpdatableV2: setReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.696)
+MockActor ->>SpoilsManager: setReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.696)
+MockActor ->>SpoilsManagerFactory: setReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.715)
+MockActor ->>SafeSplitsDaoEscrowZap: getSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.715)
+MockActor ->>SafeSplitsEscrowZap: getSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.715)
+MockActor ->>SafeSplitsEscrowZapFactory: getSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.715)
+MockActor ->>SmartInvoiceEscrow: getSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.715)
+MockActor ->>SmartInvoiceFactory: getSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.715)
+MockActor ->>SmartInvoiceFactoryBundler: getSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.715)
+MockActor ->>SmartInvoiceInstant: getSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.715)
+MockActor ->>SmartInvoiceSplitEscrow: getSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.715)
+MockActor ->>SmartInvoiceUpdatable: getSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.715)
+MockActor ->>SmartInvoiceUpdatableV2: getSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.715)
+MockActor ->>SpoilsManager: getSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.576.586.591.715)
+MockActor ->>SpoilsManagerFactory: getSpoils
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.973)
+MockActor ->>SafeSplitsDaoEscrowZap: create
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.973)
+MockActor ->>SafeSplitsEscrowZap: create
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.973)
+MockActor ->>SafeSplitsEscrowZapFactory: create
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.973)
+MockActor ->>SmartInvoiceEscrow: create
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.973)
+MockActor ->>SmartInvoiceFactory: create
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.973)
+MockActor ->>SmartInvoiceFactoryBundler: create
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.973)
+MockActor ->>SmartInvoiceInstant: create
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.973)
+MockActor ->>SmartInvoiceSplitEscrow: create
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.973)
+MockActor ->>SmartInvoiceUpdatable: create
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.973)
+MockActor ->>SmartInvoiceUpdatableV2: create
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.973)
+MockActor ->>SpoilsManager: create
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.973)
+MockActor ->>SpoilsManagerFactory: create
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.732.748.756.973.998.1059.1060.1061.1062)
+SmartInvoiceFactory->>SmartInvoiceFactory: _init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1088)
+MockActor ->>SafeSplitsDaoEscrowZap: predictDeterministicAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1088)
+MockActor ->>SafeSplitsEscrowZap: predictDeterministicAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1088)
+MockActor ->>SafeSplitsEscrowZapFactory: predictDeterministicAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1088)
+MockActor ->>SmartInvoiceEscrow: predictDeterministicAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1088)
+MockActor ->>SmartInvoiceFactory: predictDeterministicAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1088)
+MockActor ->>SmartInvoiceFactoryBundler: predictDeterministicAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1088)
+MockActor ->>SmartInvoiceInstant: predictDeterministicAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1088)
+MockActor ->>SmartInvoiceSplitEscrow: predictDeterministicAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1088)
+MockActor ->>SmartInvoiceUpdatable: predictDeterministicAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1088)
+MockActor ->>SmartInvoiceUpdatableV2: predictDeterministicAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1088)
+MockActor ->>SpoilsManager: predictDeterministicAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1088)
+MockActor ->>SpoilsManagerFactory: predictDeterministicAddress
+%% Stream Fact: (bucket: EmitMermaidLineSignalLine, path: 0.732.748.756.1088.1105.1134.1135.1136.1137)
+SmartInvoiceFactory->>SmartInvoiceFactory: predictDeterministicAddress
+%% Stream Fact: (bucket: EmitMermaidLineActivateLine, path: 0.732.748.756.1088.1105.1134.1135.1136.1137)
+activate SmartInvoiceFactory
+%% Stream Fact: (bucket: EmitMermaidLineReturnSignalLine, path: 0.732.748.756.1088.1105.1134.1135.1136.1137)
+SmartInvoiceFactory-->>SmartInvoiceFactory: return Clones.predictDeterministicAddress(_implementation, _salt);
+%% Stream Fact: (bucket: EmitMermaidLineDeactivateLine, path: 0.732.748.756.1088.1105.1134.1135.1136.1137)
+deactivate SmartInvoiceFactory
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1149)
+MockActor ->>SafeSplitsDaoEscrowZap: createDeterministic
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1149)
+MockActor ->>SafeSplitsEscrowZap: createDeterministic
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1149)
+MockActor ->>SafeSplitsEscrowZapFactory: createDeterministic
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1149)
+MockActor ->>SmartInvoiceEscrow: createDeterministic
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1149)
+MockActor ->>SmartInvoiceFactory: createDeterministic
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1149)
+MockActor ->>SmartInvoiceFactoryBundler: createDeterministic
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1149)
+MockActor ->>SmartInvoiceInstant: createDeterministic
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1149)
+MockActor ->>SmartInvoiceSplitEscrow: createDeterministic
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1149)
+MockActor ->>SmartInvoiceUpdatable: createDeterministic
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1149)
+MockActor ->>SmartInvoiceUpdatableV2: createDeterministic
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1149)
+MockActor ->>SpoilsManager: createDeterministic
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1149)
+MockActor ->>SpoilsManagerFactory: createDeterministic
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.732.748.756.1149.1178.1242.1243.1244.1245)
+SmartInvoiceFactory->>SmartInvoiceFactory: _init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1271)
+MockActor ->>SafeSplitsDaoEscrowZap: getImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1271)
+MockActor ->>SafeSplitsEscrowZap: getImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1271)
+MockActor ->>SafeSplitsEscrowZapFactory: getImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1271)
+MockActor ->>SmartInvoiceEscrow: getImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1271)
+MockActor ->>SmartInvoiceFactory: getImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1271)
+MockActor ->>SmartInvoiceFactoryBundler: getImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1271)
+MockActor ->>SmartInvoiceInstant: getImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1271)
+MockActor ->>SmartInvoiceSplitEscrow: getImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1271)
+MockActor ->>SmartInvoiceUpdatable: getImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1271)
+MockActor ->>SmartInvoiceUpdatableV2: getImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1271)
+MockActor ->>SpoilsManager: getImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1271)
+MockActor ->>SpoilsManagerFactory: getImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1301)
+MockActor ->>SafeSplitsDaoEscrowZap: getInvoiceAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1301)
+MockActor ->>SafeSplitsEscrowZap: getInvoiceAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1301)
+MockActor ->>SafeSplitsEscrowZapFactory: getInvoiceAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1301)
+MockActor ->>SmartInvoiceEscrow: getInvoiceAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1301)
+MockActor ->>SmartInvoiceFactory: getInvoiceAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1301)
+MockActor ->>SmartInvoiceFactoryBundler: getInvoiceAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1301)
+MockActor ->>SmartInvoiceInstant: getInvoiceAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1301)
+MockActor ->>SmartInvoiceSplitEscrow: getInvoiceAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1301)
+MockActor ->>SmartInvoiceUpdatable: getInvoiceAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1301)
+MockActor ->>SmartInvoiceUpdatableV2: getInvoiceAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1301)
+MockActor ->>SpoilsManager: getInvoiceAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1301)
+MockActor ->>SpoilsManagerFactory: getInvoiceAddress
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1323)
+MockActor ->>SafeSplitsDaoEscrowZap: updateResolutionRate
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1323)
+MockActor ->>SafeSplitsEscrowZap: updateResolutionRate
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1323)
+MockActor ->>SafeSplitsEscrowZapFactory: updateResolutionRate
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1323)
+MockActor ->>SmartInvoiceEscrow: updateResolutionRate
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1323)
+MockActor ->>SmartInvoiceFactory: updateResolutionRate
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1323)
+MockActor ->>SmartInvoiceFactoryBundler: updateResolutionRate
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1323)
+MockActor ->>SmartInvoiceInstant: updateResolutionRate
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1323)
+MockActor ->>SmartInvoiceSplitEscrow: updateResolutionRate
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1323)
+MockActor ->>SmartInvoiceUpdatable: updateResolutionRate
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1323)
+MockActor ->>SmartInvoiceUpdatableV2: updateResolutionRate
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1323)
+MockActor ->>SpoilsManager: updateResolutionRate
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1323)
+MockActor ->>SpoilsManagerFactory: updateResolutionRate
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1365)
+MockActor ->>SafeSplitsDaoEscrowZap: resolutionRateOf
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1365)
+MockActor ->>SafeSplitsEscrowZap: resolutionRateOf
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1365)
+MockActor ->>SafeSplitsEscrowZapFactory: resolutionRateOf
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1365)
+MockActor ->>SmartInvoiceEscrow: resolutionRateOf
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1365)
+MockActor ->>SmartInvoiceFactory: resolutionRateOf
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1365)
+MockActor ->>SmartInvoiceFactoryBundler: resolutionRateOf
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1365)
+MockActor ->>SmartInvoiceInstant: resolutionRateOf
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1365)
+MockActor ->>SmartInvoiceSplitEscrow: resolutionRateOf
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1365)
+MockActor ->>SmartInvoiceUpdatable: resolutionRateOf
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1365)
+MockActor ->>SmartInvoiceUpdatableV2: resolutionRateOf
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1365)
+MockActor ->>SpoilsManager: resolutionRateOf
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1365)
+MockActor ->>SpoilsManagerFactory: resolutionRateOf
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1388)
+MockActor ->>SafeSplitsDaoEscrowZap: addImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1388)
+MockActor ->>SafeSplitsEscrowZap: addImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1388)
+MockActor ->>SafeSplitsEscrowZapFactory: addImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1388)
+MockActor ->>SmartInvoiceEscrow: addImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1388)
+MockActor ->>SmartInvoiceFactory: addImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1388)
+MockActor ->>SmartInvoiceFactoryBundler: addImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1388)
+MockActor ->>SmartInvoiceInstant: addImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1388)
+MockActor ->>SmartInvoiceSplitEscrow: addImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1388)
+MockActor ->>SmartInvoiceUpdatable: addImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1388)
+MockActor ->>SmartInvoiceUpdatableV2: addImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1388)
+MockActor ->>SpoilsManager: addImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.732.748.756.1388)
+MockActor ->>SpoilsManagerFactory: addImplementation
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1670)
+MockActor ->>SafeSplitsDaoEscrowZap: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1670)
+MockActor ->>SafeSplitsEscrowZap: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1670)
+MockActor ->>SafeSplitsEscrowZapFactory: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1670)
+MockActor ->>SmartInvoiceEscrow: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1670)
+MockActor ->>SmartInvoiceFactory: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1670)
+MockActor ->>SmartInvoiceFactoryBundler: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1670)
+MockActor ->>SmartInvoiceInstant: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1670)
+MockActor ->>SmartInvoiceSplitEscrow: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1670)
+MockActor ->>SmartInvoiceUpdatable: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1670)
+MockActor ->>SmartInvoiceUpdatableV2: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1670)
+MockActor ->>SpoilsManager: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1670)
+MockActor ->>SpoilsManagerFactory: init
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.1529.1551.1565.1670.1689.1707.1708.1709.1710)
+SmartInvoiceInstant->>SmartInvoiceInstant: _handleData
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1930)
+MockActor ->>SafeSplitsDaoEscrowZap: depositTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1930)
+MockActor ->>SafeSplitsEscrowZap: depositTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1930)
+MockActor ->>SafeSplitsEscrowZapFactory: depositTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1930)
+MockActor ->>SmartInvoiceEscrow: depositTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1930)
+MockActor ->>SmartInvoiceFactory: depositTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1930)
+MockActor ->>SmartInvoiceFactoryBundler: depositTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1930)
+MockActor ->>SmartInvoiceInstant: depositTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1930)
+MockActor ->>SmartInvoiceSplitEscrow: depositTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1930)
+MockActor ->>SmartInvoiceUpdatable: depositTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1930)
+MockActor ->>SmartInvoiceUpdatableV2: depositTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1930)
+MockActor ->>SpoilsManager: depositTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1930)
+MockActor ->>SpoilsManagerFactory: depositTokens
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.1529.1551.1565.1930.1944.1987.1988.1989.1990)
+SmartInvoiceInstant->>SmartInvoiceInstant: _deposit
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1997)
+MockActor ->>SafeSplitsDaoEscrowZap: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1997)
+MockActor ->>SafeSplitsEscrowZap: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1997)
+MockActor ->>SafeSplitsEscrowZapFactory: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1997)
+MockActor ->>SmartInvoiceEscrow: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1997)
+MockActor ->>SmartInvoiceFactory: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1997)
+MockActor ->>SmartInvoiceFactoryBundler: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1997)
+MockActor ->>SmartInvoiceInstant: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1997)
+MockActor ->>SmartInvoiceSplitEscrow: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1997)
+MockActor ->>SmartInvoiceUpdatable: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1997)
+MockActor ->>SmartInvoiceUpdatableV2: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1997)
+MockActor ->>SpoilsManager: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.1997)
+MockActor ->>SpoilsManagerFactory: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.1529.1551.1565.1997.2003.2004.2005.2006.2007)
+SmartInvoiceInstant->>SmartInvoiceInstant: _withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2011)
+MockActor ->>SafeSplitsDaoEscrowZap: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2011)
+MockActor ->>SafeSplitsEscrowZap: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2011)
+MockActor ->>SafeSplitsEscrowZapFactory: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2011)
+MockActor ->>SmartInvoiceEscrow: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2011)
+MockActor ->>SmartInvoiceFactory: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2011)
+MockActor ->>SmartInvoiceFactoryBundler: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2011)
+MockActor ->>SmartInvoiceInstant: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2011)
+MockActor ->>SmartInvoiceSplitEscrow: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2011)
+MockActor ->>SmartInvoiceUpdatable: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2011)
+MockActor ->>SmartInvoiceUpdatableV2: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2011)
+MockActor ->>SpoilsManager: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2011)
+MockActor ->>SpoilsManagerFactory: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.1529.1551.1565.2011.2021.2022.2023.2030.2031.2032.2033.2034.2035)
+SmartInvoiceInstant->>SmartInvoiceInstant: _withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2099)
+MockActor ->>SafeSplitsDaoEscrowZap: tip
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2099)
+MockActor ->>SafeSplitsEscrowZap: tip
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2099)
+MockActor ->>SafeSplitsEscrowZapFactory: tip
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2099)
+MockActor ->>SmartInvoiceEscrow: tip
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2099)
+MockActor ->>SmartInvoiceFactory: tip
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2099)
+MockActor ->>SmartInvoiceFactoryBundler: tip
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2099)
+MockActor ->>SmartInvoiceInstant: tip
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2099)
+MockActor ->>SmartInvoiceSplitEscrow: tip
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2099)
+MockActor ->>SmartInvoiceUpdatable: tip
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2099)
+MockActor ->>SmartInvoiceUpdatableV2: tip
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2099)
+MockActor ->>SpoilsManager: tip
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.1529.1551.1565.2099)
+MockActor ->>SpoilsManagerFactory: tip
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.1529.1551.1565.2188.2195.2196.2197.2202.2203)
+SmartInvoiceInstant->>SmartInvoiceInstant: getTotalDue
+%% Stream Fact: (bucket: EmitMermaidLineSignalLine, path: 0.2627.2644.2649.2670.2678.2908.2909.2914.2915)
+SmartInvoiceSplitEscrow->>SmartInvoiceFactory: resolutionRateOf
+%% Stream Fact: (bucket: EmitMermaidLineActivateLine, path: 0.2627.2644.2649.2670.2678.2908.2909.2914.2915)
+activate SmartInvoiceFactory
+%% Stream Fact: (bucket: EmitMermaidLineReturnSignalLine, path: 0.2627.2644.2649.2670.2678.2908.2909.2914.2915)
+SmartInvoiceFactory-->>SmartInvoiceSplitEscrow: return resolutionRates[_resolver];
+%% Stream Fact: (bucket: EmitMermaidLineDeactivateLine, path: 0.2627.2644.2649.2670.2678.2908.2909.2914.2915)
+deactivate SmartInvoiceFactory
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3138.3150.3152.3191)
+MockActor ->>SafeSplitsDaoEscrowZap: createSpoilsManager
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3138.3150.3152.3191)
+MockActor ->>SafeSplitsEscrowZap: createSpoilsManager
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3138.3150.3152.3191)
+MockActor ->>SafeSplitsEscrowZapFactory: createSpoilsManager
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3138.3150.3152.3191)
+MockActor ->>SmartInvoiceEscrow: createSpoilsManager
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3138.3150.3152.3191)
+MockActor ->>SmartInvoiceFactory: createSpoilsManager
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3138.3150.3152.3191)
+MockActor ->>SmartInvoiceFactoryBundler: createSpoilsManager
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3138.3150.3152.3191)
+MockActor ->>SmartInvoiceInstant: createSpoilsManager
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3138.3150.3152.3191)
+MockActor ->>SmartInvoiceSplitEscrow: createSpoilsManager
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3138.3150.3152.3191)
+MockActor ->>SmartInvoiceUpdatable: createSpoilsManager
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3138.3150.3152.3191)
+MockActor ->>SmartInvoiceUpdatableV2: createSpoilsManager
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3138.3150.3152.3191)
+MockActor ->>SpoilsManager: createSpoilsManager
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3138.3150.3152.3191)
+MockActor ->>SpoilsManagerFactory: createSpoilsManager
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.3503)
+MockActor ->>SafeSplitsDaoEscrowZap: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.3503)
+MockActor ->>SafeSplitsEscrowZap: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.3503)
+MockActor ->>SafeSplitsEscrowZapFactory: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.3503)
+MockActor ->>SmartInvoiceEscrow: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.3503)
+MockActor ->>SmartInvoiceFactory: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.3503)
+MockActor ->>SmartInvoiceFactoryBundler: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.3503)
+MockActor ->>SmartInvoiceInstant: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.3503)
+MockActor ->>SmartInvoiceSplitEscrow: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.3503)
+MockActor ->>SmartInvoiceUpdatable: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.3503)
+MockActor ->>SmartInvoiceUpdatableV2: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.3503)
+MockActor ->>SpoilsManager: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.3503)
+MockActor ->>SpoilsManagerFactory: init
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.3350.3372.3383.3503.3513.3514.3515.3516.3517)
+SafeSplitsEscrowZap->>SafeSplitsEscrowZap: _handleData
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.3350.3372.3383.4055.4082.4083.4084.4090.4091)
+SafeSplitsEscrowZap->>SafeSplitsEscrowZap: _handleEscrowData
+%% Stream Fact: (bucket: EmitMermaidLineSignalLine, path: 0.3350.3372.3383.4055.4082.4165.4166.4167.4168.4173.4174)
+SafeSplitsEscrowZap->>SmartInvoiceFactory: createDeterministic
+%% Stream Fact: (bucket: EmitMermaidLineActivateLine, path: 0.3350.3372.3383.4055.4082.4165.4166.4167.4168.4173.4174)
+activate SmartInvoiceFactory
+%% Stream Fact: (bucket: EmitMermaidLineReturnSignalLine, path: 0.3350.3372.3383.4055.4082.4165.4166.4167.4168.4173.4174)
+SmartInvoiceFactory-->>SafeSplitsEscrowZap: return invoiceAddress;
+%% Stream Fact: (bucket: EmitMermaidLineDeactivateLine, path: 0.3350.3372.3383.4055.4082.4165.4166.4167.4168.4173.4174)
+deactivate SmartInvoiceFactory
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.3350.3372.3383.4313.4348.4381.4382.4395.4396.4397.4398.4399.4400.4403.4404)
+SafeSplitsEscrowZap->>SafeSplitsEscrowZap: _deploySafe
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.3350.3372.3383.4313.4348.4416.4417.4418.4419.4422.4423)
+SafeSplitsEscrowZap->>SafeSplitsEscrowZap: _createSplit
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.3350.3372.3383.4313.4348.4438.4439.4445.4446)
+SafeSplitsEscrowZap->>SafeSplitsEscrowZap: _handleEscrowParams
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.3350.3372.3383.4313.4348.4452.4453.4454.4455.4458.4459)
+SafeSplitsEscrowZap->>SafeSplitsEscrowZap: _deployEscrow
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.3350.3372.3383.4494.4529.4547.4548.4549.4550)
+SafeSplitsEscrowZap->>SafeSplitsEscrowZap: _createSafeSplitEscrow
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4734)
+MockActor ->>SafeSplitsDaoEscrowZap: updateAddresses
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4734)
+MockActor ->>SafeSplitsEscrowZap: updateAddresses
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4734)
+MockActor ->>SafeSplitsEscrowZapFactory: updateAddresses
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4734)
+MockActor ->>SmartInvoiceEscrow: updateAddresses
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4734)
+MockActor ->>SmartInvoiceFactory: updateAddresses
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4734)
+MockActor ->>SmartInvoiceFactoryBundler: updateAddresses
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4734)
+MockActor ->>SmartInvoiceInstant: updateAddresses
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4734)
+MockActor ->>SmartInvoiceSplitEscrow: updateAddresses
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4734)
+MockActor ->>SmartInvoiceUpdatable: updateAddresses
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4734)
+MockActor ->>SmartInvoiceUpdatableV2: updateAddresses
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4734)
+MockActor ->>SpoilsManager: updateAddresses
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4734)
+MockActor ->>SpoilsManagerFactory: updateAddresses
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.3350.3372.3383.4734.4741.4763.4764.4765.4766)
+SafeSplitsEscrowZap->>SafeSplitsEscrowZap: _updateAddresses
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4773)
+MockActor ->>SafeSplitsDaoEscrowZap: updateDistributorFee
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4773)
+MockActor ->>SafeSplitsEscrowZap: updateDistributorFee
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4773)
+MockActor ->>SafeSplitsEscrowZapFactory: updateDistributorFee
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4773)
+MockActor ->>SmartInvoiceEscrow: updateDistributorFee
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4773)
+MockActor ->>SmartInvoiceFactory: updateDistributorFee
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4773)
+MockActor ->>SmartInvoiceFactoryBundler: updateDistributorFee
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4773)
+MockActor ->>SmartInvoiceInstant: updateDistributorFee
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4773)
+MockActor ->>SmartInvoiceSplitEscrow: updateDistributorFee
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4773)
+MockActor ->>SmartInvoiceUpdatable: updateDistributorFee
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4773)
+MockActor ->>SmartInvoiceUpdatableV2: updateDistributorFee
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4773)
+MockActor ->>SpoilsManager: updateDistributorFee
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.3350.3372.3383.4773)
+MockActor ->>SpoilsManagerFactory: updateDistributorFee
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.4949)
+MockActor ->>SafeSplitsDaoEscrowZap: updateClient
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.4949)
+MockActor ->>SafeSplitsEscrowZap: updateClient
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.4949)
+MockActor ->>SafeSplitsEscrowZapFactory: updateClient
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.4949)
+MockActor ->>SmartInvoiceEscrow: updateClient
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.4949)
+MockActor ->>SmartInvoiceFactory: updateClient
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.4949)
+MockActor ->>SmartInvoiceFactoryBundler: updateClient
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.4949)
+MockActor ->>SmartInvoiceInstant: updateClient
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.4949)
+MockActor ->>SmartInvoiceSplitEscrow: updateClient
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.4949)
+MockActor ->>SmartInvoiceUpdatable: updateClient
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.4949)
+MockActor ->>SmartInvoiceUpdatableV2: updateClient
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.4949)
+MockActor ->>SpoilsManager: updateClient
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.4949)
+MockActor ->>SpoilsManagerFactory: updateClient
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.4817.4833.4838.4949.4958.4976.4977.4978.4979)
+SmartInvoiceUpdatable->>SmartInvoiceUpdatable: _updateClient
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5010)
+MockActor ->>SafeSplitsDaoEscrowZap: updateProviderReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5010)
+MockActor ->>SafeSplitsEscrowZap: updateProviderReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5010)
+MockActor ->>SafeSplitsEscrowZapFactory: updateProviderReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5010)
+MockActor ->>SmartInvoiceEscrow: updateProviderReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5010)
+MockActor ->>SmartInvoiceFactory: updateProviderReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5010)
+MockActor ->>SmartInvoiceFactoryBundler: updateProviderReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5010)
+MockActor ->>SmartInvoiceInstant: updateProviderReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5010)
+MockActor ->>SmartInvoiceSplitEscrow: updateProviderReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5010)
+MockActor ->>SmartInvoiceUpdatable: updateProviderReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5010)
+MockActor ->>SmartInvoiceUpdatableV2: updateProviderReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5010)
+MockActor ->>SpoilsManager: updateProviderReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5010)
+MockActor ->>SpoilsManagerFactory: updateProviderReceiver
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.4817.4833.4838.5010.5019.5037.5038.5039.5040)
+SmartInvoiceUpdatable->>SmartInvoiceUpdatable: _updateProviderReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5071)
+MockActor ->>SafeSplitsDaoEscrowZap: updateProvider
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5071)
+MockActor ->>SafeSplitsEscrowZap: updateProvider
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5071)
+MockActor ->>SafeSplitsEscrowZapFactory: updateProvider
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5071)
+MockActor ->>SmartInvoiceEscrow: updateProvider
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5071)
+MockActor ->>SmartInvoiceFactory: updateProvider
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5071)
+MockActor ->>SmartInvoiceFactoryBundler: updateProvider
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5071)
+MockActor ->>SmartInvoiceInstant: updateProvider
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5071)
+MockActor ->>SmartInvoiceSplitEscrow: updateProvider
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5071)
+MockActor ->>SmartInvoiceUpdatable: updateProvider
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5071)
+MockActor ->>SmartInvoiceUpdatableV2: updateProvider
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5071)
+MockActor ->>SpoilsManager: updateProvider
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.4817.4833.4838.5071)
+MockActor ->>SpoilsManagerFactory: updateProvider
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.4817.4833.4838.5071.5080.5098.5099.5100.5101)
+SmartInvoiceUpdatable->>SmartInvoiceUpdatable: _updateProvider
+%% Stream Fact: (bucket: EmitMermaidLineSignalLine, path: 0.4817.4833.4838.5108.5117.5333.5334.5339.5340)
+SmartInvoiceUpdatable->>SmartInvoiceFactory: resolutionRateOf
+%% Stream Fact: (bucket: EmitMermaidLineActivateLine, path: 0.4817.4833.4838.5108.5117.5333.5334.5339.5340)
+activate SmartInvoiceFactory
+%% Stream Fact: (bucket: EmitMermaidLineReturnSignalLine, path: 0.4817.4833.4838.5108.5117.5333.5334.5339.5340)
+SmartInvoiceFactory-->>SmartInvoiceUpdatable: return resolutionRates[_resolver];
+%% Stream Fact: (bucket: EmitMermaidLineDeactivateLine, path: 0.4817.4833.4838.5108.5117.5333.5334.5339.5340)
+deactivate SmartInvoiceFactory
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.5504.5520.5525.5574)
+MockActor ->>SafeSplitsDaoEscrowZap: updateClientReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.5504.5520.5525.5574)
+MockActor ->>SafeSplitsEscrowZap: updateClientReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.5504.5520.5525.5574)
+MockActor ->>SafeSplitsEscrowZapFactory: updateClientReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.5504.5520.5525.5574)
+MockActor ->>SmartInvoiceEscrow: updateClientReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.5504.5520.5525.5574)
+MockActor ->>SmartInvoiceFactory: updateClientReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.5504.5520.5525.5574)
+MockActor ->>SmartInvoiceFactoryBundler: updateClientReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.5504.5520.5525.5574)
+MockActor ->>SmartInvoiceInstant: updateClientReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.5504.5520.5525.5574)
+MockActor ->>SmartInvoiceSplitEscrow: updateClientReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.5504.5520.5525.5574)
+MockActor ->>SmartInvoiceUpdatable: updateClientReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.5504.5520.5525.5574)
+MockActor ->>SmartInvoiceUpdatableV2: updateClientReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.5504.5520.5525.5574)
+MockActor ->>SpoilsManager: updateClientReceiver
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.5504.5520.5525.5574)
+MockActor ->>SpoilsManagerFactory: updateClientReceiver
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.5504.5520.5525.5574.5583.5601.5602.5603.5604)
+SmartInvoiceUpdatableV2->>SmartInvoiceUpdatableV2: _updateClientReceiver
+%% Stream Fact: (bucket: EmitMermaidLineSignalLine, path: 0.5504.5520.5525.5611.5619.5858.5859.5864.5865)
+SmartInvoiceUpdatableV2->>SmartInvoiceFactory: resolutionRateOf
+%% Stream Fact: (bucket: EmitMermaidLineActivateLine, path: 0.5504.5520.5525.5611.5619.5858.5859.5864.5865)
+activate SmartInvoiceFactory
+%% Stream Fact: (bucket: EmitMermaidLineReturnSignalLine, path: 0.5504.5520.5525.5611.5619.5858.5859.5864.5865)
+SmartInvoiceFactory-->>SmartInvoiceUpdatableV2: return resolutionRates[_resolver];
+%% Stream Fact: (bucket: EmitMermaidLineDeactivateLine, path: 0.5504.5520.5525.5611.5619.5858.5859.5864.5865)
+deactivate SmartInvoiceFactory
+%% Stream Fact: (bucket: EmitMermaidLineSignalLine, path: 0.6037.6057.6062.6115.6142.6334.6335.6340.6341)
+SafeSplitsDaoEscrowZap->>SpoilsManager: getSpoils
+%% Stream Fact: (bucket: EmitMermaidLineActivateLine, path: 0.6037.6057.6062.6115.6142.6334.6335.6340.6341)
+activate SpoilsManager
+%% Stream Fact: (bucket: EmitMermaidLineReturnSignalLine, path: 0.6037.6057.6062.6115.6142.6334.6335.6340.6341)
+SpoilsManager-->>SafeSplitsDaoEscrowZap: return spoils * SPLIT_PERCENTAGE_SCALE;
+%% Stream Fact: (bucket: EmitMermaidLineDeactivateLine, path: 0.6037.6057.6062.6115.6142.6334.6335.6340.6341)
+deactivate SpoilsManager
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.6037.6057.6062.6667.6702.6795.6796.6797.6798.6801.6802)
+SafeSplitsDaoEscrowZap->>SafeSplitsDaoEscrowZap: _createSplit
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.6037.6057.6062.6667.6702.6818.6819.6825.6826)
+SafeSplitsDaoEscrowZap->>SafeSplitsDaoEscrowZap: _handleEscrowParams
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.6037.6057.6062.6893.6928.6946.6947.6948.6949)
+SafeSplitsDaoEscrowZap->>SafeSplitsDaoEscrowZap: _createSafeSplitEscrow
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7135.7147.7149.7191)
+MockActor ->>SafeSplitsDaoEscrowZap: createSafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7135.7147.7149.7191)
+MockActor ->>SafeSplitsEscrowZap: createSafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7135.7147.7149.7191)
+MockActor ->>SafeSplitsEscrowZapFactory: createSafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7135.7147.7149.7191)
+MockActor ->>SmartInvoiceEscrow: createSafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7135.7147.7149.7191)
+MockActor ->>SmartInvoiceFactory: createSafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7135.7147.7149.7191)
+MockActor ->>SmartInvoiceFactoryBundler: createSafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7135.7147.7149.7191)
+MockActor ->>SmartInvoiceInstant: createSafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7135.7147.7149.7191)
+MockActor ->>SmartInvoiceSplitEscrow: createSafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7135.7147.7149.7191)
+MockActor ->>SmartInvoiceUpdatable: createSafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7135.7147.7149.7191)
+MockActor ->>SmartInvoiceUpdatableV2: createSafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7135.7147.7149.7191)
+MockActor ->>SpoilsManager: createSafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7135.7147.7149.7191)
+MockActor ->>SpoilsManagerFactory: createSafeSplitsEscrowZap
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7483)
+MockActor ->>SafeSplitsDaoEscrowZap: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7483)
+MockActor ->>SafeSplitsEscrowZap: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7483)
+MockActor ->>SafeSplitsEscrowZapFactory: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7483)
+MockActor ->>SmartInvoiceEscrow: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7483)
+MockActor ->>SmartInvoiceFactory: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7483)
+MockActor ->>SmartInvoiceFactoryBundler: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7483)
+MockActor ->>SmartInvoiceInstant: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7483)
+MockActor ->>SmartInvoiceSplitEscrow: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7483)
+MockActor ->>SmartInvoiceUpdatable: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7483)
+MockActor ->>SmartInvoiceUpdatableV2: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7483)
+MockActor ->>SpoilsManager: init
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7483)
+MockActor ->>SpoilsManagerFactory: init
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.7483.7503.7521.7522.7523.7524)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _handleData
+%% Stream Fact: (bucket: EmitMermaidLineSignalLine, path: 0.7260.7289.7306.7599.7607.7677.7678.7683.7684)
+SmartInvoiceEscrow->>SmartInvoiceFactory: resolutionRateOf
+%% Stream Fact: (bucket: EmitMermaidLineActivateLine, path: 0.7260.7289.7306.7599.7607.7677.7678.7683.7684)
+activate SmartInvoiceFactory
+%% Stream Fact: (bucket: EmitMermaidLineReturnSignalLine, path: 0.7260.7289.7306.7599.7607.7677.7678.7683.7684)
+SmartInvoiceFactory-->>SmartInvoiceEscrow: return resolutionRates[_resolver];
+%% Stream Fact: (bucket: EmitMermaidLineDeactivateLine, path: 0.7260.7289.7306.7599.7607.7677.7678.7683.7684)
+deactivate SmartInvoiceFactory
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7941)
+MockActor ->>SafeSplitsDaoEscrowZap: verify
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7941)
+MockActor ->>SafeSplitsEscrowZap: verify
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7941)
+MockActor ->>SafeSplitsEscrowZapFactory: verify
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7941)
+MockActor ->>SmartInvoiceEscrow: verify
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7941)
+MockActor ->>SmartInvoiceFactory: verify
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7941)
+MockActor ->>SmartInvoiceFactoryBundler: verify
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7941)
+MockActor ->>SmartInvoiceInstant: verify
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7941)
+MockActor ->>SmartInvoiceSplitEscrow: verify
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7941)
+MockActor ->>SmartInvoiceUpdatable: verify
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7941)
+MockActor ->>SmartInvoiceUpdatableV2: verify
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7941)
+MockActor ->>SpoilsManager: verify
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7941)
+MockActor ->>SpoilsManagerFactory: verify
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7976)
+MockActor ->>SafeSplitsDaoEscrowZap: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7976)
+MockActor ->>SafeSplitsEscrowZap: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7976)
+MockActor ->>SafeSplitsEscrowZapFactory: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7976)
+MockActor ->>SmartInvoiceEscrow: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7976)
+MockActor ->>SmartInvoiceFactory: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7976)
+MockActor ->>SmartInvoiceFactoryBundler: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7976)
+MockActor ->>SmartInvoiceInstant: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7976)
+MockActor ->>SmartInvoiceSplitEscrow: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7976)
+MockActor ->>SmartInvoiceUpdatable: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7976)
+MockActor ->>SmartInvoiceUpdatableV2: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7976)
+MockActor ->>SpoilsManager: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.7976)
+MockActor ->>SpoilsManagerFactory: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.7976.7985.7986.7987.7988.7989)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8003)
+MockActor ->>SafeSplitsDaoEscrowZap: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8003)
+MockActor ->>SafeSplitsEscrowZap: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8003)
+MockActor ->>SafeSplitsEscrowZapFactory: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8003)
+MockActor ->>SmartInvoiceEscrow: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8003)
+MockActor ->>SmartInvoiceFactory: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8003)
+MockActor ->>SmartInvoiceFactoryBundler: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8003)
+MockActor ->>SmartInvoiceInstant: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8003)
+MockActor ->>SmartInvoiceSplitEscrow: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8003)
+MockActor ->>SmartInvoiceUpdatable: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8003)
+MockActor ->>SmartInvoiceUpdatableV2: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8003)
+MockActor ->>SpoilsManager: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8003)
+MockActor ->>SpoilsManagerFactory: addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.8003.8016.8017.8018.8019.8020)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _addMilestones
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.8352.8356.8414.8415.8424.8425.8496.8497.8498.8499)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _transferPayment
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.8352.8356.8414.8415.8530.8531.8545.8546.8547.8548)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _transferPayment
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8580)
+MockActor ->>SafeSplitsDaoEscrowZap: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8580)
+MockActor ->>SafeSplitsEscrowZap: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8580)
+MockActor ->>SafeSplitsEscrowZapFactory: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8580)
+MockActor ->>SmartInvoiceEscrow: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8580)
+MockActor ->>SmartInvoiceFactory: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8580)
+MockActor ->>SmartInvoiceFactoryBundler: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8580)
+MockActor ->>SmartInvoiceInstant: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8580)
+MockActor ->>SmartInvoiceSplitEscrow: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8580)
+MockActor ->>SmartInvoiceUpdatable: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8580)
+MockActor ->>SmartInvoiceUpdatableV2: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8580)
+MockActor ->>SpoilsManager: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8580)
+MockActor ->>SpoilsManagerFactory: release
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.8580.8587.8588.8589.8590.8591)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8595)
+MockActor ->>SafeSplitsDaoEscrowZap: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8595)
+MockActor ->>SafeSplitsEscrowZap: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8595)
+MockActor ->>SafeSplitsEscrowZapFactory: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8595)
+MockActor ->>SmartInvoiceEscrow: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8595)
+MockActor ->>SmartInvoiceFactory: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8595)
+MockActor ->>SmartInvoiceFactoryBundler: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8595)
+MockActor ->>SmartInvoiceInstant: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8595)
+MockActor ->>SmartInvoiceSplitEscrow: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8595)
+MockActor ->>SmartInvoiceUpdatable: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8595)
+MockActor ->>SmartInvoiceUpdatableV2: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8595)
+MockActor ->>SpoilsManager: release
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8595)
+MockActor ->>SpoilsManagerFactory: release
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.8595.8606.8814.8815.8816.8817)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _transferPayment
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8851)
+MockActor ->>SafeSplitsDaoEscrowZap: releaseTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8851)
+MockActor ->>SafeSplitsEscrowZap: releaseTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8851)
+MockActor ->>SafeSplitsEscrowZapFactory: releaseTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8851)
+MockActor ->>SmartInvoiceEscrow: releaseTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8851)
+MockActor ->>SmartInvoiceFactory: releaseTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8851)
+MockActor ->>SmartInvoiceFactoryBundler: releaseTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8851)
+MockActor ->>SmartInvoiceInstant: releaseTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8851)
+MockActor ->>SmartInvoiceSplitEscrow: releaseTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8851)
+MockActor ->>SmartInvoiceUpdatable: releaseTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8851)
+MockActor ->>SmartInvoiceUpdatableV2: releaseTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8851)
+MockActor ->>SpoilsManager: releaseTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.8851)
+MockActor ->>SpoilsManagerFactory: releaseTokens
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.8851.8862.8863.8864.8871.8872.8873.8874.8875.8876)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _release
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.8851.8862.8863.8864.8879.8880.8921.8922.8923.8924)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _transferPayment
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.8934.8937.9000.9001.9002.9003)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _withdrawDeposit
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9030)
+MockActor ->>SafeSplitsDaoEscrowZap: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9030)
+MockActor ->>SafeSplitsEscrowZap: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9030)
+MockActor ->>SafeSplitsEscrowZapFactory: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9030)
+MockActor ->>SmartInvoiceEscrow: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9030)
+MockActor ->>SmartInvoiceFactory: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9030)
+MockActor ->>SmartInvoiceFactoryBundler: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9030)
+MockActor ->>SmartInvoiceInstant: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9030)
+MockActor ->>SmartInvoiceSplitEscrow: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9030)
+MockActor ->>SmartInvoiceUpdatable: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9030)
+MockActor ->>SmartInvoiceUpdatableV2: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9030)
+MockActor ->>SpoilsManager: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9030)
+MockActor ->>SpoilsManagerFactory: withdraw
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.9030.9036.9037.9038.9039.9040)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _withdraw
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9044)
+MockActor ->>SafeSplitsDaoEscrowZap: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9044)
+MockActor ->>SafeSplitsEscrowZap: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9044)
+MockActor ->>SafeSplitsEscrowZapFactory: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9044)
+MockActor ->>SmartInvoiceEscrow: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9044)
+MockActor ->>SmartInvoiceFactory: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9044)
+MockActor ->>SmartInvoiceFactoryBundler: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9044)
+MockActor ->>SmartInvoiceInstant: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9044)
+MockActor ->>SmartInvoiceSplitEscrow: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9044)
+MockActor ->>SmartInvoiceUpdatable: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9044)
+MockActor ->>SmartInvoiceUpdatableV2: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9044)
+MockActor ->>SpoilsManager: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9044)
+MockActor ->>SpoilsManagerFactory: withdrawTokens
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.9044.9054.9055.9056.9063.9064.9065.9066.9067.9068)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _withdraw
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.9044.9054.9055.9056.9071.9072.9126.9127.9128.9129)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _withdrawDeposit
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9139)
+MockActor ->>SafeSplitsDaoEscrowZap: lock
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9139)
+MockActor ->>SafeSplitsEscrowZap: lock
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9139)
+MockActor ->>SafeSplitsEscrowZapFactory: lock
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9139)
+MockActor ->>SmartInvoiceEscrow: lock
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9139)
+MockActor ->>SmartInvoiceFactory: lock
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9139)
+MockActor ->>SmartInvoiceFactoryBundler: lock
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9139)
+MockActor ->>SmartInvoiceInstant: lock
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9139)
+MockActor ->>SmartInvoiceSplitEscrow: lock
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9139)
+MockActor ->>SmartInvoiceUpdatable: lock
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9139)
+MockActor ->>SmartInvoiceUpdatableV2: lock
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9139)
+MockActor ->>SpoilsManager: lock
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9139)
+MockActor ->>SpoilsManagerFactory: lock
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9311)
+MockActor ->>SafeSplitsDaoEscrowZap: resolve
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9311)
+MockActor ->>SafeSplitsEscrowZap: resolve
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9311)
+MockActor ->>SafeSplitsEscrowZapFactory: resolve
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9311)
+MockActor ->>SmartInvoiceEscrow: resolve
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9311)
+MockActor ->>SmartInvoiceFactory: resolve
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9311)
+MockActor ->>SmartInvoiceFactoryBundler: resolve
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9311)
+MockActor ->>SmartInvoiceInstant: resolve
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9311)
+MockActor ->>SmartInvoiceSplitEscrow: resolve
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9311)
+MockActor ->>SmartInvoiceUpdatable: resolve
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9311)
+MockActor ->>SmartInvoiceUpdatableV2: resolve
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9311)
+MockActor ->>SpoilsManager: resolve
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9311)
+MockActor ->>SpoilsManagerFactory: resolve
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.9311.9330.9443.9444.9451.9452.9453.9454.9455.9456)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _transferPayment
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.9311.9330.9465.9466.9473.9474.9475.9476.9477.9478)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _withdrawDeposit
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9558)
+MockActor ->>SafeSplitsDaoEscrowZap: rule
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9558)
+MockActor ->>SafeSplitsEscrowZap: rule
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9558)
+MockActor ->>SafeSplitsEscrowZapFactory: rule
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9558)
+MockActor ->>SmartInvoiceEscrow: rule
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9558)
+MockActor ->>SmartInvoiceFactory: rule
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9558)
+MockActor ->>SmartInvoiceFactoryBundler: rule
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9558)
+MockActor ->>SmartInvoiceInstant: rule
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9558)
+MockActor ->>SmartInvoiceSplitEscrow: rule
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9558)
+MockActor ->>SmartInvoiceUpdatable: rule
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9558)
+MockActor ->>SmartInvoiceUpdatableV2: rule
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9558)
+MockActor ->>SpoilsManager: rule
+%% Stream Fact: (bucket: EmitMermaidLineMockActorSignalLine, path: 0.7260.7289.7306.9558)
+MockActor ->>SpoilsManagerFactory: rule
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.9558.9573.9679.9680.9688.9689)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _getRuling
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.9558.9573.9761.9762.9769.9770.9771.9772.9773.9774)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _transferPayment
+%% Stream Fact: (bucket: EmitMermaidLineIntraSignalLineNoReturn, path: 0.7260.7289.7306.9558.9573.9783.9784.9791.9792.9793.9794.9795.9796)
+SmartInvoiceEscrow->>SmartInvoiceEscrow: _withdrawDeposit
+
