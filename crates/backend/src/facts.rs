@@ -113,8 +113,37 @@ impl DDLogCommand {
     }
 }
 
+/// Represents a source code item with its metadata
+#[derive(Debug, Clone)]
+pub struct SourceItem<'a> {
+    pub source_code: &'a str,
+    pub name: Option<String>,
+}
+
+impl<'a> SourceItem<'a> {
+    pub fn new(source_code: &'a str) -> Self {
+        Self {
+            source_code,
+            name: None,
+        }
+    }
+
+    pub fn with_name(source_code: &'a str, name: String) -> Self {
+        Self {
+            source_code,
+            name: Some(name),
+        }
+    }
+}
+
 pub struct TreeSitterToDDLog<'a, T: language::Language> {
     source_code: &'a str,
+    language: &'a T,
+    excluded_relations: Option<HashSet<String>>,
+}
+
+pub struct MultiSourceTreeSitterToDDLog<'a, T: language::Language> {
+    sources: Vec<SourceItem<'a>>,
     language: &'a T,
     excluded_relations: Option<HashSet<String>>,
 }
@@ -241,6 +270,12 @@ impl<'a, T: language::Language> TreeSitterToDDLog<'a, T> {
         }
     }
 
+    /// Convert to a multi-source version with just this source
+    pub fn to_multi_source(self) -> MultiSourceTreeSitterToDDLog<'a, T> {
+        MultiSourceTreeSitterToDDLog::new(vec![SourceItem::new(self.source_code)], self.language)
+            .with_excluded_relations(self.excluded_relations.unwrap_or_default())
+    }
+
     /// Create a tree dumper for the extracted fact nodes
     pub fn create_tree_dumper(&self) -> FactNodeTreeDumper {
         let fact_nodes = self.extract_fact_nodes();
@@ -265,6 +300,14 @@ impl<'a, T: language::Language> TreeSitterToDDLog<'a, T> {
     pub fn with_excluded_relations(mut self, excluded_relations: HashSet<String>) -> Self {
         self.excluded_relations = Some(excluded_relations);
         self
+    }
+    
+    /// Convert this single-source parser to a multi-source parser
+    pub fn as_multi_source(&self) -> MultiSourceTreeSitterToDDLog<'a, T> {
+        MultiSourceTreeSitterToDDLog::new(
+            vec![SourceItem::new(self.source_code)],
+            self.language,
+        ).with_excluded_relations(self.excluded_relations.clone().unwrap_or_default())
     }
 
     pub fn extract_fact_nodes(&self) -> Vec<FactNode> {
@@ -468,6 +511,288 @@ impl<'a, T: language::Language> TreeSitterToDDLog<'a, T> {
             create_insert_command,
             &self.excluded_relations,
         );
+
+        commands.push(DDLogCommand::CommitDumpChanges);
+        commands
+    }
+
+    pub fn save_to_writer(&self, commands: &[DDLogCommand], mut writer: Box<dyn Write>) {
+        for command in commands {
+            let line = command.to_string();
+            writer.write_all(line.as_bytes()).expect("Failed to write");
+            writer.write_all(b"\n").expect("Failed newline");
+        }
+    }
+
+    pub fn save_to_file(&self, commands: &[DDLogCommand], file_path: &str) {
+        let file = File::create(file_path).expect("Failed to create file");
+        self.save_to_writer(commands, Box::new(file))
+    }
+
+    pub fn save_to_stdout(&self, commands: &[DDLogCommand]) {
+        self.save_to_writer(commands, Box::new(std::io::stdout()))
+    }
+}
+
+impl<'a, T: language::Language> MultiSourceTreeSitterToDDLog<'a, T> {
+    pub fn new(sources: Vec<SourceItem<'a>>, language: &'a T) -> Self {
+        Self {
+            sources,
+            language,
+            excluded_relations: None,
+        }
+    }
+
+    /// Add a source to the collection
+    pub fn add_source(&mut self, source: SourceItem<'a>) {
+        self.sources.push(source);
+    }
+
+    /// Add a source with just the code
+    pub fn add_source_code(&mut self, source_code: &'a str) {
+        self.sources.push(SourceItem::new(source_code));
+    }
+
+    /// Add a source with a name
+    pub fn add_named_source(&mut self, source_code: &'a str, name: String) {
+        self.sources.push(SourceItem::with_name(source_code, name));
+    }
+
+    pub fn with_excluded_relations(mut self, excluded_relations: HashSet<String>) -> Self {
+        self.excluded_relations = Some(excluded_relations);
+        self
+    }
+
+    /// Extract fact nodes from all sources
+    pub fn extract_fact_nodes(&self) -> Vec<FactNode> {
+        let mut all_fact_nodes = Vec::new();
+        let mut next_id = 1;
+
+        for source in &self.sources {
+            let tree = self
+                .language
+                .parse(source.source_code)
+                .expect("Failed to parse source code");
+
+            let mut fact_nodes = Vec::new();
+
+            fn traverse(
+                source_code: &str,
+                node: Node,
+                parent_id: Option<usize>,
+                fact_nodes: &mut Vec<FactNode>,
+                next_id: &mut usize,
+                excluded_relations: &Option<HashSet<String>>,
+            ) {
+                let kind = node.kind().to_string();
+                let relation = to_pascal_case(&kind);
+
+                // Skip if relation is in exclusion list
+                if let Some(excluded) = excluded_relations {
+                    if excluded.contains(&relation) {
+                        for i in 0..node.child_count() {
+                            if let Some(child) = node.named_child(i) {
+                                traverse(
+                                    source_code,
+                                    child,
+                                    parent_id,
+                                    fact_nodes,
+                                    next_id,
+                                    excluded_relations,
+                                );
+                            }
+                        }
+                        return;
+                    }
+                }
+
+                let current_id = *next_id;
+                *next_id += 1;
+
+                let fact_node = FactNode::new(source_code, &node, current_id, parent_id);
+                fact_nodes.push(fact_node);
+
+                for i in 0..node.child_count() {
+                    if let Some(child) = node.named_child(i) {
+                        traverse(
+                            source_code,
+                            child,
+                            Some(current_id),
+                            fact_nodes,
+                            next_id,
+                            excluded_relations,
+                        );
+                    }
+                }
+            }
+
+            traverse(
+                source.source_code,
+                tree.root_node(),
+                None,
+                &mut fact_nodes,
+                &mut next_id,
+                &self.excluded_relations,
+            );
+
+            all_fact_nodes.extend(fact_nodes);
+        }
+
+        all_fact_nodes
+    }
+
+    /// Create a tree dumper for the extracted fact nodes from all sources
+    pub fn create_tree_dumper(&self) -> FactNodeTreeDumper {
+        let fact_nodes = self.extract_fact_nodes();
+        FactNodeTreeDumper::new(fact_nodes)
+    }
+
+    /// Dump the tree representation to a string
+    pub fn dump_tree(&self) -> String {
+        self.create_tree_dumper().dump_tree()
+    }
+
+    /// Write the tree representation to a writer
+    pub fn write_tree<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        self.create_tree_dumper().write_tree(writer)
+    }
+
+    /// Write the tree representation to a file
+    pub fn write_tree_to_file(&self, file_path: &str) -> std::io::Result<()> {
+        self.create_tree_dumper().write_tree_to_file(file_path)
+    }
+
+    /// Filter fact nodes using a predicate function
+    pub fn filter_fact_nodes(
+        &self,
+        fact_nodes: &[FactNode],
+        filter: &FactNodeFilterFn,
+    ) -> Vec<FactNode> {
+        fact_nodes
+            .iter()
+            .filter(|node| filter(node))
+            .cloned()
+            .collect()
+    }
+
+    /// Convert fact nodes to DDLogCommands
+    pub fn fact_nodes_to_commands(&self, fact_nodes: &[FactNode]) -> Vec<DDLogCommand> {
+        let mut commands = vec![DDLogCommand::Start];
+
+        for fact_node in fact_nodes {
+            commands.push(fact_node.to_ddlog_command());
+        }
+
+        commands.push(DDLogCommand::CommitDumpChanges);
+        commands
+    }
+
+    /// Extract commands using the FactNode approach from all sources
+    pub fn extract_commands_with_fact_nodes(
+        &self,
+        filter: Option<&FactNodeFilterFn>,
+    ) -> Vec<DDLogCommand> {
+        let fact_nodes = self.extract_fact_nodes();
+
+        let filtered_nodes = if let Some(filter_fn) = filter {
+            self.filter_fact_nodes(&fact_nodes, filter_fn)
+        } else {
+            fact_nodes
+        };
+
+        self.fact_nodes_to_commands(&filtered_nodes)
+    }
+
+    /// Legacy method for backward compatibility
+    pub fn extract_commands(
+        &self,
+        create_insert_command: Option<&InsertCommandFn>,
+    ) -> Vec<DDLogCommand> {
+        let mut commands = vec![DDLogCommand::Start];
+        let mut next_id = 1;
+
+        for source in &self.sources {
+            let tree = self
+                .language
+                .parse(source.source_code)
+                .expect("Failed to parse source code");
+
+            fn traverse(
+                source_code: &str,
+                node: Node,
+                parent_id: Option<usize>,
+                facts: &mut Vec<DDLogCommand>,
+                next_id: &mut usize,
+                create_insert_command: Option<&InsertCommandFn>,
+                excluded_relations: &Option<HashSet<String>>,
+            ) {
+                let kind = node.kind().to_string();
+                let relation = to_pascal_case(&kind);
+
+                // Skip if relation is in exclusion list
+                if let Some(excluded) = excluded_relations {
+                    if excluded.contains(&relation) {
+                        for i in 0..node.child_count() {
+                            if let Some(child) = node.named_child(i) {
+                                traverse(
+                                    source_code,
+                                    child,
+                                    parent_id,
+                                    facts,
+                                    next_id,
+                                    create_insert_command,
+                                    excluded_relations,
+                                );
+                            }
+                        }
+                        return;
+                    }
+                }
+
+                let content = source_code.get(node.start_byte()..node.end_byte()).unwrap();
+
+                let current_id = *next_id;
+                *next_id += 1;
+
+                if let Some(cmd_fn) = create_insert_command {
+                    if let Some(fact) = cmd_fn(source_code, &node, current_id, parent_id) {
+                        facts.push(fact);
+                    }
+                } else {
+                    let fact = DDLogCommand::create_fact(
+                        to_pascal_case(&kind),
+                        current_id,
+                        parent_id.unwrap_or(0),
+                        Some(content.to_string()),
+                    );
+                    facts.push(fact);
+                }
+
+                for i in 0..node.child_count() {
+                    if let Some(child) = node.named_child(i) {
+                        traverse(
+                            source_code,
+                            child,
+                            Some(current_id),
+                            facts,
+                            next_id,
+                            create_insert_command,
+                            excluded_relations,
+                        );
+                    }
+                }
+            }
+
+            traverse(
+                source.source_code,
+                tree.root_node(),
+                None,
+                &mut commands,
+                &mut next_id,
+                create_insert_command,
+                &self.excluded_relations,
+            );
+        }
 
         commands.push(DDLogCommand::CommitDumpChanges);
         commands
@@ -759,5 +1084,152 @@ mod tests {
         // Verify the structure with indentation
         assert!(tree_dump.contains("└──") || tree_dump.contains("├──"));
         assert!(tree_dump.contains("    └──") || tree_dump.contains("    ├──"));
+    }
+
+    #[test]
+    fn test_multi_source_tree_sitter() {
+        let source_code1 = r#"
+        pragma solidity ^0.8.0;
+        contract Contract1 {
+            uint256 value1;
+        }
+        "#;
+
+        let source_code2 = r#"
+        pragma solidity ^0.8.0;
+        contract Contract2 {
+            uint256 value2;
+        }
+        "#;
+
+        let solidity = Solidity;
+        
+        // Create a multi-source parser
+        let parser = MultiSourceTreeSitterToDDLog::new(
+            vec![
+                SourceItem::with_name(source_code1, "Contract1.sol".to_string()),
+                SourceItem::with_name(source_code2, "Contract2.sol".to_string()),
+            ],
+            &solidity,
+        );
+
+        // Extract fact nodes from all sources
+        let fact_nodes = parser.extract_fact_nodes();
+        
+        // Verify we have nodes from both sources
+        assert!(!fact_nodes.is_empty());
+        
+        // Check that we have both contract definitions
+        let contract_nodes: Vec<_> = fact_nodes
+            .iter()
+            .filter(|node| node.kind == "contract_definition")
+            .collect();
+        
+        assert_eq!(contract_nodes.len(), 2);
+        
+        // Verify we can find both contract names in the values
+        let has_contract1 = fact_nodes
+            .iter()
+            .any(|node| node.value.as_ref().map_or(false, |v| v.contains("Contract1")));
+        
+        let has_contract2 = fact_nodes
+            .iter()
+            .any(|node| node.value.as_ref().map_or(false, |v| v.contains("Contract2")));
+        
+        assert!(has_contract1);
+        assert!(has_contract2);
+
+        // Test conversion to commands
+        let commands = parser.extract_commands_with_fact_nodes(None);
+        assert!(commands.len() > 3); // Start + facts + CommitDumpChanges
+        
+        // Verify the tree dump contains both contracts
+        let tree_dump = parser.dump_tree();
+        assert!(tree_dump.contains("Contract1"));
+        assert!(tree_dump.contains("Contract2"));
+    }
+
+    #[test]
+    fn test_convert_single_to_multi() {
+        let source_code = r#"
+        pragma solidity ^0.8.0;
+        contract SimpleStorage {
+            uint256 storedData;
+        }
+        "#;
+
+        let solidity = Solidity;
+        
+        // Create a single-source parser
+        let single_parser = TreeSitterToDDLog::new(source_code, &solidity);
+        
+        // Convert to multi-source
+        let multi_parser = single_parser.as_multi_source();
+        
+        // Extract fact nodes from both
+        let single_nodes = single_parser.extract_fact_nodes();
+        let multi_nodes = multi_parser.extract_fact_nodes();
+        
+        // They should have the same number of nodes
+        assert_eq!(single_nodes.len(), multi_nodes.len());
+        
+        // The nodes should be identical
+        for (single, multi) in single_nodes.iter().zip(multi_nodes.iter()) {
+            assert_eq!(single.kind, multi.kind);
+            assert_eq!(single.relation, multi.relation);
+            assert_eq!(single.value, multi.value);
+        }
+    }
+
+    #[test]
+    fn test_multi_source_with_different_languages() {
+        let solidity_code = r#"
+        pragma solidity ^0.8.0;
+        contract SimpleStorage {
+            uint256 storedData;
+        }
+        "#;
+
+        let mermaid_code = r#"
+        sequenceDiagram
+        participant Alice
+        participant Bob
+        Alice->>Bob: Hello Bob, how are you?
+        "#;
+
+        let solidity = Solidity;
+        
+        // Create a multi-source parser with Solidity
+        let mut parser = MultiSourceTreeSitterToDDLog::new(
+            vec![SourceItem::with_name(solidity_code, "Contract.sol".to_string())],
+            &solidity,
+        );
+        
+        // Extract fact nodes from Solidity
+        let solidity_nodes = parser.extract_fact_nodes();
+        assert!(!solidity_nodes.is_empty());
+        
+        // Verify we have Solidity-specific nodes
+        let has_contract = solidity_nodes
+            .iter()
+            .any(|node| node.kind == "contract_definition");
+        assert!(has_contract);
+        
+        // Now create a new parser with Mermaid
+        let mermaid = Mermaid;
+        let mermaid_parser = MultiSourceTreeSitterToDDLog::new(
+            vec![SourceItem::with_name(mermaid_code, "diagram.mmd".to_string())],
+            &mermaid,
+        );
+        
+        // Extract fact nodes from Mermaid
+        let mermaid_nodes = mermaid_parser.extract_fact_nodes();
+        assert!(!mermaid_nodes.is_empty());
+        
+        // Verify we have Mermaid-specific nodes
+        let has_sequence = mermaid_nodes
+            .iter()
+            .any(|node| node.kind == "sequence_stmt");
+        assert!(has_sequence);
     }
 }

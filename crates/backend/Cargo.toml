@@ -31,6 +31,7 @@ which = "7.0.1"
 tempfile = "3.16.0"
 nom = "8.0.0"
 serde_yaml = "0.9"
+libc = "0.2.171"
 
 
 [dev-dependencies]

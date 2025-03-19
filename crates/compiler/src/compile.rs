@@ -7,7 +7,6 @@
 /// 2. IR Generation: Transforms the AST into an intermediate representation (IR)
 /// 3. DDlog Generation: Converts the IR into DDlog code
 /// 4. Execution: Compiles and runs the generated DDlog program
-/// 5. Hydration: Processes the DDlog output into structured data
 ///
 /// The compiler can be configured to enable or disable tracing, which logs detailed information
 /// about the compilation and execution process using the `tracing` crate.
@@ -16,10 +15,8 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use backend::ddlog_drain::DdlogDrain;
 use backend::ddlog_rt::{build_ddlog_crate, generate_rust_project, validate};
 use backend::facts::{DDLogCommand, InsertCommandFn, TreeSitterToDDLog};
-use backend::hydrate::{BucketConfig, Hydrator, InputSource};
 use language::Language;
 
 use frontend::formatter::Formatter;
@@ -74,8 +71,6 @@ pub struct Compiler {
     no_execute: bool,
     no_hydrate: bool,
     enable_tracing: bool,
-    hydrator_config: Option<BucketConfig>,
-    hydrator_config_file: Option<PathBuf>,
 }
 
 impl Default for Compiler {
@@ -94,8 +89,6 @@ impl Compiler {
             no_execute: false,
             no_hydrate: false,
             enable_tracing: false,
-            hydrator_config: None,
-            hydrator_config_file: None,
         }
     }
 
@@ -146,17 +139,6 @@ impl Compiler {
         self
     }
 
-    pub fn with_hydrator_config(mut self, config: BucketConfig) -> Self {
-        self.hydrator_config = Some(config);
-        self
-    }
-
-    /// Set the path to the hydration configuration file
-    pub fn with_hydrator_config_file(mut self, path: PathBuf) -> Self {
-        self.hydrator_config_file = Some(path);
-        self
-    }
-
     /// Parse the source file and extract DDLog commands
     pub fn parse_source_file(
         &self,
@@ -196,8 +178,6 @@ impl Compiler {
         let dl_ir = ir_generator
             .lval_to_ir(&lval)
             .map_err(|e| CompilerError::IrGeneration(format!("{:?}", e)))?;
-
-        //println!("IR (before formatting):\n\n{}\n", dl_ir);
 
         // Format the IR
         let formatted_ir = ir::format_program(&dl_ir.to_string(), true, 2, false)
@@ -278,93 +258,8 @@ impl Compiler {
             CompilerError::DdlogExecution(format!("Failed to run DDlog project: {}", e))
         })?;
 
-        let hydrated_output = if !self.no_hydrate {
-            let hydrator_config = if let Some(config) = self.hydrator_config.clone() {
-                config
-            } else if let Some(config_path) = &self.hydrator_config_file {
-                match BucketConfig::from_yaml_file(config_path) {
-                    Ok(config) => config,
-                    Err(e) => {
-                        return Err(CompilerError::DdlogExecution(format!(
-                            "Failed to load hydration config from {}: {}",
-                            config_path.display(),
-                            e
-                        )));
-                    }
-                }
-            } else {
-                // Try to load from default path
-                let default_path = PathBuf::from("hydration.yaml");
-
-                match BucketConfig::from_yaml_file(&default_path) {
-                    Ok(config) => config,
-                    Err(_) => {
-                        // Fall back to hardcoded default if file exists but can't be parsed
-                        BucketConfig::new()
-                            .with_pool_shape("sequenceDiagram")
-                            .with_bucket(
-                                "participants",
-                                100,
-                                "path",
-                                "val",
-                                vec![
-                                    InputSource::new("EmitMermaidLineMockActorLine", 100),
-                                    InputSource::new("EmitMermaidLineMockActorParticipantLine", 99),
-                                    InputSource::new("EmitMermaidLineCallerParticipantLine", 95),
-                                    InputSource::new("EmitMermaidLineCalleeParticipantLine", 90),
-                                    InputSource::new("EmitMermaidLineContractParticipantLine", 90),
-                                ],
-                            )
-                            .with_bucket(
-                                "mock-actor-flows",
-                                95,
-                                "mock_actor_func_id_path",
-                                "val",
-                                vec![InputSource::new("EmitMermaidLineMockActorSignalLine", 100)],
-                            )
-                            .with_bucket(
-                                "flow",
-                                90,
-                                "intra_ce_no_return_id_path",
-                                "val",
-                                vec![
-                                    InputSource::new("EmitMermaidLineSignalLine", 100),
-                                    InputSource::new("EmitMermaidLineActivateLine", 90),
-                                    InputSource::new("EmitMermaidLineReturnSignalLine", 80),
-                                    InputSource::new("EmitMermaidLineDeactivateLine", 70),
-                                    InputSource::new("EmitMermaidLineIntraSignalLine", 100),
-                                    InputSource::new("EmitMermaidLineIntraSignalLineNoReturn", 100),
-                                    InputSource::new("EmitMermaidLineIntraActivateLine", 90),
-                                    InputSource::new(
-                                        "EmitMermaidLineIntraActivateLineNoReturn",
-                                        90,
-                                    ),
-                                    InputSource::new("EmitMermaidLineIntraReturnSignalLine", 80),
-                                    InputSource::new("EmitMermaidLineIntraDeactivateLine", 70),
-                                    InputSource::new(
-                                        "EmitMermaidLineIntraDeactivateLineNoReturn",
-                                        70,
-                                    ),
-                                ],
-                            )
-                            .with_stream_shape("actor-flow-stream", vec!["mock-actor-flows", "flow"], "sequenceDiagram")
-                    }
-                }
-            };
-
-            // save config
-            hydrator_config.to_yaml_file("config.yaml").unwrap();
-
-            let mut hydrator = Hydrator::new(hydrator_config);
-
-            let lines = ddlog_output.lines().map(|s| s.to_string());
-            let drain = DdlogDrain::new(lines);
-
-            hydrator.process_drain(drain);
-            Some(hydrator.dump_streams())
-        } else {
-            None
-        };
+        // Hydration is now handled by the trvh tool
+        let hydrated_output = None;
 
         Ok(ExecutionResult {
             compilation: compilation_result,

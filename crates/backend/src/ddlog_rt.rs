@@ -1,10 +1,8 @@
 use std::{
-    fs::{self, File},
-    io::{BufReader, Read, Result as IoResult, Write},
-    path::Path,
-    process::{Command, Stdio},
+    fs::{self, File}, io::{BufReader, BufWriter, Read, Result as IoResult, Write}, os::fd::AsRawFd, path::Path, process::{Command, Stdio}
 };
 use tempdir::TempDir;
+use tempfile::NamedTempFile;
 
 use crate::facts::DDLogCommand;
 
@@ -30,11 +28,8 @@ pub fn validate(dl_program: &str, enable_tracing: bool) -> Result<String, String
         .spawn()
         .map_err(|e| format!("Failed to launch ddlog command: {}", e))?;
 
-    let stderr = ddlog_run
-        .stderr
-        .take()
-        .ok_or("Failed to capture stderr")?;
-    
+    let stderr = ddlog_run.stderr.take().ok_or("Failed to capture stderr")?;
+
     let status = ddlog_run
         .wait()
         .map_err(|e| format!("Failed to wait for ddlog process: {}", e))?;
@@ -63,12 +58,18 @@ pub fn validate(dl_program: &str, enable_tracing: bool) -> Result<String, String
             // Try to parse the error message to find the line number
             if let Some(error_line) = parse_ddlog_error(&error_output, "program.dl") {
                 // Display the DL program with line numbers and highlight the error line
-                println!("\n=== DDLog Program with Error Highlighting ===");
+                println!(
+                    "
+=== DDLog Program with Error Highlighting ==="
+                );
                 println!(
                     "{}",
                     format_dl_file_with_line_numbers(dl_program, error_line)
                 );
-                println!("=== End of DDLog Program ===\n");
+                println!(
+                    "=== End of DDLog Program ===
+"
+                );
             }
 
             // Print the original error message
@@ -77,7 +78,8 @@ pub fn validate(dl_program: &str, enable_tracing: bool) -> Result<String, String
 
         let exit_code = status.code().unwrap_or(-1);
         Err(format!(
-            "DDlog validation failed with exit code: {}\n{}",
+            "DDlog validation failed with exit code: {}
+{}",
             exit_code, error_output
         ))
     }
@@ -170,12 +172,18 @@ pub fn build_ddlog_crate(
             if let Some(error_line) = parse_ddlog_error(&error_output, &dl_file) {
                 // Read the DL file
                 if let Ok(dl_content) = fs::read_to_string(&dl_file_path) {
-                    println!("\n=== DDLog File with Error Highlighting ===");
+                    println!(
+                        "
+=== DDLog File with Error Highlighting ==="
+                    );
                     println!(
                         "{}",
                         format_dl_file_with_line_numbers(&dl_content, error_line)
                     );
-                    println!("=== End of DDLog File ===\n");
+                    println!(
+                        "=== End of DDLog File ===
+"
+                    );
                 }
             }
 
@@ -230,6 +238,114 @@ pub fn build_ddlog_crate(
     Ok(())
 }
 
+pub fn run_ddlog_crate(
+    base_dir: &Path,
+    project_name: &str,
+    cmds: &[DDLogCommand],
+    enable_tracing: bool,
+) -> Result<String, String> {
+    let project_dir = format!(
+        "{}/{}_ddlog",
+        base_dir.to_str().unwrap_or_default(),
+        project_name
+    );
+
+    // Pre-compute all commands as a single string for faster writing
+    let dat_content = cmds
+        .iter()
+        .map(|cmd| cmd.to_string())
+        .collect::<Vec<String>>()
+        .join(
+            "
+",
+        );
+
+    let exec_path = format!("target/debug/{}_cli", project_name);
+    if enable_tracing {
+        println!(
+            "Running generated DDLog application: {}/{}",
+            project_dir, exec_path
+        );
+    }
+
+    let mut ddlog_app_run = Command::new(&exec_path)
+        .current_dir(project_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|e| {
+            format!(
+                "Failed to launch generated DDLog application: {} ({})",
+                e, exec_path
+            )
+        })?;
+
+    // Print just first 80 lines of the facts if tracing is enabled
+    if enable_tracing {
+        println!(
+            "Facts:
+{}",
+            dat_content.lines().take(80).collect::<Vec<&str>>().join(
+                "
+"
+            )
+        );
+    }
+
+    // Use BufWriter for more efficient writing to stdin
+    if let Some(mut stdin) = ddlog_app_run.stdin.take() {
+        // Use a large buffer for better performance
+        println!("Writing facts to stdin...");
+        // Write all data at once
+        stdin
+            .write_all(dat_content.as_bytes())
+            .map_err(|e| format!("Failed to write to stdin: {}", e))?;
+        println!("Done writing facts to stdin.");
+
+        // Explicitly drop the writer to close stdin
+        drop(stdin);
+        println!("Stdin closed.");
+    } else {
+        return Err("Failed to get stdin handle".into());
+    }
+
+    println!("Waiting for the generated DDLog application to finish...");
+
+    // Wait for the process to complete and capture output
+    match ddlog_app_run.wait() {
+        Ok(_) => {
+            let mut stdout = ddlog_app_run.stdout.take().ok_or("Failed to get stdout")?;
+
+            // Use a pre-allocated buffer with reasonable size
+            let mut buffer = Vec::with_capacity(1024 * 1024); // 1MB initial capacity
+            stdout
+                .read_to_end(&mut buffer)
+                .map_err(|e| format!("Failed to read stdout: {}", e))?;
+
+            let output = String::from_utf8_lossy(&buffer);
+            Ok(output.into())
+        }
+        Err(e) => Err(format!("Failed to run ddlog app: {}", e)),
+    }
+}
+
+pub fn teardown_ddlog_project(base_dir: &Path, project_name: &str) -> Result<(), String> {
+    let project_descriptor = format!(
+        "{}/{}.dl",
+        base_dir.to_str().unwrap_or_default(),
+        project_name
+    );
+    let project_dir = format!(
+        "{}/{}_ddlog",
+        base_dir.to_str().unwrap_or_default(),
+        project_name
+    );
+    fs::remove_file(project_descriptor)
+        .map_err(|e| format!("Failed to remove project descriptor: {}", e))?;
+    fs::remove_dir_all(project_dir).map_err(|e| format!("Failed to remove project dir: {}", e))
+}
+
 /// Parse a DDLog error message to extract the line number
 fn parse_ddlog_error(error_message: &str, dl_file: &str) -> Option<usize> {
     // Pattern to match DDLog error format: program.dl:218.157-218.172
@@ -270,85 +386,10 @@ fn format_dl_file_with_line_numbers(content: &str, error_line: usize) -> String 
         }
     }
 
-    formatted_lines.join("\n")
-}
-
-pub fn run_ddlog_crate(
-    base_dir: &Path,
-    project_name: &str,
-    cmds: &[DDLogCommand],
-    enable_tracing: bool,
-) -> Result<String, String> {
-    let project_dir = format!(
-        "{}/{}_ddlog",
-        base_dir.to_str().unwrap_or_default(),
-        project_name
-    );
-    let dat_content = cmds
-        .iter()
-        .map(|cmd| cmd.to_string())
-        .collect::<Vec<String>>()
-        .join("\n");
-
-    let exec_path = format!("target/debug/{}_cli", project_name);
-    if enable_tracing {
-        println!(
-            "Running generated DDLog application: {}/{}",
-            project_dir, exec_path
-        );
-    }
-    let mut ddlog_app_run = Command::new(&exec_path)
-        .current_dir(project_dir)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|e| {
-            format!(
-                "Failed to launch generated DDLog application: {} ({})",
-                e, exec_path
-            )
-        })?;
-
-    // print just first 80 lines of the facts
-    println!(
-        "Facts:\n{}",
-        dat_content.lines().collect::<Vec<&str>>().join("\n")
-    );
-    write!(ddlog_app_run.stdin.as_ref().unwrap(), "{}", dat_content).unwrap();
-
-    if ddlog_app_run.wait().is_ok() {
-        let mut stdout = ddlog_app_run.stdout.take().ok_or("Failed to get stdout")?;
-
-        let mut buffer = Vec::new();
-        stdout
-            .read_to_end(&mut buffer)
-            .map_err(|e| format!("Failed to read stdout: {}", e))?;
-
-        let bytes = bytes::Bytes::from(buffer);
-
-        let output = String::from_utf8_lossy(&bytes);
-
-        Ok(output.into())
-    } else {
-        Err("Failed to run ddlog app".into())
-    }
-}
-
-pub fn teardown_ddlog_project(base_dir: &Path, project_name: &str) -> Result<(), String> {
-    let project_descriptor = format!(
-        "{}/{}.dl",
-        base_dir.to_str().unwrap_or_default(),
-        project_name
-    );
-    let project_dir = format!(
-        "{}/{}_ddlog",
-        base_dir.to_str().unwrap_or_default(),
-        project_name
-    );
-    fs::remove_file(project_descriptor)
-        .map_err(|e| format!("Failed to remove project descriptor: {}", e))?;
-    fs::remove_dir_all(project_dir).map_err(|e| format!("Failed to remove project dir: {}", e))
+    formatted_lines.join(
+        "
+",
+    )
 }
 
 #[cfg(test)]
@@ -456,8 +497,10 @@ DoubledRun(t) :- TestRun(d),
 
         assert!(
             run_output.contains("DoubledRun{.x = 2}: +1"),
-            "Expected message not found in output:\n{}",
+            "Expected message not found in output:
+{}",
             run_output
         );
     }
 }
+

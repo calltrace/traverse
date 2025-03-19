@@ -29,6 +29,19 @@ path = "src/bin/trvf.rs"
 name = "ftd"
 path = "src/bin/ftd.rs"
 
+
+[[bin]]
+name = "trvh"
+path = "src/bin/trvh.rs"
+
+[[bin]]
+name = "trvr"
+path = "src/bin/trvr.rs"
+
+[[bin]]
+name = "trvd"
+path = "src/bin/trvd.rs"
+
 [dependencies]
 tracing = "0.1"
 tracing-subscriber = "0.3"
