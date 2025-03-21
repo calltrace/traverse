@@ -1,0 +1,319 @@
+// MermaidJS Sequence Diagram Grammar in Pest
+// Based on the Jison grammar from MermaidJS
+
+// We allow CRLF, LF, or CR to act like a newline if desired.
+NEWLINE = _{ "\r\n" | "\n" | "\r" }
+
+// Basic whitespace
+whitespace = _{ " " | "\t" }
+
+// Top-level rule
+sequence_diagram = {
+    SOI ~
+    "sequenceDiagram" ~
+    (NEWLINE | ";")* ~
+    diagram_content ~
+    EOI
+}
+
+// A sequence diagram can contain zero or more statements
+diagram_content = {
+    (statement ~ (NEWLINE | ";")*)*
+}
+
+// The union of all possible statements
+statement = _{
+    signal_statement |
+    participant_statement |
+    create_statement |
+    destroy_statement |
+    box_statement |
+    autonumber_statement |
+    activate_statement |
+    deactivate_statement |
+    note_statement |
+    links_statement |
+    link_statement |
+    properties_statement |
+    details_statement |
+    title_statement |
+    acc_title_statement |
+    acc_descr_statement |
+    acc_descr_multiline_statement |
+    loop_statement |
+    rect_statement |
+    opt_statement |
+    alt_statement |
+    par_statement |
+    par_over_statement |
+    break_statement |
+    critical_statement |
+    comment |
+    empty_line
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Participant statements
+participant_statement = {
+    whitespace* ~ ("participant" | "actor") ~ whitespace+ ~ actor_id
+        ~ (whitespace+ ~ "as" ~ whitespace+ ~ rest_of_line)? ~ NEWLINE?
+}
+
+create_statement = {
+    whitespace* ~ "create" ~ whitespace+ ~ (("participant" | "actor") ~ whitespace+)? ~ actor_id
+        ~ (whitespace+ ~ "as" ~ whitespace+ ~ rest_of_line)? ~ NEWLINE?
+}
+
+destroy_statement = {
+    whitespace* ~ "destroy" ~ whitespace+ ~ actor_id ~ NEWLINE?
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Box statement
+box_statement = {
+    whitespace* ~ "box" ~ whitespace+ ~ rest_of_line ~ NEWLINE* ~
+    box_content ~
+    whitespace* ~ "end" ~ NEWLINE?
+}
+
+box_content = {
+    (participant_statement ~ NEWLINE*)*
+}
+
+// Example: `Alice->>+John: Hello`, meaning "Alice" ->> +John with a message.
+signal_statement = {
+    signal_content ~ NEWLINE?
+}
+
+signal_content = {
+    actor_id ~ (whitespace? ~ arrow ~ whitespace?) ~ actor_id ~ message?
+}
+
+arrow = { arrow_sequence ~ activation_marker? }
+
+activation_marker = {
+    ("+" | "-")?
+}
+
+arrow_sequence = @{
+    "<<-->>" | "<<->>" |
+    "-->>" | "-->" | "->>" | "->" |
+    "--x" | "-x" |
+    "--)" | "-)" |
+    "==>>" | "==>" | "=>>" | "=>" |
+    "==x" | "=x" |
+    "==)" | "=)" |
+    "----" | "---" | "--" | "-" |
+    "====" | "===" | "==" | "=" |
+    "--x>" | "-x>" | "---)>" | "-)>" |
+    "==x>" | "=x>" | "===)>" | "=)>" 
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Autonumber
+autonumber_statement = {
+    whitespace* ~ "autonumber"
+        ~ (whitespace+ ~ number ~ (whitespace+ ~ number)?)?
+        ~ (whitespace+ ~ "off")?
+        ~ NEWLINE?
+}
+
+// Activate/deactivate statements (standalone lines like `activate Alice`)
+activate_statement = {
+    whitespace* ~ "activate" ~ whitespace+ ~ actor_id ~ NEWLINE?
+}
+
+deactivate_statement = {
+    whitespace* ~ "deactivate" ~ whitespace+ ~ actor_id ~ NEWLINE?
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Note statement (the tests use capital "Note")
+note_statement = {
+    whitespace* ~ ("Note" | "note") ~ whitespace+ ~ note_placement ~ whitespace+ ~ actor_pair
+        ~ whitespace* ~ ":" ~ whitespace* ~ rest_of_line ~ NEWLINE?
+}
+
+note_placement = {
+    "left of" | "right of" | "over"
+}
+
+actor_pair = {
+    actor_id ~ (whitespace* ~ "," ~ whitespace* ~ actor_id)?
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Link(s) statements
+links_statement = {
+    whitespace* ~ "links" ~ whitespace+ ~ actor_id ~ whitespace* ~ (message | json_message) ~ NEWLINE?
+}
+
+link_statement = {
+    whitespace* ~ "link" ~ whitespace+ ~ actor_id ~ whitespace* ~ message ~ NEWLINE?
+}
+
+json_message = {
+    ":" ~ whitespace* ~ "{" ~ (!NEWLINE ~ ANY)* ~ "}" ~ NEWLINE?
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Properties and details
+properties_statement = {
+    whitespace* ~ "properties" ~ whitespace+ ~ actor_id ~ whitespace* ~ message ~ NEWLINE?
+}
+
+details_statement = {
+    whitespace* ~ "details" ~ whitespace+ ~ actor_id ~ whitespace* ~ message ~ NEWLINE?
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Title statements
+title_statement = {
+    whitespace* ~ (("title" ~ whitespace+) | ("title:" ~ whitespace+)) ~ rest_of_line ~ NEWLINE?
+}
+
+// Accessibility title/description
+acc_title_statement = {
+    whitespace* ~ "accTitle" ~ whitespace* ~ ":" ~ whitespace* ~ rest_of_line ~ NEWLINE?
+}
+
+acc_descr_statement = {
+    whitespace* ~ "accDescr" ~ whitespace* ~ ":" ~ whitespace* ~ rest_of_line ~ NEWLINE?
+}
+
+acc_descr_multiline_statement = {
+    whitespace* ~ "accDescr" ~ whitespace* ~ "{" ~ whitespace* ~ NEWLINE?
+        ~ acc_descr_multiline_content ~
+    "}" ~ NEWLINE?
+}
+
+acc_descr_multiline_content = {
+    (!("}" | EOI) ~ ANY)*
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Loop statement
+loop_statement = {
+    whitespace* ~ "loop" ~ whitespace* ~ label? ~ NEWLINE*
+        ~ diagram_content ~
+    whitespace* ~ "end" ~ NEWLINE?
+}
+
+// Rect statement
+rect_statement = {
+    whitespace* ~ "rect" ~ whitespace* ~ label? ~ NEWLINE*
+        ~ diagram_content ~
+    whitespace* ~ "end" ~ NEWLINE?
+}
+
+// Opt statement
+opt_statement = {
+    whitespace* ~ "opt" ~ whitespace* ~ label? ~ NEWLINE*
+        ~ diagram_content ~
+    whitespace* ~ "end" ~ NEWLINE?
+}
+
+// Alt statement
+alt_statement = {
+    whitespace* ~ "alt" ~ whitespace* ~ label? ~ NEWLINE*
+        ~ diagram_content ~
+        else_sections? ~
+    whitespace* ~ "end" ~ NEWLINE?
+}
+
+else_sections = {
+    (else_section ~ NEWLINE* ~ diagram_content)*
+}
+
+else_section = {
+    whitespace* ~ "else" ~ whitespace+ ~ rest_of_line
+}
+
+// Par statement
+par_statement = {
+    whitespace* ~ "par" ~ whitespace* ~ label? ~ NEWLINE*
+        ~ diagram_content ~
+        and_sections? ~
+    whitespace* ~ "end" ~ NEWLINE?
+}
+
+// par_over statement
+par_over_statement = {
+    whitespace* ~ "par_over" ~ whitespace* ~ label? ~ NEWLINE*
+        ~ diagram_content ~
+        and_sections? ~
+    whitespace* ~ "end" ~ NEWLINE?
+}
+
+and_sections = {
+    (and_section ~ NEWLINE* ~ diagram_content)*
+}
+
+and_section = {
+    whitespace* ~ "and" ~ whitespace+ ~ rest_of_line
+}
+
+// Critical statement
+critical_statement = {
+    whitespace* ~ "critical" ~ whitespace* ~ label? ~ NEWLINE*
+        ~ diagram_content ~
+    whitespace* ~ "end" ~ NEWLINE?
+}
+
+// Break statement
+break_statement = {
+    whitespace* ~ "break" ~ whitespace+ ~ rest_of_line ~ NEWLINE*
+        ~ diagram_content ~
+    whitespace* ~ "end" ~ NEWLINE?
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Basic pieces
+
+// A bare actor/participant name (no leading +/-, that is handled in maybe_activated_actor).
+actor_id = @{ (ASCII_ALPHA | ASCII_DIGIT | ("-" ~ !"x" ~ ASCII_ALPHA | ASCII_DIGIT) )+ }
+
+// Message (e.g. `: Hello world`)
+message = {
+    (whitespace? ~ ":" ~ whitespace?) ~ whitespace* ~ wrap_indicator? ~ message_content
+}
+
+// Optional wrap/nowrap marker inside the message, e.g. `: wrap:some text`
+wrap_indicator = {
+    ("wrap" | "nowrap") ~ ":"
+}
+
+message_content = @{
+    (!NEWLINE ~ ANY)*
+}
+
+// Any text up to a newline
+rest_of_line = @{
+    (!NEWLINE ~ ANY)*
+}
+
+// Any text up to a newline
+label = @{
+    (!NEWLINE ~ ANY)*
+}
+
+
+
+// Used for autonumber or any numeric fields
+number = @{
+    ASCII_DIGIT+
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Comments / empty lines
+
+comment = _{ line_comment }
+
+line_comment = {
+    // e.g. `%% comment`
+    whitespace* ~ "%%" ~ (!NEWLINE ~ ANY)*
+}
+
+empty_line = {
+    whitespace+
+}

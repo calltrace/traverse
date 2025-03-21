@@ -1,0 +1,15 @@
+[package]
+name = "mermaid"
+version = "0.1.0"
+edition = "2021"
+resolver = "2"
+
+# add lib target with source code in src/lib.rs
+
+[lib]
+src = "src/lib.rs"
+
+[dependencies]
+pest = "2.7"
+pest_derive = "2.7"
+
