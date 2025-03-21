@@ -1,7 +1,7 @@
 //
 // Test suite based on the Mermaid official one: https://github.com/mermaid-js/mermaid/blob/master/packages/mermaid/src/diagrams/sequence/sequenceDiagram.spec.js
 //
-use crate::sequence_diagram::{Rule, SequenceDiagramParser};
+use crate::sequence_diagram_parser::{Rule, SequenceDiagramParser};
 use pest::Parser;
 
 // Helper function to test if a diagram parses successfully
