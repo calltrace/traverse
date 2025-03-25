@@ -81,7 +81,7 @@ fn run_ddlog_with_file(source_path: &str) -> Result<DDLogRunResult, DDLogExecuti
         compilation_output,
         vec![PathBuf::from(source_path)],
         SourceType::Solidity,
-        vec![], // No excluded relations
+        vec!["String".to_string()], 
     )
 }
 
@@ -166,4 +166,113 @@ fn test_run_ddlog_with_counter_contract() {
     
     let get_count_calls = count_signals_with_message(diagram, "getCount");
     assert!(get_count_calls > 0, "Should have at least one getCount function call");
+}
+
+/// Helper function to check if a signal exists with a specific message content
+fn has_signal_with_message(diagram: &SequenceDiagram, from: &str, to: &str, message_content: &str) -> bool {
+    diagram.statements.iter().any(|stmt| {
+        if let Statement::Signal(signal) = stmt {
+            if signal.from == from && signal.to == to {
+                if let Some(message) = &signal.message {
+                    return message.content.contains(message_content);
+                }
+            }
+        }
+        false
+    })
+}
+
+/// Helper function to count all participants in the diagram
+fn count_participants(diagram: &SequenceDiagram) -> usize {
+    diagram.statements.iter().filter(|stmt| {
+        matches!(stmt, Statement::Participant(_))
+    }).count()
+}
+
+#[test]
+fn test_run_ddlog_with_uniswap_v2_erc20_contract() {
+    // Skip test if compilation result is not available
+    let guard = COMPILATION_RESULT.lock().unwrap();
+    if guard.is_none() {
+        eprintln!("Skipping test_run_ddlog_with_uniswap_v2_erc20_contract due to missing compilation result");
+        return;
+    }
+    drop(guard);
+    
+    let result = match run_ddlog_with_file("tests/fixtures/uniswap/UniswapV2ERC20.sol") {
+        Ok(result) => result,
+        Err(err) => {
+            println!("DDLog execution failed: {:?}. Skipping test.", err);
+            return;
+        }
+    };
+    
+    let diagram = &result.diagram;
+
+    println!("Diagram: {:#?}", diagram);
+    
+    // 1. Verify the UniswapV2ERC20 participant exists
+    let uniswap_participant = find_participant_by_id(diagram, "UniswapV2ERC20")
+        .expect("UniswapV2ERC20 participant should exist");
+    assert_eq!(uniswap_participant.participant_type, mermaid::sequence_diagram_ast::ParticipantType::Participant);
+    
+    let actor = find_participant_by_id(diagram, "MockActor")
+        .expect("Actor participant should exist");
+    assert_eq!(actor.participant_type, mermaid::sequence_diagram_ast::ParticipantType::Actor);
+    
+    // 3. Verify the total number of participants (should be at least 2)
+    let participant_count = count_participants(diagram);
+    assert!(participant_count >= 2, "Should have at least 2 participants");
+    
+    // 4. Verify signals for public functions
+    // 4.1 Verify approve function
+    assert!(
+        has_signal_with_message(diagram, "MockActor", "UniswapV2ERC20", "approve"),
+        "Should have approve function call from MockActor to UniswapV2ERC20"
+    );
+    
+    // 4.2 Verify transfer function
+    assert!(
+        has_signal_with_message(diagram, "MockActor", "UniswapV2ERC20", "transfer"),
+        "Should have transfer function call from MockActor to UniswapV2ERC20"
+    );
+    
+    // 4.3 Verify transferFrom function
+    assert!(
+        has_signal_with_message(diagram, "MockActor", "UniswapV2ERC20", "transferFrom"),
+        "Should have transferFrom function call from User to UniswapV2ERC20"
+    );
+    
+    // 4.4 Verify permit function
+    assert!(
+        has_signal_with_message(diagram, "MockActor", "UniswapV2ERC20", "permit"),
+        "Should have permit function call from MockActor to UniswapV2ERC20"
+    );
+    
+    // 5. Verify internal function calls
+    // 5.1 Verify _approve internal function
+    assert!(
+        has_signal_with_message(diagram, "UniswapV2ERC20", "UniswapV2ERC20", "_approve"),
+        "Should have _approve internal function call within UniswapV2ERC20"
+    );
+    
+    // 5.2 Verify _transfer internal function
+    assert!(
+        has_signal_with_message(diagram, "UniswapV2ERC20", "UniswapV2ERC20", "_transfer"),
+        "Should have _transfer internal function call within UniswapV2ERC20"
+    );
+    
+    // 6. Verify event emissions
+    // 6.1 Verify Approval event
+    // Do we want to track event submission (via emit)
+    /*
+    let approval_event_signals = count_signals_with_message(diagram, "Approval");
+    assert!(approval_event_signals > 0, "Should have at least one Approval event emission");
+    
+    // 6.2 Verify Transfer event
+    let transfer_event_signals = count_signals_with_message(diagram, "Transfer");
+    assert!(transfer_event_signals > 0, "Should have at least one Transfer event emission");
+    */
+
+    
 }

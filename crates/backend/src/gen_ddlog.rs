@@ -825,7 +825,7 @@ impl DDlogGenerator {
 
             let edge_rel = Relation {
                 pos: Pos::nopos(),
-                role: RelationRole::RelOutput,
+                role: RelationRole::RelInternal,
                 semantics: RelationSemantics::RelSet,
                 name: "Edge".to_string(),
                 rtype: DType::TStruct {

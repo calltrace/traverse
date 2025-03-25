@@ -218,7 +218,7 @@ impl Default for DDLogRunConfig {
             source_paths: Vec::new(),
             source_type: SourceType::Solidity,
             commands_output_path: None,
-            excluded_relations: Vec::new(),
+            excluded_relations: vec!["String".to_string()],
             enable_tracing: false,
         }
     }
@@ -391,35 +391,25 @@ fn create_default_hydrator_config() -> BucketConfig {
     BucketConfig::new()
         .with_pool_shape("sequenceDiagram")
         .with_bucket(
-            "caller-inter-participants",
+            "mock-actor-participants",
             100,
-            "caller_contract_id_path",
-            "val",
-            vec![InputSource::new(
-                "EmitMermaidLineCallerParticipantLine",
-                100,
-            )],
-        )
-        .with_bucket(
-            "callee-inter-participants",
-            95,
-            "callee_contract_id_path",
-            "val",
-            vec![InputSource::new(
-                "EmitMermaidLineCalleeParticipantLine",
-                100,
-            )],
-        )
-        .with_bucket(
-            "participants",
-            100,
-            "path",
+            "",
             "val",
             vec![
                 InputSource::new("EmitMermaidLineMockActorLine", 100),
-                InputSource::new("EmitMermaidLineMockActorParticipantLine", 99),
-                InputSource::new("EmitMermaidLineContractParticipantLine", 90),
+                //  InputSource::new("EmitMermaidLineMockActorParticipantLine", 99),
+                //  InputSource::new("EmitMermaidLineContractParticipantLine", 90),
             ],
+        )
+        .with_bucket(
+            "contract-participants",
+            95,
+            "",
+            "val",
+            vec![InputSource::new(
+                "EmitMermaidLineContractParticipantLine",
+                95,
+            )],
         )
         .with_bucket(
             "mock-actor-flows",
@@ -458,9 +448,9 @@ fn create_default_hydrator_config() -> BucketConfig {
         .with_stream_shape(
             "solidity-to-mermaid",
             vec![
+                "mock-actor-participants",
+                "contract-participants",
                 "mock-actor-flows",
-                "caller-inter-participants",
-                "callee-inter-participants",
                 "intra-contract-flows",
                 "inter-contract-flows",
             ],

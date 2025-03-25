@@ -28,6 +28,12 @@
  * data across the smart contract system.
  */
 (rules  
+  (infer ContractParticipant (?contract) 
+    via ((ContractDeclaration ?contract_id, _, _)
+         (Identifier _, ?contract_id, ?contract)
+    )
+  )
+
   /* 
    * Infers a complete function call relationship between contracts.
    * This rule combines information about:
@@ -233,6 +239,13 @@
   )
 
   /*
+   * Promotes a Contract to a Participant
+   */
+  (capture ContractParticipant 
+    (contract @ContractParticipant)
+  )
+
+  /*
    * Captures external functions in contracts that can be called by the mock actor.
    * This rule filters for functions with "external" visibility,
    * which are the entry points that can be called from outside the contract.
@@ -303,6 +316,16 @@
     (callee_func @IntraCalleeFuncNoReturn)
   )
 
+
+  /* ------- PREAMBLE EMISSIONS -------- */
+
+  (emit MermaidLineContractParticipantLine
+    @ContractParticipant
+    (do 
+      {(format "participant " @ContractParticipant)}
+    )
+  )
+
   /* ------- MOCK ACTOR EMISSIONS -------- */
 
   /*
@@ -323,12 +346,13 @@
    * This creates a participant box in the sequence diagram for each contract
    * that has externally visible functions.
    */
+  /*
   (emit MermaidLineMockActorParticipantLine
     @MockActorContractId
     (do
       {(format "participant " @MockActorContract)}
     )
-  )
+  )*/
 
   /*
    * Emits a Mermaid syntax line that represents a call from the mock actor to a contract function.
