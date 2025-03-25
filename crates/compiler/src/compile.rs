@@ -225,6 +225,19 @@ impl Compiler {
         })?;
 
         let compilation_result = self.process_input(input)?;
+        //
+        // Generate and build the Rust project for DDlog
+        let base_dir = PathBuf::from(format!("./{}", project_name));
+        fs::create_dir_all(&base_dir)?;
+        generate_rust_project(&base_dir, &project_name, &compilation_result.ddlog);
+
+        if let Err(e) = build_ddlog_crate(&base_dir, &project_name, self.enable_tracing) {
+            return Err(CompilerError::DdlogExecution(format!(
+                "Failed to build DDlog project: {}",
+                e
+            )));
+        }
+
         if self.no_execute {
             return Ok(ExecutionResult {
                 compilation: compilation_result,
@@ -234,19 +247,6 @@ impl Compiler {
         }
 
         let cmds = self.parse_source_file(language)?;
-
-        let base_dir = PathBuf::from(format!("./{}", project_name));
-        fs::create_dir_all(&base_dir)?;
-
-        // Generate and build the Rust project for DDlog
-        generate_rust_project(&base_dir, &project_name, &compilation_result.ddlog);
-
-        if let Err(e) = build_ddlog_crate(&base_dir, &project_name, self.enable_tracing) {
-            return Err(CompilerError::DdlogExecution(format!(
-                "Failed to build DDlog project: {}",
-                e
-            )));
-        }
 
         let ddlog_output = backend::ddlog_rt::run_ddlog_crate(
             &base_dir,

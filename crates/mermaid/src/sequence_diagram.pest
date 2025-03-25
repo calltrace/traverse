@@ -10,6 +10,7 @@ whitespace = _{ " " | "\t" }
 // Top-level rule
 sequence_diagram = {
     SOI ~
+    (comment ~ NEWLINE)* ~
     "sequenceDiagram" ~
     (NEWLINE | ";")* ~
     diagram_content ~

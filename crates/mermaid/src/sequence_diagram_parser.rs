@@ -698,6 +698,206 @@ pub fn parse(input: &str) -> Result<SequenceDiagram, pest::error::Error<Rule>> {
     Ok(diagram)
 }
 
+use std::fmt;
+
+/// Error type for high-level Mermaid parsing
+#[derive(Debug)]
+pub enum MermaidParseError {
+    /// Error from the underlying pest parser
+    PestError(String),
+    /// Error when the input doesn't start with "sequenceDiagram"
+    NotASequenceDiagram,
+    /// Error when the input is empty
+    EmptyInput,
+}
+
+impl fmt::Display for MermaidParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MermaidParseError::PestError(err) => write!(f, "Parser error: {}", err),
+            MermaidParseError::NotASequenceDiagram => write!(f, "Input is not a sequence diagram (must start with 'sequenceDiagram')"),
+            MermaidParseError::EmptyInput => write!(f, "Input is empty"),
+        }
+    }
+}
+
+impl std::error::Error for MermaidParseError {}
+
+impl From<pest::error::Error<Rule>> for MermaidParseError {
+    fn from(error: pest::error::Error<Rule>) -> Self {
+        MermaidParseError::PestError(error.to_string())
+    }
+}
+
+/// Parse a Mermaid sequence diagram source code string into an AST representation.
+///
+/// This is a high-level function that handles common error cases and provides
+/// a more user-friendly interface than the lower-level `parse` function.
+///
+/// # Arguments
+///
+/// * `source` - The Mermaid sequence diagram source code as a string
+///
+/// # Returns
+///
+/// * `Result<SequenceDiagram, MermaidParseError>` - The parsed diagram or an error
+///
+/// # Examples
+///
+/// ```
+/// use mermaid::sequence_diagram_parser::parse_mermaid;
+///
+/// let source = r#"sequenceDiagram
+///     Alice->>Bob: Hello Bob, how are you?
+///     Bob-->>Alice: I am good thanks!"#;
+///
+/// let diagram = parse_mermaid(source).unwrap();
+/// assert_eq!(diagram.statements.len(), 2);
+/// ```
+///
+/// # More Examples
+///
+/// Parsing a complex diagram with multiple features:
+///
+/// ```
+/// use mermaid::sequence_diagram_parser::parse_mermaid;
+/// use mermaid::sequence_diagram_ast::{Statement, ParticipantStatement, SignalStatement};
+///
+/// let source = r#"sequenceDiagram
+///     participant Alice
+///     participant Bob
+///     Alice->>Bob: Hello Bob, how are you?
+///     Note right of Bob: Bob thinks
+///     Bob-->>Alice: I am good thanks!
+///     loop Every minute
+///         Alice->>Bob: Ping
+///         Bob-->>Alice: Pong
+///     end"#;
+///
+/// let diagram = parse_mermaid(source).unwrap();
+/// 
+/// // Access the statements
+/// assert_eq!(diagram.statements.len(), 6);
+///
+/// // Check participant statements
+/// if let Statement::Participant(participant) = &diagram.statements[0] {
+///     assert_eq!(participant.id, "Alice");
+/// }
+///
+/// // Check signal statements
+/// if let Statement::Signal(signal) = &diagram.statements[2] {
+///     assert_eq!(signal.from, "Alice");
+///     assert_eq!(signal.to, "Bob");
+///     assert_eq!(signal.message.as_ref().unwrap().content, "Hello Bob, how are you?");
+/// }
+///
+/// // Check loop statements
+/// if let Statement::Loop(loop_stmt) = &diagram.statements[5] {
+///     assert_eq!(loop_stmt.label, Some("Every minute".to_string()));
+///     assert_eq!(loop_stmt.statements.len(), 2);
+/// }
+/// ```
+pub fn parse_mermaid(source: &str) -> Result<SequenceDiagram, MermaidParseError> {
+    // Check for empty input
+    if source.trim().is_empty() {
+        return Err(MermaidParseError::EmptyInput);
+    }
+
+    // Check if it's a sequence diagram
+    if !source.trim().starts_with("sequenceDiagram") {
+        return Err(MermaidParseError::NotASequenceDiagram);
+    }
+
+    // Use the lower-level parse function and convert any errors
+    let diagram = parse(source)?;
+    Ok(diagram)
+}
+
+#[cfg(test)]
+mod high_level_tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_mermaid_valid() {
+        let source = r#"sequenceDiagram
+            Alice->>Bob: Hello Bob, how are you?
+            Bob-->>Alice: I am good thanks!"#;
+
+        let result = parse_mermaid(source);
+        assert!(result.is_ok());
+        
+        let diagram = result.unwrap();
+        assert_eq!(diagram.statements.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_mermaid_empty() {
+        let source = "";
+        let result = parse_mermaid(source);
+        assert!(result.is_err());
+        
+        match result {
+            Err(MermaidParseError::EmptyInput) => {},
+            _ => panic!("Expected EmptyInput error"),
+        }
+    }
+
+    #[test]
+    fn test_parse_mermaid_not_sequence_diagram() {
+        let source = "flowchart TD\nA-->B";
+        let result = parse_mermaid(source);
+        assert!(result.is_err());
+        
+        match result {
+            Err(MermaidParseError::NotASequenceDiagram) => {},
+            _ => panic!("Expected NotASequenceDiagram error"),
+        }
+    }
+
+    #[test]
+    fn test_parse_mermaid_syntax_error() {
+        let source = r#"sequenceDiagram
+            Alice->->Bob: Invalid arrow syntax"#;
+
+        let result = parse_mermaid(source);
+        assert!(result.is_err());
+        
+        match result {
+            Err(MermaidParseError::PestError(_)) => {},
+            _ => panic!("Expected PestError"),
+        }
+    }
+    
+    #[test]
+    fn test_parse_complex_diagram() {
+        let source = r#"sequenceDiagram
+            participant Alice
+            participant Bob
+            Alice->>Bob: Hello Bob, how are you?
+            Note right of Bob: Bob thinks
+            Bob-->>Alice: I am good thanks!
+            loop Every minute
+                Alice->>Bob: Ping
+                Bob-->>Alice: Pong
+            end"#;
+
+        let result = parse_mermaid(source);
+        assert!(result.is_ok());
+        
+        let diagram = result.unwrap();
+        assert_eq!(diagram.statements.len(), 6);
+        
+        // Check loop statement
+        match &diagram.statements[5] {
+            Statement::Loop(loop_stmt) => {
+                assert_eq!(loop_stmt.label, Some("Every minute".to_string()));
+                assert_eq!(loop_stmt.statements.len(), 2);
+            },
+            _ => panic!("Expected Loop statement"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::sequence_diagram_ast::*;
