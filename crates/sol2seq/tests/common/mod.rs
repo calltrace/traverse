@@ -397,6 +397,7 @@ fn create_default_hydrator_config() -> BucketConfig {
             "val",
             vec![
                 InputSource::new("EmitMermaidLineMockActorLine", 100),
+                //InputSource::new("EmitMermaidLineMockActorLineReturn", 100),
                 //  InputSource::new("EmitMermaidLineMockActorParticipantLine", 99),
                 //  InputSource::new("EmitMermaidLineContractParticipantLine", 90),
             ],
@@ -412,11 +413,23 @@ fn create_default_hydrator_config() -> BucketConfig {
             )],
         )
         .with_bucket(
-            "mock-actor-flows",
-            95,
-            "mock_actor_func_id_path",
+            "mock-actor-request-flows",
+            100,
+            "no_return_func_id_path",
             "val",
-            vec![InputSource::new("EmitMermaidLineMockActorSignalLine", 100)],
+            vec![
+                InputSource::new("EmitMermaidLineMockActorSignalNoReturnLine", 100),
+            ],
+        )
+        .with_bucket(
+            "mock-actor-return-flows",
+            95,
+            "return_stmt_id_path",
+            "val",
+            vec![
+                //InputSource::new("EmitMermaidLineMockActorSignalLine", 100),
+                InputSource::new("EmitMermaidLineMockActorReturnSignalLine", 95),
+            ],
         )
         .with_bucket(
             "intra-contract-flows",
@@ -450,7 +463,8 @@ fn create_default_hydrator_config() -> BucketConfig {
             vec![
                 "mock-actor-participants",
                 "contract-participants",
-                "mock-actor-flows",
+                "mock-actor-request-flows",
+                "mock-actor-return-flows",
                 "intra-contract-flows",
                 "inter-contract-flows",
             ],

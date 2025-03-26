@@ -182,6 +182,7 @@ pub(crate) fn sanitize_reserved(name: &str) -> String {
 struct CaptureMapping {
     relation_name: String,
     symbol: String,
+    alias: String
 }
 
 struct SSAContext {
@@ -209,11 +210,12 @@ impl SSAContext {
         symbol: String,
     ) {
         self.capture_mappings
-            .entry(capture_name)
+            .entry(capture_name.clone())
             .or_default()
             .push(CaptureMapping {
                 relation_name,
-                symbol,
+                symbol: symbol.clone(),
+                alias: normalize_string(&capture_name)
             });
     }
 
@@ -859,6 +861,7 @@ impl IrGenerator {
                             // Look up the specific attribute mapping for this capture and augment
                             // with provenance.
                             if let Some(mappings) = context.get_capture_mappings(capture_name) {
+                                println!("Mappings: {:?}", mappings);
                                 for mapping in mappings {
                                     // Add Path relation node only for the mapped attribute
                                     let path_node = provenance_type
@@ -885,7 +888,7 @@ impl IrGenerator {
                                                 format!(
                                                     "rhs_{}_id",
                                                     mapping
-                                                        .symbol
+                                                        .alias
                                                         .to_lowercase()
                                                         .trim_end_matches("_id")
                                                 ),

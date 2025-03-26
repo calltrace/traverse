@@ -28,6 +28,7 @@
  * data across the smart contract system.
  */
 (rules  
+
   (infer ContractParticipant (?contract) 
     via ((ContractDeclaration ?contract_id, _, _)
          (Identifier _, ?contract_id, ?contract)
@@ -220,15 +221,27 @@
   * This information is used to identify functions that can be called
   * by external actors.
   */
-  (infer ContractFunction (?contract, ?contract_id, ?mock_actor_func_id, ?func, ?visibility)
+  (infer ContractFunction (?contract, ?contract_id, ?mock_actor_func_id, ?func, ?visibility, ?return_stmt_id, ?return_stmt)
     via ((FunctionDefinition ?mock_actor_func_id, _, _)
         (Visibility _, ?mock_actor_func_id, ?visibility)
         (Identifier _, ?mock_actor_func_id, ?func)
         (ContractDeclaration ?contract_id, _, _)
         (Identifier _, ?contract_id, ?contract)
         (Ancestor ?func_id, ?contract_id)
+        (ReturnStatement ?return_stmt_id, _, ?return_stmt)
+        (Ancestor ?return_stmt_id, ?mock_actor_func_id)
     )
- )
+  )
+
+ (infer ContractFunctionNoReturn (?no_return_contract, ?no_return_contract_id, ?no_return_func_id, ?no_return_func, ?no_return_visibility)
+    via ((FunctionDefinition ?no_return_func_id, _, _)
+        (Visibility _, ?no_return_func_id, ?no_return_visibility)
+        (Identifier _, ?no_return_func_id, ?no_return_func)
+        (ContractDeclaration ?no_return_contract_id, _, _)
+        (Identifier _, ?no_return_contract_id, ?no_return_contract)
+        (Ancestor ?no_return_func_id, ?no_return_contract_id)
+    )
+  )
 
   /*
    * Captures the source file ID for the mock actor.
@@ -247,8 +260,7 @@
 
   /*
    * Captures external functions in contracts that can be called by the mock actor.
-   * This rule filters for functions with "external" visibility,
-   * which are the entry points that can be called from outside the contract.
+   * This rule filters for functions with "external" visibility and returning values.
    */
   (capture ContractFunction
     (contract @MockActorContract)
@@ -256,7 +268,22 @@
     (mock_actor_func_id @MockActorFuncId)
     (func @MockActorFunc)
     (visibility @Visibility)
+    (return_stmt_id @MockActorFuncReturnId)
+    (return_stmt @MockActorFuncReturn)
     (when (eq @visibility "external"))
+  )
+
+  /*
+   * Captures external functions in contracts that can be called by the mock actor.
+   * This rule filters for functions with "external" visibility that do not return values (i.e. potentially with side effects) 
+   */
+  (capture ContractFunctionNoReturn
+    (no_return_contract @MockActorNoReturnContract)
+    (no_return_contract_id @MockActorNoReturnContractId)
+    (no_return_func_id @MockActorNoReturnFuncId)
+    (no_return_func @MockActorNoReturnFunc)
+    (no_return_visibility @NoReturnVisibility)
+    (when (eq @no_return_visibility "external"))
   )
   
   /* 
@@ -341,20 +368,6 @@
   )
 
   /*
-   * Emits a Mermaid syntax line that defines a contract as a participant
-   * that can be called by the mock actor.
-   * This creates a participant box in the sequence diagram for each contract
-   * that has externally visible functions.
-   */
-  /*
-  (emit MermaidLineMockActorParticipantLine
-    @MockActorContractId
-    (do
-      {(format "participant " @MockActorContract)}
-    )
-  )*/
-
-  /*
    * Emits a Mermaid syntax line that represents a call from the mock actor to a contract function.
    * This creates an arrow in the sequence diagram from the mock actor
    * to a contract, labeled with the name of the external function being called.
@@ -363,41 +376,44 @@
     @:path:MockActorFuncId
     @MockActorContract
     @MockActorFunc
+    @MockActorFuncReturn
     @Visibility
     (do
       {(format "MockActor ->>" @MockActorContract ": " @MockActorFunc)}
     )
   )
 
+  /* 
+  * Similar emit rule for function calls without return statements.
+  * This creates an arrow in the sequence diagram from the mock actor
+  * to a contract, labeled with the name of the external function being called.
+  */
+  (emit MermaidLineMockActorSignalNoReturnLine
+    @:path:MockActorNoReturnFuncId
+    @MockActorNoReturnContract
+    @MockActorNoReturnFunc
+    @NoReturnVisibility
+    (do
+      {(format "MockActor ->>" @MockActorNoReturnContract ": " @MockActorNoReturnFunc)}
+    )
+  )
+
+ /*
+  * Emits a line that represents the return value from a mock actor call.
+  */
+ (emit MermaidLineMockActorReturnSignalLine
+    @:path:MockActorFuncReturnId
+    @MockActorContract
+    @MockActorFunc
+    @MockActorFuncReturn
+    @Visibility
+    (do
+      {(format @MockActorContract " ->> MockActor:" @MockActorFuncReturn)}
+    )
+  )
+
+
   /* ------- INTRA-CONTRACT EMISSIONS -------- */
-
-  /*
-   * Emits a Mermaid syntax line that defines the caller contract as a participant
-   * in an intra-contract call.
-   * This creates a participant box in the sequence diagram for the contract
-   * that contains both the caller and callee functions.
-   */
-  (emit MermaidLineIntraCallerParticipantLine
-    @:path:IntraContractId
-    @IntraContract
-    (do
-      {(format "participant " @IntraContract)}
-    )
-  )
-
-  /*  
-   * Emits a Mermaid syntax line that defines the callee contract as a participant
-   * in an intra-contract call.
-   * This is redundant with the caller participant line for intra-contract calls,
-   * but is included for consistency with the inter-contract pattern.
-   */
-  (emit MermaidLineIntraCalleeParticipantLine
-    @:path:IntraContractId
-    @IntraContract
-    (do
-      {(format "participant " @IntraContract)}
-    )
-  )
 
   /* 
    * Emits a Mermaid syntax line that represents the internal function call as a self-arrow.
@@ -470,36 +486,6 @@
 
 
   /* ------- INTER-CONTRACT EMISSIONS -------- */
-
-  /* 
-   * Emits a Mermaid syntax line that defines the caller contract as a participant.
-   * This creates a participant box in the sequence diagram for the contract
-   * that initiates the function call.
-   * 
-   * The @:path:CallerContract ensures that each unique caller contract
-   * only appears once in the diagram, regardless of how many calls it makes.
-   */
-  (emit MermaidLineCallerParticipantLine
-    @:path:CallerContractId
-    (do
-      {(format "participant " @CallerContract)}
-    )
-  )
-
-  /* 
-   * Emits a Mermaid syntax line that defines the callee contract as a participant.
-   * This creates a participant box in the sequence diagram for the contract
-   * that receives the function call.
-   * 
-   * The @:path:CalleeContract ensures that each unique callee contract
-   * only appears once in the diagram, regardless of how many calls it receives.
-   */
-  (emit MermaidLineCalleeParticipantLine
-    @:path:CalleeContractId
-    (do
-      {(format "participant " @CalleeContract)}
-    )
-  )
 
   /* 
    * Emits a Mermaid syntax line that represents the function call as an arrow.
