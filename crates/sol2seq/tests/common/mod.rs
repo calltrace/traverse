@@ -53,7 +53,7 @@ impl Default for CompilerConfig {
             source_type: SourceType::Solidity,
             execute: true,
             hydrate: true,
-            enable_tracing: false,
+            enable_tracing: true,
             output_path: None,
         }
     }
@@ -402,7 +402,7 @@ fn create_default_hydrator_config() -> BucketConfig {
                 //  InputSource::new("EmitMermaidLineContractParticipantLine", 90),
             ],
         )
-        .with_bucket(
+       .with_bucket(
             "contract-participants",
             95,
             "",
@@ -413,13 +413,24 @@ fn create_default_hydrator_config() -> BucketConfig {
             )],
         )
         .with_bucket(
+            "library-participants",
+            90,
+            "",
+            "val",
+            vec![InputSource::new(
+                "EmitMermaidLineLibraryParticipantLine",
+                90,
+            )],
+        )
+        .with_bucket(
             "mock-actor-request-flows",
             100,
             "no_return_func_id_path",
             "val",
-            vec![
-                InputSource::new("EmitMermaidLineMockActorSignalNoReturnLine", 100),
-            ],
+            vec![InputSource::new(
+                "EmitMermaidLineMockActorSignalNoReturnLine",
+                100,
+            )],
         )
         .with_bucket(
             "mock-actor-return-flows",
@@ -458,15 +469,24 @@ fn create_default_hydrator_config() -> BucketConfig {
                 InputSource::new("EmitMermaidLineDeactivateLine", 70),
             ],
         )
+        .with_bucket(
+            "library-flows",
+            85,
+            "call_expr_id_path",
+            "val",
+            vec![InputSource::new("EmitMermaidLineLibrarySignalLine", 85)],
+        )
         .with_stream_shape(
             "solidity-to-mermaid",
             vec![
                 "mock-actor-participants",
                 "contract-participants",
+                "library-participants",
                 "mock-actor-request-flows",
                 "mock-actor-return-flows",
                 "intra-contract-flows",
                 "inter-contract-flows",
+                "library-flows"
             ],
             "sequenceDiagram",
         )

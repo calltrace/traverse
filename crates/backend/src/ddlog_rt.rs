@@ -70,6 +70,8 @@ pub fn validate(dl_program: &str, enable_tracing: bool) -> Result<String, String
                     "=== End of DDLog Program ===
 "
                 );
+            } else {
+                println!("Failed to parse error message to find line number");
             }
 
             // Print the original error message
@@ -348,19 +350,26 @@ pub fn teardown_ddlog_project(base_dir: &Path, project_name: &str) -> Result<(),
 
 /// Parse a DDLog error message to extract the line number
 fn parse_ddlog_error(error_message: &str, dl_file: &str) -> Option<usize> {
-    // Pattern to match DDLog error format: program.dl:218.157-218.172
-    // or path/to/file.dl:218.157-218.172
+    // Get the file basename for matching in error messages
     let file_basename = Path::new(dl_file).file_name()?.to_str()?;
 
     // Look for the line number in the error message
     for line in error_message.lines() {
+        // Try Format 1: file.dl:line.col-line.col
         if line.contains(file_basename) {
-            // Extract line number using regex
             let re = regex::Regex::new(r"(\w+\.dl):(\d+)\.(\d+)-(\d+)\.(\d+)").ok()?;
             if let Some(captures) = re.captures(line) {
                 if let Some(line_str) = captures.get(2) {
                     return line_str.as_str().parse::<usize>().ok();
                 }
+            }
+        }
+        
+        // Try Format 2: (line X, column Y)
+        let re = regex::Regex::new(r".*\(line (\d+), column (\d+)\):").ok()?;
+        if let Some(captures) = re.captures(line) {
+            if let Some(line_str) = captures.get(1) {
+                return line_str.as_str().parse::<usize>().ok();
             }
         }
     }

@@ -244,6 +244,95 @@
   )
 
   /*
+   * Identifies state variables in contracts and extracts their names and types.
+   * This rule captures:
+   * - The variable name (e.g., balanceOf)
+   * - The variable type (e.g., uint)
+   * - The contract where the variable is declared
+   * - The visibility of the variable (e.g., public)
+   * 
+   * For mapping types, it extracts the value type rather than the mapping itself.
+   */
+  (infer StateVariable (?contract_id, ?contract, ?var_id, ?var_name, ?type_id, ?type_name, ?visibility)
+    via ((StateVariableDeclaration ?var_id, _, _)
+         (TypeName ?var_type_id, ?var_id, _)
+         (PrimitiveType ?type_id, ?var_type_id, ?type_name)
+         (Visibility ?visibility_id, ?var_id, ?visibility)
+         (Identifier _, ?var_id, ?var_name)
+         (ContractDeclaration ?contract_id, _, _)
+         (Identifier _, ?contract_id, ?contract)
+         (Ancestor ?var_id, ?contract_id)
+        )
+  )
+/*
+insert StateVariableDeclaration(40, 13, "uint  public totalSupply;");
+insert TypeName(41, 40, "uint");
+insert PrimitiveType(42, 41, "uint");
+insert Visibility(43, 40, "public");
+insert Identifier(44, 40, "totalSupply");
+*/
+
+  /*
+   * Identifies library applications to specific types using the 'using' directive.
+   * This rule captures:
+   * - The library name (e.g., SafeMath)
+   * - The type it's applied to (e.g., uint)
+   * - The contract where the library is applied
+   * 
+   * It works by finding UsingDirective nodes and connecting them to their
+   * parent contract declaration, extracting both the library name and the
+   * target type.
+   */
+  (infer LibraryApplication (?contract_id, ?contract, ?library, ?target_type)
+    via ((UsingDirective ?using_id, _, _)
+         (TypeAlias ?type_alias_id, ?using_id, ?library)
+         (Identifier _, ?type_alias_id, ?library)
+         (TypeName ?type_name_id, ?using_id, ?target_type_name)
+         (PrimitiveType _, ?type_name_id, ?target_type)
+         (ContractDeclaration ?contract_id, _, _)
+         (Identifier _, ?contract_id, ?contract)
+         (Ancestor ?using_id, ?contract_id)
+    )
+  )
+
+
+  (infer LibraryStateVariable (?contract_id, ?contract, ?library, ?var_id, ?var_name, ?type_id, ?type_name, ?visibility)
+    via ((LibraryApplication ?contract_id, ?contract, ?library, ?type_name)
+         (StateVariable ?contract_id, ?contract, ?var_id, ?var_name, ?type_id, ?type_name, ?visibility)
+        )
+  )
+
+ (infer MethodExpression (?receiver_id, ?receiver, ?method_id, ?method, ?call_expr_id)
+    via ((CallExpression ?call_expr_id, _, _)
+         (Expression ?expr_id, ?call_expr_id, _)
+         (MemberExpression ?member_expr_id, ?expr_id, _)
+         (Identifier ?receiver_id, ?member_expr_id, ?receiver)
+         (Identifier ?method_id, ?member_expr_id, ?method)
+    )
+  )
+/*
+insert Statement(196, 195, "totalSupply = totalSupply.add(value);");
+insert ExpressionStatement(197, 196, "totalSupply = totalSupply.add(value);");
+insert Expression(198, 197, "totalSupply = totalSupply.add(value)");
+insert AssignmentExpression(199, 198, "totalSupply = totalSupply.add(value)");
+insert Expression(200, 199, "totalSupply");
+insert Identifier(201, 200, "totalSupply");
+insert Expression(202, 199, "totalSupply.add(value)");
+insert CallExpression(203, 202, "totalSupply.add(value)");
+insert Expression(204, 203, "totalSupply.add");
+insert MemberExpression(205, 204, "totalSupply.add");
+insert Identifier(206, 205, "totalSupply");
+insert Identifier(207, 205, "add");
+*/
+
+
+  (infer LibraryUsage (?contract_id, ?contract, ?library, ?receiver, ?method, ?call_expr_id)
+    via((MethodExpression ?receiver_id, ?receiver, ?method_id, ?method, ?call_expr_id)
+        (LibraryStateVariable ?contract_id, ?contract, ?library, _, ?receiver, _, _, _)
+       )
+  )
+
+  /*
    * Captures the source file ID for the mock actor.
    * This allows the mock actor to be referenced in the visualization.
    */
@@ -343,6 +432,18 @@
     (callee_func @IntraCalleeFuncNoReturn)
   )
 
+  /* 
+   * Captures library usage details.
+   */
+  (capture LibraryUsage
+    (contract @LibraryContract)
+    (contract_id @LibraryContractId)
+    (library @Library)
+    (receiver @Receiver)
+    (method @Method)
+    (call_expr_id @CallExprId)
+  )
+
 
   /* ------- PREAMBLE EMISSIONS -------- */
 
@@ -350,6 +451,13 @@
     @ContractParticipant
     (do 
       {(format "participant " @ContractParticipant)}
+    )
+  )
+
+  (emit MermaidLineLibraryParticipantLine
+    @Library
+    (do 
+      {(format "participant " @Library)}
     )
   )
 
@@ -556,4 +664,17 @@
       {(format @CalleeContract "-->>" @CallerContract ": " @ReturnStmt)}
     )
   )
+
+  /* ------- LIBRARY EMISSIONS -------- */
+
+  (emit MermaidLineLibrarySignalLine
+    @:path:CallExprId
+    @LibraryContract
+    @Library
+    @Method
+    (do
+      {(format @LibraryContract "->>" @Library ": " @Method)}
+    )
+  )
+
 )
