@@ -18,6 +18,8 @@ pub enum Func {
 pub enum ProvenanceType {
     Default,
     Path,
+    Downstream,
+    Upstream,
     Span,
     Full,
 }
@@ -270,6 +272,20 @@ impl PartialEq for Func {
     }
 }
 
+impl fmt::Display for ProvenanceType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProvenanceType::Path => write!(f, "path"),
+            ProvenanceType::Downstream => write!(f, "downstream"),
+            ProvenanceType::Upstream => write!(f, "upstream"),
+            ProvenanceType::Span => write!(f, "span"),
+            ProvenanceType::Full => write!(f, "full"),
+            ProvenanceType::Default => write!(f, "default"),
+        }
+    }
+}
+
+
 impl fmt::Display for Lval {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -390,6 +406,8 @@ impl fmt::Display for Lval {
                 None => write!(f, "@{}", capture),
                 Some(ProvenanceType::Default) => write!(f, "@:{}", capture),
                 Some(ProvenanceType::Path) => write!(f, "@:path:{}", capture),
+                Some(ProvenanceType::Downstream) => write!(f, "@:downstream:{}", capture),
+                Some(ProvenanceType::Upstream) => write!(f, "@:upstream:{}", capture),
                 Some(ProvenanceType::Span) => write!(f, "@:span:{}", capture),
                 Some(ProvenanceType::Full) => write!(f, "@:full:{}", capture),
             },

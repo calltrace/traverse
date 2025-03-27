@@ -234,6 +234,8 @@ impl Formatter {
                 match provenance {
                     Some(ProvenanceType::Default) => format!("@:{}", name),
                     Some(ProvenanceType::Path) => format!("@:path:{}", name),
+                    Some(ProvenanceType::Downstream) => format!("@:downstream:{}", name),
+                    Some(ProvenanceType::Upstream) => format!("@:upstream:{}", name),
                     Some(ProvenanceType::Span) => format!("@:span:{}", name),
                     Some(ProvenanceType::Full) => format!("@:full:{}", name),
                     None => format!("@{}", name),

@@ -237,6 +237,8 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
                         if let Some(prov_type) = spec_inner.next() {
                             provenance = Some(match prov_type.as_str() {
                                 "path" => ProvenanceType::Path,
+                                "downstream" => ProvenanceType::Downstream,
+                                "upstream" => ProvenanceType::Upstream,
                                 "span" => ProvenanceType::Span,
                                 "full" => ProvenanceType::Full,
                                 _ => ProvenanceType::Default,

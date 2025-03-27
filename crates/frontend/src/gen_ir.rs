@@ -182,7 +182,7 @@ pub(crate) fn sanitize_reserved(name: &str) -> String {
 struct CaptureMapping {
     relation_name: String,
     symbol: String,
-    alias: String
+    alias: String,
 }
 
 struct SSAContext {
@@ -215,7 +215,7 @@ impl SSAContext {
             .push(CaptureMapping {
                 relation_name,
                 symbol: symbol.clone(),
-                alias: normalize_string(&capture_name)
+                alias: normalize_string(&capture_name),
             });
     }
 
@@ -658,6 +658,24 @@ impl IrGenerator {
                                             attr_type: AttributeType::String,
                                         });
                                     }
+                                    Some(ProvenanceType::Downstream) => {
+                                        relation_attributes.insert(Attribute {
+                                            name: format!(
+                                                "{}_downstream",
+                                                normalize_string(&mapping.symbol)
+                                            ),
+                                            attr_type: AttributeType::String,
+                                        });
+                                    }
+                                    Some(ProvenanceType::Upstream) => {
+                                        relation_attributes.insert(Attribute {
+                                            name: format!(
+                                                "{}_upstream",
+                                                normalize_string(&mapping.symbol)
+                                            ),
+                                            attr_type: AttributeType::String,
+                                        });
+                                    }
                                     Some(ProvenanceType::Span) => {
                                         relation_attributes.insert(Attribute {
                                             name: format!(
@@ -754,6 +772,18 @@ impl IrGenerator {
                                     Some(ProvenanceType::Path) => {
                                         lhs_attributes.insert(format!(
                                             "lhs_{}_path",
+                                            normalize_string(&mapping.symbol)
+                                        ));
+                                    }
+                                    Some(ProvenanceType::Downstream) => {
+                                        lhs_attributes.insert(format!(
+                                            "lhs_{}_downstream",
+                                            normalize_string(&mapping.symbol)
+                                        ));
+                                    }
+                                    Some(ProvenanceType::Upstream) => {
+                                        lhs_attributes.insert(format!(
+                                            "lhs_{}_upstream",
                                             normalize_string(&mapping.symbol)
                                         ));
                                     }
@@ -861,7 +891,6 @@ impl IrGenerator {
                             // Look up the specific attribute mapping for this capture and augment
                             // with provenance.
                             if let Some(mappings) = context.get_capture_mappings(capture_name) {
-                                println!("Mappings: {:?}", mappings);
                                 for mapping in mappings {
                                     // Add Path relation node only for the mapped attribute
                                     let path_node = provenance_type
@@ -869,6 +898,14 @@ impl IrGenerator {
                                         .and_then(|p| match p {
                                             ProvenanceType::Path => Some(format!(
                                                 "rhs_{}_path",
+                                                mapping.symbol.to_lowercase()
+                                            )),
+                                            ProvenanceType::Downstream => Some(format!(
+                                                "rhs_{}_downstream",
+                                                mapping.symbol.to_lowercase()
+                                            )),
+                                            ProvenanceType::Upstream => Some(format!(
+                                                "rhs_{}_upstream",
                                                 mapping.symbol.to_lowercase()
                                             )),
                                             ProvenanceType::Span => Some(format!(
@@ -1066,6 +1103,18 @@ impl IrGenerator {
                                                 attr_type: AttributeType::String,
                                             });
                                         }
+                                        ProvenanceType::Downstream => {
+                                            outbound_attrs.push_front(Attribute {
+                                                name: format!("{}_downstream", clean_name),
+                                                attr_type: AttributeType::String,
+                                            });
+                                        }
+                                        ProvenanceType::Upstream => {
+                                            outbound_attrs.push_front(Attribute {
+                                                name: format!("{}_upstream", clean_name),
+                                                attr_type: AttributeType::String,
+                                            });
+                                        }
                                         ProvenanceType::Span => {
                                             outbound_attrs.push_front(Attribute {
                                                 name: format!("{}_span", clean_name),
@@ -1164,6 +1213,18 @@ impl IrGenerator {
                                     attr_type: AttributeType::String,
                                 });
                             }
+                            ProvenanceType::Downstream => {
+                                outbound_attrs.push_front(Attribute {
+                                    name: format!("{}_downstream", capture_name),
+                                    attr_type: AttributeType::String,
+                                });
+                            }
+                            ProvenanceType::Upstream => {
+                                outbound_attrs.push_front(Attribute {
+                                    name: format!("{}_upstream", capture_name),
+                                    attr_type: AttributeType::String,
+                                });
+                            }
                             ProvenanceType::Span => {
                                 outbound_attrs.push_front(Attribute {
                                     name: format!("{}_span", capture_name),
@@ -1208,6 +1269,18 @@ impl IrGenerator {
                                 ProvenanceType::Path => {
                                     outbound_attrs.push_front(Attribute {
                                         name: format!("{}_path", capture_name),
+                                        attr_type: AttributeType::String,
+                                    });
+                                }
+                                ProvenanceType::Downstream => {
+                                    outbound_attrs.push_front(Attribute {
+                                        name: format!("{}_downstream", capture_name),
+                                        attr_type: AttributeType::String,
+                                    });
+                                }
+                                ProvenanceType::Upstream => {
+                                    outbound_attrs.push_front(Attribute {
+                                        name: format!("{}_upstream", capture_name),
                                         attr_type: AttributeType::String,
                                     });
                                 }
@@ -2455,9 +2528,6 @@ impl std::fmt::Display for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 pub type DslToIrResult = Result<Box<IRProgram>>;
 
-
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2468,12 +2538,32 @@ mod tests {
         let mut table = SymbolTable::new();
 
         // Test successful insertions
-        assert!(table.insert_capture("var1", RelationRef::new("relation1".to_string(), IRRelationRole::Input)).is_ok());
-        assert!(table.insert_capture("var2", RelationRef::new("relation1".to_string(), IRRelationRole::Input)).is_ok());
-        assert!(table.insert_capture("var3", RelationRef::new("relation2".to_string(), IRRelationRole::Input)).is_ok());
+        assert!(table
+            .insert_capture(
+                "var1",
+                RelationRef::new("relation1".to_string(), IRRelationRole::Input)
+            )
+            .is_ok());
+        assert!(table
+            .insert_capture(
+                "var2",
+                RelationRef::new("relation1".to_string(), IRRelationRole::Input)
+            )
+            .is_ok());
+        assert!(table
+            .insert_capture(
+                "var3",
+                RelationRef::new("relation2".to_string(), IRRelationRole::Input)
+            )
+            .is_ok());
 
         // Test duplicate capture name
-        assert!(table.insert_capture("var1", RelationRef::new("relation2".to_string(), IRRelationRole::Input)).is_err());
+        assert!(table
+            .insert_capture(
+                "var1",
+                RelationRef::new("relation2".to_string(), IRRelationRole::Input)
+            )
+            .is_err());
 
         // Test lookups
         let symbol = table.lookup_capture("var1").unwrap();
@@ -2519,43 +2609,41 @@ mod tests {
         let lval = Lval::CaptureForm(
             "TestNode".to_string(),
             attrs_map,
-            vec![],  // Empty capture_refs
-            None,    // No nested captures
-            None,    // No when block
-            None,    // No do block
+            vec![], // Empty capture_refs
+            None,   // No nested captures
+            None,   // No when block
+            None,   // No do block
         );
 
         // Create the IrGenerator and generate IR
         let mut generator = IrGenerator::new();
-        
+
         // Add a mock relation to the IR program
         let mut ir_program = IRProgram {
             rules: Vec::new(),
-            relations: vec![
-                IRRelationType {
-                    name: "TestNode".to_string(),
-                    attributes: vec![
-                        Attribute {
-                            name: "attr1".to_string(),
-                            attr_type: AttributeType::Number,
-                        },
-                        Attribute {
-                            name: "attr2".to_string(),
-                            attr_type: AttributeType::String,
-                        },
-                    ],
-                    role: IRRelationRole::Input,
-                    category: Some(ir::RelationCategory::Internal),
-                }
-            ],
+            relations: vec![IRRelationType {
+                name: "TestNode".to_string(),
+                attributes: vec![
+                    Attribute {
+                        name: "attr1".to_string(),
+                        attr_type: AttributeType::Number,
+                    },
+                    Attribute {
+                        name: "attr2".to_string(),
+                        attr_type: AttributeType::String,
+                    },
+                ],
+                role: IRRelationRole::Input,
+                category: Some(ir::RelationCategory::Internal),
+            }],
         };
-        
+
         // Process the Lval
         let result = generator.process_lval(&lval, &mut ir_program, &mut SSAContext::new());
-        
+
         // Verify that processing succeeded
         assert!(result.is_ok());
-        
+
         // Verify that rules were added
         assert!(!ir_program.rules.is_empty());
     }
@@ -2574,24 +2662,24 @@ mod tests {
         let child_capture = Lval::CaptureForm(
             "ChildNode".to_string(),
             child_attrs,
-            vec![],  // Empty capture_refs
-            None,    // No nested captures
-            None,    // No when block
-            None,    // No do block
+            vec![], // Empty capture_refs
+            None,   // No nested captures
+            None,   // No when block
+            None,   // No do block
         );
 
         let lval = Lval::CaptureForm(
             "ParentNode".to_string(),
             parent_attrs,
-            vec![],  // Empty capture_refs
+            vec![], // Empty capture_refs
             Some(Box::new(child_capture)),
-            None,    // No when block
-            None,    // No do block
+            None, // No when block
+            None, // No do block
         );
 
         // Create the IrGenerator and generate IR
         let mut generator = IrGenerator::new();
-        
+
         // Create a mock IR program with the necessary relations
         let mut ir_program = IRProgram {
             rules: Vec::new(),
@@ -2628,15 +2716,14 @@ mod tests {
                 },
             ],
         };
-        
+
         // Process the Lval
         let result = generator.process_lval(&lval, &mut ir_program, &mut SSAContext::new());
-        
+
         // Verify that processing succeeded
         assert!(result.is_ok());
-        
+
         // Verify that rules were added
         assert!(!ir_program.rules.is_empty());
     }
 }
-

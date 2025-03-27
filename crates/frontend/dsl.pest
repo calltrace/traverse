@@ -49,7 +49,7 @@ provenance_spec = {
 }
 
 provenance_type = {
-    "path" | "span" | "full" | "default"
+    "path" | "downstream" | "upstream" | "span" | "full" | "default"
 }
 
 // Define quantifiers for repetition in expressions, such as `(node)*`, `(node)?`, `(node)+`.
