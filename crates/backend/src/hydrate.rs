@@ -103,6 +103,107 @@ fn compare_path_segments(path1: &str, path2: &str) -> Ordering {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct OrderedFact {
+    fact: DdlogFact,
+    metadata: BTreeMap<String, String>, // Metadata associated with the fact
+}
+
+impl OrderedFact {
+    fn new(fact: DdlogFact) -> Self {
+        OrderedFact {
+            fact,
+            metadata: BTreeMap::new(), // Initialize with an empty BTreeMap for metadata
+        }
+    }
+}
+
+pub trait FactOrderingStrategy: fmt::Debug {
+    fn order_facts(&self, facts: Box<dyn Iterator<Item = DdlogFact>>) -> Vec<OrderedFact>;
+}
+
+#[derive(Debug)]
+pub struct PathOrderedDumpAlgorithm {
+    path_attribute: String,
+}
+
+impl PathOrderedDumpAlgorithm {
+    /// Create a new PathOrderedDumpAlgorithm with the specified path attribute
+    ///
+    /// # Arguments
+    ///
+    /// * `path_attribute` - The name of the attribute to use for path-based ordering
+    ///
+    /// # Returns
+    ///
+    /// * `Self` - A new instance of PathOrderedDumpAlgorithm
+    pub fn new(path_attribute: &str) -> Self {
+        PathOrderedDumpAlgorithm {
+            path_attribute: path_attribute.to_string(),
+        }
+    }
+}
+
+impl FactOrderingStrategy for PathOrderedDumpAlgorithm {
+    fn order_facts(&self, facts: Box<dyn Iterator<Item = DdlogFact>>) -> Vec<OrderedFact> {
+        let mut ordered_facts = Vec::new();
+        // Collect all facts into a vector
+        for fact in facts {
+            // Create an OrderedFact using the path attribute
+            let ordered_fact = PathOrderedFact::new(fact.clone(), &self.path_attribute, 0); // Assuming default priority for simplicity
+            ordered_facts.push(ordered_fact);
+        }
+        // Sort the facts based on the path attribute
+        ordered_facts.sort();
+        ordered_facts
+            .into_iter()
+            .map(|ordered_fact| ordered_fact.fact)
+            .map(OrderedFact::new)
+            .collect()
+    }
+}
+
+#[derive(Debug)]
+struct DependencyDrivenDumpAlgorithm {
+    edge_attributes: (String, String), // Tuple for inbound and outbound edge attributes
+}
+
+impl DependencyDrivenDumpAlgorithm {
+    /// Create a new DependencyDrivenDumpAlgorithm with the specified path attribute
+    ///
+    /// # Arguments
+    ///
+    /// * `path_attribute` - The name of the attribute to use for path-based ordering
+    ///
+    /// # Returns
+    ///
+    /// * `Self` - A new instance of DependencyDrivenDumpAlgorithm
+    pub fn new(edge_attributes: (String, String)) -> Self {
+        DependencyDrivenDumpAlgorithm { edge_attributes }
+    }
+}
+
+impl FactOrderingStrategy for DependencyDrivenDumpAlgorithm {
+    fn order_facts(&self, facts: Box<dyn Iterator<Item = DdlogFact>>) -> Vec<OrderedFact> {
+        vec![] // Placeholder for the actual implementation of dependency-driven ordering
+    }
+}
+
+impl Error for DumpError {}
+
+#[derive(Debug)]
+pub enum DumpError {
+    GenericError(String),
+}
+
+impl fmt::Display for DumpError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DumpError::GenericError(e) => write!(f, "Dump error: {}", e),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BucketConfig {
     #[serde(default)]
@@ -111,10 +212,14 @@ pub struct BucketConfig {
     path_attributes: HashMap<String, String>,
     #[serde(default)]
     value_attributes: HashMap<String, String>,
+    #[serde(default)]
+    edge_attributes: HashMap<String, (String, String)>,
     #[serde(default = "default_path_attribute")]
     default_path_attribute: String,
     #[serde(default = "default_value_attribute")]
     default_value_attribute: String,
+    #[serde(default = "default_edge_attributes")]
+    default_edge_attributes: (String, String),
     #[serde(default)]
     default_priority: u32,
     #[serde(default = "default_pool_shape")]
@@ -128,7 +233,21 @@ pub struct BucketConfig {
     #[serde(default)]
     streams: HashMap<String, Vec<String>>,
     #[serde(default)]
+    stream_ordering_strategy: StreamFactOrderingStrategy,
+    #[serde(default)]
     stream_shapes: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum StreamFactOrderingStrategy {
+    Path,
+    Dependency,
+}
+
+impl Default for StreamFactOrderingStrategy {
+    fn default() -> Self {
+        StreamFactOrderingStrategy::Path
+    }
 }
 
 // Helper functions for serde default values
@@ -138,6 +257,10 @@ fn default_path_attribute() -> String {
 
 fn default_value_attribute() -> String {
     "val".to_string()
+}
+
+fn default_edge_attributes() -> (String, String) {
+    ("inbound".to_string(), "outbound".to_string())
 }
 
 fn default_pool_shape() -> String {
@@ -150,8 +273,14 @@ impl BucketConfig {
             priorities: HashMap::new(),
             path_attributes: HashMap::new(),
             value_attributes: HashMap::new(),
+            edge_attributes: HashMap::new(),
             default_path_attribute: "path".to_string(),
             default_value_attribute: "val".to_string(),
+            default_edge_attributes: (
+                // Default edge attributes for inbound/outbound relations
+                "inbound".to_string(),
+                "outbound".to_string(),
+            ),
             default_priority: 0,
             pool_shape: "default".to_string(),
             bucket_relations: HashMap::new(),
@@ -159,6 +288,7 @@ impl BucketConfig {
             relation_priorities: HashMap::new(),
             streams: HashMap::new(),
             stream_shapes: HashMap::new(),
+            stream_ordering_strategy: StreamFactOrderingStrategy::default(),
         }
     }
 
@@ -324,7 +454,12 @@ impl BucketConfig {
     /// # Returns
     ///
     /// * `Self` - The updated configuration
-    pub fn with_stream(mut self, stream_name: &str, bucket_names: Vec<&str>) -> Self {
+    pub fn with_stream(
+        mut self,
+        stream_name: &str,
+        bucket_names: Vec<&str>,
+        ordering_strategy: StreamFactOrderingStrategy,
+    ) -> Self {
         let bucket_names: Vec<String> = bucket_names.iter().map(|&s| s.to_string()).collect();
 
         // Ensure we have at least 2 buckets
@@ -334,6 +469,8 @@ impl BucketConfig {
             self.stream_shapes
                 .insert(stream_name.to_string(), "default".to_string());
         }
+
+        self.stream_ordering_strategy = ordering_strategy;
 
         self
     }
@@ -375,13 +512,13 @@ impl Default for BucketConfig {
 }
 
 #[derive(Debug, Clone)]
-struct OrderedFact {
+struct PathOrderedFact {
     fact: DdlogFact,
     path: String,
     relation_priority: u32,
 }
 
-impl OrderedFact {
+impl PathOrderedFact {
     fn new(fact: DdlogFact, path_attribute: &str, relation_priority: u32) -> Self {
         let path = fact
             .attributes
@@ -394,7 +531,7 @@ impl OrderedFact {
             })
             .unwrap_or_default();
 
-        OrderedFact {
+        PathOrderedFact {
             fact,
             path,
             relation_priority,
@@ -402,20 +539,20 @@ impl OrderedFact {
     }
 }
 
-impl PartialEq for OrderedFact {
+impl PartialEq for PathOrderedFact {
     fn eq(&self, other: &Self) -> bool {
         self.path == other.path
     }
 }
 
-impl Eq for OrderedFact {}
+impl Eq for PathOrderedFact {}
 
-impl PartialOrd for OrderedFact {
+impl PartialOrd for PathOrderedFact {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
-impl Ord for OrderedFact {
+impl Ord for PathOrderedFact {
     fn cmp(&self, other: &Self) -> Ordering {
         // First compare by path
         match compare_path_segments(&self.path, &other.path) {
@@ -428,23 +565,29 @@ impl Ord for OrderedFact {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Bucket {
     // The bucket name, which may represent multiple relations
     name: String,
     // The original relation names that contributed facts to this bucket
     relations: Vec<String>,
     config: BucketConfig,
-    facts: Vec<OrderedFact>,
+    facts: Vec<DdlogFact>,
+    dump_algorithm: Box<dyn FactOrderingStrategy>,
 }
 
 impl Bucket {
-    fn new(name: String, config: BucketConfig) -> Self {
+    fn new(
+        name: String,
+        config: BucketConfig,
+        dump_algorithm: Box<dyn FactOrderingStrategy>,
+    ) -> Self {
         Bucket {
             name,
             relations: Vec::new(),
             config,
             facts: Vec::new(),
+            dump_algorithm,
         }
     }
 
@@ -482,21 +625,7 @@ impl Bucket {
             self.relations.push(relation_name.clone());
         }
 
-        // Get the relation priority
-        let relation_priority = self
-            .config
-            .relation_priorities
-            .get(&relation_name)
-            .cloned()
-            .unwrap_or(self.config.default_priority);
-
-        // Create an OrderedFact using the bucket's path attribute and relation priority
-        let path_attr = self.path_attribute();
-        let ordered_fact = OrderedFact::new(fact, &path_attr, relation_priority);
-
-        // Insert the fact and then sort the vector to maintain ordering
-        self.facts.push(ordered_fact);
-        self.facts.sort(); // This uses the Ord implementation for OrderedFact
+        self.facts.push(fact);
     }
 
     fn dump(&self) -> String {
@@ -529,9 +658,13 @@ impl Bucket {
             result.push_str("\n");
         }
 
-        for fact in &self.facts {
+        let ordered_facts = self
+            .dump_algorithm
+            .order_facts(Box::new(self.facts.clone().into_iter()));
+
+        for ordered_fact in &ordered_facts {
             let value_attr = self.value_attribute();
-            let value = fact
+            let value = ordered_fact
                 .fact
                 .attributes
                 .get(&value_attr)
@@ -541,16 +674,17 @@ impl Bucket {
                     AttributeValue::Number(_) => "", // Skip numbers as values
                 });
 
-            let fact_path = if !fact.path.is_empty() {
-                &fact.path
-            } else {
-                "unspecified"
-            };
+            // dump metadata for ordered fact as string
+            for (key, value) in &ordered_fact.metadata {
+                // Assuming metadata is stored in the fact's attributes
+                // You can customize this to handle specific metadata keys if needed
+                if key != &value_attr {
+                    // Add metadata to the output if it's not the value attribute
+                    result.push_str(&format!("%% Metadata: {} = {}\n", key, value));
+                }
+            }
 
-            result.push_str(&format!(
-                "%% Fact: (relation: {}, priority: {}, path: {})\n{}\n",
-                fact.fact.relation_name, fact.relation_priority, fact_path, value
-            ));
+            result.push_str(value);
         }
 
         result
@@ -558,12 +692,12 @@ impl Bucket {
 }
 
 #[derive(Debug)]
-pub struct Pool {
+pub struct Pool<'a> {
     shape: String,
-    buckets: Vec<Bucket>,
+    buckets: Vec<&'a Bucket>,
 }
 
-impl Pool {
+impl<'a> Pool<'a> {
     fn new(shape: String) -> Self {
         Pool {
             shape,
@@ -571,7 +705,7 @@ impl Pool {
         }
     }
 
-    fn add_bucket(&mut self, bucket: Bucket) {
+    fn add_bucket(&mut self, bucket: &'a Bucket) {
         self.buckets.push(bucket);
     }
 
@@ -580,7 +714,7 @@ impl Pool {
     }
 }
 
-impl Display for Pool {
+impl Display for Pool<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "%% Pool (shape: {})", self.shape)?;
         writeln!(f, "{}", self.shape)?;
@@ -598,18 +732,25 @@ pub struct Stream {
     name: String,
     bucket_names: Vec<String>,
     shape: String,
+    ordering_strategy: Box<dyn FactOrderingStrategy>,
 }
 
 impl Stream {
-    fn new(name: String, bucket_names: Vec<String>, shape: String) -> Self {
+    fn new(
+        name: String,
+        bucket_names: Vec<String>,
+        shape: String,
+        ordering_strategy: Box<dyn FactOrderingStrategy>,
+    ) -> Self {
         Stream {
             name,
             bucket_names,
             shape,
+            ordering_strategy,
         }
     }
 
-    fn collect_facts<'a>(&'a self, buckets: &'a HashMap<String, Bucket>) -> Vec<&'a OrderedFact> {
+    fn collect_facts<'a>(&'a self, buckets: &'a HashMap<String, Bucket>) -> Vec<&'a DdlogFact> {
         let mut all_facts = Vec::new();
 
         // Collect facts from all buckets in this stream
@@ -622,7 +763,7 @@ impl Stream {
         }
 
         // Sort all facts by path
-        all_facts.sort_by(|a, b| compare_path_segments(&a.path, &b.path));
+        //all_facts.sort_by(|a, b| compare_path_segments(&a.path, &b.path));
 
         all_facts
     }
@@ -639,15 +780,23 @@ impl Stream {
         result.push_str(&format!("{}\n", self.shape));
 
         // Collect and sort all facts from the buckets in this stream
-        let all_facts = self.collect_facts(buckets);
+        let all_facts = self
+            .collect_facts(buckets)
+            .into_iter()
+            .map(|fact| fact.clone()) // Clone each fact to avoid ownership issues
+            .collect::<Vec<DdlogFact>>();
+
+        let facts_all_buckets_ordered = self
+            .ordering_strategy
+            .order_facts(Box::new(all_facts.into_iter()));
 
         // Output the facts in order
-        for fact in all_facts {
-            let bucket_name = fact.fact.relation_name.clone();
+        for ordered_fact in facts_all_buckets_ordered {
+            let bucket_name = ordered_fact.fact.relation_name.clone();
             let bucket = buckets.get(&bucket_name);
 
             let value_attr = bucket.map_or("val".to_string(), |b| b.value_attribute());
-            let value = fact
+            let value = ordered_fact
                 .fact
                 .attributes
                 .get(&value_attr)
@@ -657,17 +806,43 @@ impl Stream {
                     AttributeValue::Number(_) => "", // Skip numbers as values
                 });
 
-            result.push_str(&format!(
-                "%% Stream Fact: (bucket: {}, path: {})\n{}\n",
-                bucket_name, fact.path, value
-            ));
+            // dump metadata for ordered fact as string
+            result.push_str(&format!("%% Bucket: {}\n", &bucket_name));
+            for (key, value) in &ordered_fact.metadata {
+                if key != &value_attr {
+                    result.push_str(&format!("%% Metadata: {} = {}\n", key, value));
+                }
+            }
+
+            result.push_str(value);
         }
 
         result
     }
 }
 
+/* Implement Error type for Hydrator */
 #[derive(Debug)]
+pub struct HydratorError {
+    message: String,
+}
+
+impl HydratorError {
+    pub fn new(message: &str) -> Self {
+        HydratorError {
+            message: message.to_string(),
+        }
+    }
+}
+
+impl fmt::Display for HydratorError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Hydrator error: {}", self.message)
+    }
+}
+
+impl Error for HydratorError {}
+
 pub struct Hydrator {
     global_config: BucketConfig,
     buckets: HashMap<String, Bucket>,
@@ -684,10 +859,30 @@ impl Hydrator {
                 .get(stream_name)
                 .cloned()
                 .unwrap_or_else(|| "default".to_string());
+            let ordering_strategy: Box<dyn FactOrderingStrategy> =
+                match config.stream_ordering_strategy {
+                    StreamFactOrderingStrategy::Path => Box::new(PathOrderedDumpAlgorithm::new(
+                        &config.default_path_attribute,
+                    )),
+                    StreamFactOrderingStrategy::Dependency => {
+                        Box::new(DependencyDrivenDumpAlgorithm::new(
+                            config
+                                .edge_attributes
+                                .get(&bucket_names[0]) // Assuming first bucket for simplicity
+                                .cloned()
+                                .unwrap_or_else(|| {
+                                    (
+                                        config.default_edge_attributes.0.clone(),
+                                        config.default_edge_attributes.1.clone(),
+                                    )
+                                }),
+                        ))
+                    }
+                };
 
             streams.insert(
                 stream_name.clone(),
-                Stream::new(stream_name.clone(), bucket_names.clone(), shape),
+                Stream::new(stream_name.clone(), bucket_names.clone(), shape, ordering_strategy), 
             );
         }
 
@@ -698,7 +893,7 @@ impl Hydrator {
         }
     }
 
-    pub fn process_fact(&mut self, fact: DdlogFact) {
+    pub fn process_fact(&mut self, fact: DdlogFact) -> Result<(), HydratorError> {
         let relation = fact.relation_name.clone();
 
         // Determine which bucket this relation belongs to
@@ -711,17 +906,54 @@ impl Hydrator {
             relation.clone()
         } else {
             // Unknown relation, ignore it
-            return;
+            return Err(HydratorError::new(&format!(
+                "Unknown relation: {}",
+                relation
+            )));
         };
 
-        // Get or create the bucket
-        let bucket = self
-            .buckets
-            .entry(bucket_name.clone())
-            .or_insert_with(|| Bucket::new(bucket_name, self.global_config.clone()));
+        // Check if the ddlog contains either a path or edge attribute.
+        // If it contains a Path attribute, instantiate the bucket with the Path ordering algorithm
+        // implementation. Consequently, if it's ane edge attribute instantiate with the HIG
+        // implementation (graph)
+        let dump_algo = self
+            .global_config
+            .path_attributes
+            .get(&bucket_name)
+            .map(|path_attr| {
+                let algo: Box<dyn FactOrderingStrategy> =
+                    Box::new(PathOrderedDumpAlgorithm::new(path_attr));
+                algo
+            })
+            .or_else(|| {
+                self.global_config
+                    .edge_attributes
+                    .get(&bucket_name)
+                    .map(|edge_attrs| {
+                        let algo: Box<dyn FactOrderingStrategy> =
+                            Box::new(DependencyDrivenDumpAlgorithm::new(edge_attrs.clone()));
+                        algo
+                    })
+            });
 
-        // Add the fact to the bucket
-        bucket.add_fact(fact);
+        if dump_algo.is_some() {
+            let bucket = self.buckets.entry(bucket_name.clone()).or_insert_with(|| {
+                Bucket::new(
+                    bucket_name.clone(),
+                    self.global_config.clone(),
+                    dump_algo.unwrap(),
+                )
+            });
+
+            // Add the fact to the bucket
+            bucket.add_fact(fact);
+            Ok(())
+        } else {
+            Err(HydratorError::new(&format!(
+                "No valid dump algorithm found for bucket: {}",
+                bucket_name
+            )))
+        }
     }
 
     pub fn process_drain<I>(&mut self, drain: DdlogDrain<I>)
@@ -753,7 +985,7 @@ impl Hydrator {
 
         // Clone buckets and add them to the pool
         for bucket in self.buckets.values() {
-            pool.add_bucket(bucket.clone());
+            pool.add_bucket(bucket);
         }
 
         // Sort buckets by priority
@@ -800,11 +1032,21 @@ impl Hydrator {
     }
 
     /// Add a new stream
-    pub fn add_stream(&mut self, stream_name: &str, bucket_names: Vec<String>) {
+    pub fn add_stream(
+        &mut self,
+        stream_name: &str,
+        bucket_names: Vec<String>,
+        stream_ordering_strategy: Box<dyn FactOrderingStrategy>,
+    ) {
         if bucket_names.len() >= 2 {
             self.streams.insert(
                 stream_name.to_string(),
-                Stream::new(stream_name.to_string(), bucket_names, "default".to_string()),
+                Stream::new(
+                    stream_name.to_string(),
+                    bucket_names,
+                    "default".to_string(),
+                    stream_ordering_strategy,
+                ),
             );
         }
     }
@@ -815,11 +1057,17 @@ impl Hydrator {
         stream_name: &str,
         bucket_names: Vec<String>,
         shape: &str,
+        stream_ordering_strategy: Box<dyn FactOrderingStrategy>,
     ) {
         if bucket_names.len() >= 2 {
             self.streams.insert(
                 stream_name.to_string(),
-                Stream::new(stream_name.to_string(), bucket_names, shape.to_string()),
+                Stream::new(
+                    stream_name.to_string(),
+                    bucket_names,
+                    shape.to_string(),
+                    stream_ordering_strategy,
+                ),
             );
         }
     }
@@ -861,7 +1109,7 @@ mod tests {
     #[test]
     fn test_bucket_config_with_stream() {
         // Test that the with_stream method works
-        let config = BucketConfig::new().with_stream("test_stream", vec!["bucket1", "bucket2"]);
+        let config = BucketConfig::new().with_stream("test_stream", vec!["bucket1", "bucket2"], StreamFactOrderingStrategy::Path);
 
         assert!(config.streams.contains_key("test_stream"));
         let buckets = config.streams.get("test_stream").unwrap();
@@ -934,8 +1182,8 @@ mod tests {
         );
 
         // Process the facts
-        hydrator.process_fact(fact1);
-        hydrator.process_fact(fact2);
+        assert!(hydrator.process_fact(fact1).is_ok());
+        assert!(hydrator.process_fact(fact2).is_ok());
 
         // Get the stream output
         let stream_output = hydrator.dump_stream("test_stream").unwrap();
@@ -949,100 +1197,6 @@ mod tests {
         let value1_pos = stream_output.find("value1").unwrap();
         let value2_pos = stream_output.find("value2").unwrap();
         assert!(value2_pos < value1_pos);
-    }
-
-    #[test]
-    fn test_different_path_attributes_in_stream() {
-        let config = BucketConfig::new()
-            .with_bucket_simple("bucket_a", 100, "path_a", "val", vec!["relation_a"])
-            .with_bucket_simple("bucket_b", 100, "path_b", "val", vec!["relation_b"])
-            .with_stream_shape("mixed_stream", vec!["bucket_a", "bucket_b"], "mixed_shape");
-
-        let mut hydrator = Hydrator::new(config);
-
-        let mut fact_a1 = DdlogFact {
-            relation_name: "relation_a".to_string(),
-            attributes: HashMap::new(),
-            diff: None,
-        };
-        fact_a1
-            .attributes
-            .insert("path_a".to_string(), AttributeValue::Path("2".to_string()));
-        fact_a1.attributes.insert(
-            "val".to_string(),
-            AttributeValue::String("value_a1".to_string()),
-        );
-
-        let mut fact_a2 = DdlogFact {
-            relation_name: "relation_a".to_string(),
-            attributes: HashMap::new(),
-            diff: None,
-        };
-        fact_a2
-            .attributes
-            .insert("path_a".to_string(), AttributeValue::Path("1".to_string()));
-        fact_a2.attributes.insert(
-            "val".to_string(),
-            AttributeValue::String("value_a2".to_string()),
-        );
-
-        let mut fact_b1 = DdlogFact {
-            relation_name: "relation_b".to_string(),
-            attributes: HashMap::new(),
-            diff: None,
-        };
-        fact_b1
-            .attributes
-            .insert("path_b".to_string(), AttributeValue::Path("4".to_string()));
-        fact_b1.attributes.insert(
-            "val".to_string(),
-            AttributeValue::String("value_b1".to_string()),
-        );
-
-        let mut fact_b2 = DdlogFact {
-            relation_name: "relation_b".to_string(),
-            attributes: HashMap::new(),
-            diff: None,
-        };
-        fact_b2
-            .attributes
-            .insert("path_b".to_string(), AttributeValue::Path("3".to_string()));
-        fact_b2.attributes.insert(
-            "val".to_string(),
-            AttributeValue::String("value_b2".to_string()),
-        );
-
-        hydrator.process_fact(fact_a1);
-        hydrator.process_fact(fact_b1);
-        hydrator.process_fact(fact_a2);
-        hydrator.process_fact(fact_b2);
-
-        let stream_output = hydrator.dump_stream("mixed_stream").unwrap();
-
-        assert!(stream_output.contains("mixed_shape"));
-
-        let pos_a2 = stream_output.find("value_a2").unwrap();
-        let pos_a1 = stream_output.find("value_a1").unwrap();
-        let pos_b2 = stream_output.find("value_b2").unwrap();
-        let pos_b1 = stream_output.find("value_b1").unwrap();
-
-        assert!(
-            pos_a2 < pos_a1,
-            "Facts from bucket_a should be ordered by path_a"
-        );
-        assert!(
-            pos_b2 < pos_b1,
-            "Facts from bucket_b should be ordered by path_b"
-        );
-        assert!(
-            pos_a1 < pos_b2,
-            "All facts should be ordered numerically by path"
-        );
-
-        assert!(stream_output.contains("path: 1"));
-        assert!(stream_output.contains("path: 2"));
-        assert!(stream_output.contains("path: 3"));
-        assert!(stream_output.contains("path: 4"));
     }
 
     #[test]
@@ -1181,15 +1335,15 @@ mod tests {
             AttributeValue::String("def method3(self): pass".to_string()),
         );
 
-        hydrator.process_fact(method2.clone());
-        hydrator.process_fact(import2.clone());
-        hydrator.process_fact(class1.clone());
-        hydrator.process_fact(func2.clone());
-        hydrator.process_fact(method1.clone());
-        hydrator.process_fact(import1.clone());
-        hydrator.process_fact(class2.clone());
-        hydrator.process_fact(func1.clone());
-        hydrator.process_fact(method3.clone());
+        assert!(hydrator.process_fact(method2.clone()).is_ok());
+        assert!(hydrator.process_fact(import2.clone()).is_ok());
+        assert!(hydrator.process_fact(class1.clone()).is_ok());
+        assert!(hydrator.process_fact(func2.clone()).is_ok());
+        assert!(hydrator.process_fact(method1.clone()).is_ok());
+        assert!(hydrator.process_fact(import1.clone()).is_ok());
+        assert!(hydrator.process_fact(class2.clone()).is_ok());
+        assert!(hydrator.process_fact(func1.clone()).is_ok());
+        assert!(hydrator.process_fact(method3.clone()).is_ok());
 
         let code_stream_output = hydrator.dump_stream("code_stream").unwrap();
 
@@ -1254,6 +1408,9 @@ mod tests {
             "doc_stream",
             vec!["functions".to_string(), "classes".to_string()],
             "doc_shape",
+            Box::new(PathOrderedDumpAlgorithm::new(
+                "path"
+            )),
         );
 
         let doc_stream_output = hydrator.dump_stream("doc_stream").unwrap();

@@ -84,6 +84,8 @@ impl DdlogFact {
     }
 }
 
+// implement
+
 #[derive(Debug)]
 pub enum DdlogDrainError {
     ParseError(String),
@@ -197,13 +199,12 @@ fn parse_attribute_value(input: &str) -> IResult<&str, AttributeValue> {
         // String values (quoted)
         map(
             delimited(char('"'), opt(is_not("\"")), char('"')),
-            |maybe_str: Option<&str>| {
-                match maybe_str {
-                    Some(s) if s.chars().all(|c| c == '.' || c.is_ascii_digit()) => AttributeValue::Path(s.to_string()),
-                    Some(s) => AttributeValue::String(s.to_string()),
-                    None => AttributeValue::String("".to_string()),
+            |maybe_str: Option<&str>| match maybe_str {
+                Some(s) if s.chars().all(|c| c == '.' || c.is_ascii_digit()) => {
+                    AttributeValue::Path(s.to_string())
                 }
-                
+                Some(s) => AttributeValue::String(s.to_string()),
+                None => AttributeValue::String("".to_string()),
             },
         ),
         // Number values
@@ -219,7 +220,7 @@ fn parse_attribute_value(input: &str) -> IResult<&str, AttributeValue> {
                 }
             },
         ),
-       // Other values (fallback)
+        // Other values (fallback)
         map(
             take_while1(|c: char| ![',', '}', ' '].contains(&c)),
             |s: &str| AttributeValue::String(s.to_string()),
@@ -452,10 +453,7 @@ EmitMermaidLineSignalLine{.val = "CounterCaller->>Counter: increment", .ce_id_pa
         // Test string attribute
         let string_attr = fact.attributes.get("string_attr").unwrap();
         assert!(matches!(string_attr, AttributeValue::String(_)));
-        assert_eq!(
-            string_attr.as_string(),
-            Some(&"hello world".to_string())
-        );
+        assert_eq!(string_attr.as_string(), Some(&"hello world".to_string()));
         assert_eq!(string_attr.as_number(), None);
         assert_eq!(string_attr.as_path(), None);
 
