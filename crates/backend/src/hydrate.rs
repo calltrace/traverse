@@ -1,4 +1,6 @@
 // use regex::Regex;
+use core::hig::{HierarchicalId, HierarchicalIntervalGraph};
+use std::sync::atomic::Ordering;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 /// # Hydrate Module
@@ -165,7 +167,9 @@ impl FactOrderingStrategy for PathOrderedDumpAlgorithm {
 
 #[derive(Debug)]
 struct DependencyDrivenDumpAlgorithm {
+    value_attribute: String,
     edge_attributes: (String, String), // Tuple for inbound and outbound edge attributes
+    dependency_graph: HierarchicalIntervalGraph<String, String>,
 }
 
 impl DependencyDrivenDumpAlgorithm {
@@ -178,14 +182,59 @@ impl DependencyDrivenDumpAlgorithm {
     /// # Returns
     ///
     /// * `Self` - A new instance of DependencyDrivenDumpAlgorithm
-    pub fn new(edge_attributes: (String, String)) -> Self {
-        DependencyDrivenDumpAlgorithm { edge_attributes }
+    pub fn new(value_attribute: String, edge_attributes: (String, String)) -> Self {
+        DependencyDrivenDumpAlgorithm {
+            value_attribute,
+            edge_attributes,
+            dependency_graph: HierarchicalIntervalGraph::new(),
+        }
     }
 }
 
 impl FactOrderingStrategy for DependencyDrivenDumpAlgorithm {
     fn order_facts(&self, facts: Box<dyn Iterator<Item = DdlogFact>>) -> Vec<OrderedFact> {
-        vec![] // Placeholder for the actual implementation of dependency-driven ordering
+        let facts_vec: Vec<DdlogFact> = facts.collect();
+
+        let mut graph = HierarchicalIntervalGraph::<String, DdlogFact>::new();
+
+        for fact in &facts_vec {
+            // Extract source, target, and value attributes
+            if let (Some(source), Some(target), Some(val)) = (
+                fact.attributes
+                    .get(&self.edge_attributes.0)
+                    .and_then(|s| s.as_string()),
+                fact.attributes
+                    .get(&self.edge_attributes.1)
+                    .and_then(|t| t.as_string()),
+                fact.attributes
+                    .get(&self.value_attribute)
+                    .and_then(|v| v.as_string()),
+            ) {
+                let source_id = HierarchicalId::new(source);
+                let target_id = HierarchicalId::new(target);
+                if let Err(e) =
+                    graph.add_edge_with_value(&source_id, &target_id, Some(fact.clone()), None)
+                {
+                    eprintln!("Error adding fact edge {:?} to graph: {:?}", fact, e);
+                }
+            }
+        }
+
+        let mut topologically_ordered_facts = Vec::new();
+        if let Ok(graph_edges_idx) = graph.topological_sort_edges() {
+            // map the graph edges to the facts
+            for edge_idx in graph_edges_idx {
+                if let Some(edge) = graph.get_edge(edge_idx) {
+
+                 let fact = edge.value();
+                 topologically_ordered_facts.push(OrderedFact::new(fact.cloned().unwrap()));
+
+                }
+            }
+        }
+
+        topologically_ordered_facts
+
     }
 }
 
@@ -866,6 +915,7 @@ impl Hydrator {
                     )),
                     StreamFactOrderingStrategy::Dependency => {
                         Box::new(DependencyDrivenDumpAlgorithm::new(
+                            config.default_value_attribute.clone(),
                             config
                                 .edge_attributes
                                 .get(&bucket_names[0]) // Assuming first bucket for simplicity
@@ -882,7 +932,12 @@ impl Hydrator {
 
             streams.insert(
                 stream_name.clone(),
-                Stream::new(stream_name.clone(), bucket_names.clone(), shape, ordering_strategy), 
+                Stream::new(
+                    stream_name.clone(),
+                    bucket_names.clone(),
+                    shape,
+                    ordering_strategy,
+                ),
             );
         }
 
@@ -931,7 +986,10 @@ impl Hydrator {
                     .get(&bucket_name)
                     .map(|edge_attrs| {
                         let algo: Box<dyn FactOrderingStrategy> =
-                            Box::new(DependencyDrivenDumpAlgorithm::new(edge_attrs.clone()));
+                            Box::new(DependencyDrivenDumpAlgorithm::new(
+                                self.global_config.default_value_attribute.clone(),
+                                edge_attrs.clone(),
+                            ));
                         algo
                     })
             });
@@ -1109,7 +1167,11 @@ mod tests {
     #[test]
     fn test_bucket_config_with_stream() {
         // Test that the with_stream method works
-        let config = BucketConfig::new().with_stream("test_stream", vec!["bucket1", "bucket2"], StreamFactOrderingStrategy::Path);
+        let config = BucketConfig::new().with_stream(
+            "test_stream",
+            vec!["bucket1", "bucket2"],
+            StreamFactOrderingStrategy::Path,
+        );
 
         assert!(config.streams.contains_key("test_stream"));
         let buckets = config.streams.get("test_stream").unwrap();
@@ -1408,9 +1470,7 @@ mod tests {
             "doc_stream",
             vec!["functions".to_string(), "classes".to_string()],
             "doc_shape",
-            Box::new(PathOrderedDumpAlgorithm::new(
-                "path"
-            )),
+            Box::new(PathOrderedDumpAlgorithm::new("path")),
         );
 
         let doc_stream_output = hydrator.dump_stream("doc_stream").unwrap();

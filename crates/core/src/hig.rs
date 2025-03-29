@@ -149,14 +149,14 @@ pub type EdgeIndex = usize;
 #[derive(Debug, Clone)]
 pub struct Vertex<T> {
     id: HierarchicalId,
-    value: T,
+    value: Option<T>,
     outgoing: Vec<EdgeIndex>,
     incoming: Vec<EdgeIndex>,
 }
 
 impl<T> Vertex<T> {
     /// Create a new vertex
-    pub fn new(id: HierarchicalId, value: T) -> Self {
+    pub fn new(id: HierarchicalId, value: Option<T>) -> Self {
         Self { 
             id, 
             value, 
@@ -169,12 +169,16 @@ impl<T> Vertex<T> {
         &self.id
     }
 
-    pub fn value(&self) -> &T {
-        &self.value
+    pub fn value(&self) -> Option<&T> {
+        self.value.as_ref()
     }
 
-    pub fn value_mut(&mut self) -> &mut T {
-        &mut self.value
+    pub fn value_mut(&mut self) -> Option<&mut T> {
+        self.value.as_mut()
+    }
+    
+    pub fn set_value(&mut self, value: Option<T>) {
+        self.value = value;
     }
     
     pub fn add_outgoing(&mut self, edge_idx: EdgeIndex) {
@@ -198,12 +202,17 @@ impl<T> Vertex<T> {
 pub struct Edge<E> {
     source: VertexIndex,
     target: VertexIndex,
+    value: Option<E>,
     metadata: Option<E>,
 }
 
 impl<E> Edge<E> {
     pub fn new(source: VertexIndex, target: VertexIndex, metadata: Option<E>) -> Self {
-        Self { source, target, metadata }
+        Self { source, target, value: None, metadata }
+    }
+    
+    pub fn new_with_value(source: VertexIndex, target: VertexIndex, value: Option<E>, metadata: Option<E>) -> Self {
+        Self { source, target, value, metadata }
     }
 
     pub fn source(&self) -> VertexIndex {
@@ -212,6 +221,14 @@ impl<E> Edge<E> {
 
     pub fn target(&self) -> VertexIndex {
         self.target
+    }
+    
+    pub fn value(&self) -> Option<&E> {
+        self.value.as_ref()
+    }
+    
+    pub fn set_value(&mut self, value: Option<E>) {
+        self.value = value;
     }
 
     pub fn metadata(&self) -> Option<&E> {
@@ -241,7 +258,7 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
         }
     }
 
-    pub fn add_vertex(&mut self, id: HierarchicalId, value: V) -> Result<VertexIndex, String> {
+    pub fn add_vertex(&mut self, id: HierarchicalId, value: Option<V>) -> Result<VertexIndex, String> {
         if self.id_to_vertex.contains_key(&id) {
             return Err(format!("Vertex with ID {} already exists", id));
         }
@@ -254,6 +271,10 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
     }
 
     pub fn add_edge(&mut self, source_id: &HierarchicalId, target_id: &HierarchicalId, metadata: Option<E>) -> Result<EdgeIndex, String> {
+        self.add_edge_with_value(source_id, target_id, None, metadata)
+    }
+    
+    pub fn add_edge_with_value(&mut self, source_id: &HierarchicalId, target_id: &HierarchicalId, value: Option<E>, metadata: Option<E>) -> Result<EdgeIndex, String> {
         let source_idx = self.get_vertex_idx(source_id)
             .ok_or_else(|| format!("Source vertex with ID {} does not exist", source_id))?;
         let target_idx = self.get_vertex_idx(target_id)
@@ -267,7 +288,7 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
         let closest_edge_idx = self.find_closest_edge(source_id);
         
         let edge_idx = self.edges.len();
-        self.edges.push(Edge::new(source_idx, target_idx, metadata));
+        self.edges.push(Edge::new_with_value(source_idx, target_idx, value, metadata));
         
         self.vertices[source_idx].add_outgoing(edge_idx);
         self.vertices[target_idx].add_incoming(edge_idx);
@@ -287,7 +308,7 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
                     
                     if !source_vertex.id().is_ancestor_of(parent_vertex.id()) {
                         let parent_edge_idx = self.edges.len();
-                        self.edges.push(Edge::new(parent_idx, source_idx, None));
+                        self.edges.push(Edge::new_with_value(parent_idx, source_idx, None, None));
                         
                         self.vertices[parent_idx].add_outgoing(parent_edge_idx);
                         self.vertices[source_idx].add_incoming(parent_edge_idx);
@@ -300,7 +321,7 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
             
             if !closest_target_vertex.id().is_ancestor_of(target_vertex.id()) {
                 let target_edge_idx = self.edges.len();
-                self.edges.push(Edge::new(target_idx, closest_target_idx, None));
+                self.edges.push(Edge::new_with_value(target_idx, closest_target_idx, None, None));
                 
                 self.vertices[target_idx].add_outgoing(target_edge_idx);
                 self.vertices[closest_target_idx].add_incoming(target_edge_idx);
@@ -451,6 +472,31 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
         result.reverse();
         Ok(result)
     }
+    
+    /// Performs a topological sort and returns edges in topological order
+    ///
+    /// This method returns a vector of edge indices that respect the topological ordering
+    /// of the vertices. For each vertex in the topological order, all its outgoing edges
+    /// are included in the result.
+    pub fn topological_sort_edges(&self) -> Result<Vec<EdgeIndex>, String> {
+        // First get vertices in topological order
+        let sorted_vertices = self.topological_sort()?;
+        let mut result = Vec::new();
+        let mut visited_edges = HashSet::new();
+        
+        // For each vertex in topological order
+        for &vertex_idx in &sorted_vertices {
+            // Add all outgoing edges from this vertex
+            for &edge_idx in self.vertices[vertex_idx].outgoing() {
+                if !visited_edges.contains(&edge_idx) {
+                    result.push(edge_idx);
+                    visited_edges.insert(edge_idx);
+                }
+            }
+        }
+        
+        Ok(result)
+    }
 
     pub fn query_interval(&self, start: &HierarchicalId, end: &HierarchicalId) -> Vec<VertexIndex> {
         (0..self.vertices.len())
@@ -502,10 +548,10 @@ mod tests {
     fn test_add_vertex_and_edge() {
         let mut graph = HierarchicalIntervalGraph::<&str, ()>::new();
         
-        let root_idx = graph.add_vertex(HierarchicalId::new("1"), "Root").unwrap();
-        let child1_idx = graph.add_vertex(HierarchicalId::new("1.1"), "Child 1").unwrap();
-        let child2_idx = graph.add_vertex(HierarchicalId::new("1.2"), "Child 2").unwrap();
-        let grandchild_idx = graph.add_vertex(HierarchicalId::new("1.1.1"), "Grandchild 1").unwrap();
+        let root_idx = graph.add_vertex(HierarchicalId::new("1"), Some("Root")).unwrap();
+        let child1_idx = graph.add_vertex(HierarchicalId::new("1.1"), Some("Child 1")).unwrap();
+        let child2_idx = graph.add_vertex(HierarchicalId::new("1.2"), Some("Child 2")).unwrap();
+        let grandchild_idx = graph.add_vertex(HierarchicalId::new("1.1.1"), Some("Grandchild 1")).unwrap();
         
         graph.add_edge(&HierarchicalId::new("1"), &HierarchicalId::new("1.1"), None).unwrap();
         graph.add_edge(&HierarchicalId::new("1"), &HierarchicalId::new("1.2"), None).unwrap();
@@ -523,18 +569,18 @@ mod tests {
         assert!(!incoming.is_empty());
     }
 
-    #[test]
+#[test]
     fn test_topological_sort() {
         let mut graph = HierarchicalIntervalGraph::<&str, ()>::new();
         
-        let root_idx = graph.add_vertex(HierarchicalId::new("1"), "Root").unwrap();
-        let child1_idx = graph.add_vertex(HierarchicalId::new("1.1"), "Child 1").unwrap();
-        let child2_idx = graph.add_vertex(HierarchicalId::new("1.2"), "Child 2").unwrap();
-        let grandchild_idx = graph.add_vertex(HierarchicalId::new("1.1.1"), "Grandchild 1").unwrap();
+        let root_idx = graph.add_vertex(HierarchicalId::new("1"), Some("Root")).unwrap();
+        let child1_idx = graph.add_vertex(HierarchicalId::new("1.1"), Some("Child 1")).unwrap();
+        let child2_idx = graph.add_vertex(HierarchicalId::new("1.2"), Some("Child 2")).unwrap();
+        let grandchild_idx = graph.add_vertex(HierarchicalId::new("1.1.1"), Some("Grandchild 1")).unwrap();
         
-        graph.add_edge(&HierarchicalId::new("1"), &HierarchicalId::new("1.1"), None).unwrap();
-        graph.add_edge(&HierarchicalId::new("1"), &HierarchicalId::new("1.2"), None).unwrap();
-        graph.add_edge(&HierarchicalId::new("1.1"), &HierarchicalId::new("1.1.1"), None).unwrap();
+        let edge1_idx = graph.add_edge(&HierarchicalId::new("1"), &HierarchicalId::new("1.1"), None).unwrap();
+        let edge2_idx = graph.add_edge(&HierarchicalId::new("1"), &HierarchicalId::new("1.2"), None).unwrap();
+        let edge3_idx = graph.add_edge(&HierarchicalId::new("1.1"), &HierarchicalId::new("1.1.1"), None).unwrap();
         
         let sorted = graph.topological_sort().unwrap();
         
@@ -542,16 +588,46 @@ mod tests {
         
         assert!(sorted.contains(&grandchild_idx));
     }
+    
+#[test]
+    fn test_topological_sort_edges() {
+        let mut graph = HierarchicalIntervalGraph::<&str, ()>::new();
+        
+        // Create a simple graph
+        graph.add_vertex(HierarchicalId::new("1"), Some("Root")).unwrap();
+        graph.add_vertex(HierarchicalId::new("1.1"), Some("Child 1")).unwrap();
+        graph.add_vertex(HierarchicalId::new("1.2"), Some("Child 2")).unwrap();
+        graph.add_vertex(HierarchicalId::new("1.1.1"), Some("Grandchild 1")).unwrap();
+        
+        let edge1_idx = graph.add_edge(&HierarchicalId::new("1"), &HierarchicalId::new("1.1"), None).unwrap();
+        let edge2_idx = graph.add_edge(&HierarchicalId::new("1"), &HierarchicalId::new("1.2"), None).unwrap();
+        let edge3_idx = graph.add_edge(&HierarchicalId::new("1.1"), &HierarchicalId::new("1.1.1"), None).unwrap();
+        
+        let sorted_edges = graph.topological_sort_edges().unwrap();
+        
+        // Verify that edges appear in topological order
+        // Edge from root to children should come before edge from child to grandchild
+        assert!(sorted_edges.contains(&edge1_idx));
+        assert!(sorted_edges.contains(&edge2_idx));
+        assert!(sorted_edges.contains(&edge3_idx));
+        
+        // Find positions of each edge
+        let pos1 = sorted_edges.iter().position(|&e| e == edge1_idx).unwrap();
+        let pos3 = sorted_edges.iter().position(|&e| e == edge3_idx).unwrap();
+        
+        // Edge from parent to child should come before edge from child to grandchild
+        assert!(pos1 < pos3);
+    }
 
 #[test]
     fn test_query_interval() {
         let mut graph = HierarchicalIntervalGraph::<&str, ()>::new();
         
-        let root_idx = graph.add_vertex(HierarchicalId::new("1"), "Root").unwrap();
-        let child1_idx = graph.add_vertex(HierarchicalId::new("1.1"), "Child 1").unwrap();
-        let child2_idx = graph.add_vertex(HierarchicalId::new("1.2"), "Child 2").unwrap();
-        let grandchild_idx = graph.add_vertex(HierarchicalId::new("1.1.1"), "Grandchild 1").unwrap();
-        let another_root_idx = graph.add_vertex(HierarchicalId::new("2"), "Another Root").unwrap();
+        let root_idx = graph.add_vertex(HierarchicalId::new("1"), Some("Root")).unwrap();
+        let child1_idx = graph.add_vertex(HierarchicalId::new("1.1"), Some("Child 1")).unwrap();
+        let child2_idx = graph.add_vertex(HierarchicalId::new("1.2"), Some("Child 2")).unwrap();
+        let grandchild_idx = graph.add_vertex(HierarchicalId::new("1.1.1"), Some("Grandchild 1")).unwrap();
+        let another_root_idx = graph.add_vertex(HierarchicalId::new("2"), Some("Another Root")).unwrap();
         
         let results = graph.query_interval(&HierarchicalId::new("1"), &HierarchicalId::new("1.2"));
         assert_eq!(results.len(), 1);
