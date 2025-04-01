@@ -1,6 +1,5 @@
 // use regex::Regex;
 use core::hig::{HierarchicalId, HierarchicalIntervalGraph};
-use std::sync::atomic::Ordering;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 /// # Hydrate Module

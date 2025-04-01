@@ -641,4 +641,33 @@ mod tests {
         assert_eq!(ancestors.len(), 2);
 
     }
+
+#[cfg(test)]
+mod dot_tests {
+    use super::*;
+    use crate::hig_dot::HigToDot;
+    
+    #[test]
+    fn test_hig_to_dot() {
+        let mut graph = HierarchicalIntervalGraph::<&str, &str>::new();
+        
+        graph.add_vertex(HierarchicalId::new("1"), Some("Root")).unwrap();
+        graph.add_vertex(HierarchicalId::new("1.1"), Some("Child 1")).unwrap();
+        graph.add_vertex(HierarchicalId::new("1.2"), Some("Child 2")).unwrap();
+        graph.add_vertex(HierarchicalId::new("1.1.1"), Some("Grandchild 1")).unwrap();
+        
+        graph.add_edge(&HierarchicalId::new("1"), &HierarchicalId::new("1.1"), Some("Edge 1")).unwrap();
+        graph.add_edge(&HierarchicalId::new("1"), &HierarchicalId::new("1.2"), Some("Edge 2")).unwrap();
+        graph.add_edge(&HierarchicalId::new("1.1"), &HierarchicalId::new("1.1.1"), Some("Edge 3")).unwrap();
+        
+        let dot_output = graph.to_dot("TestGraph");
+        
+        // Basic validation
+        assert!(dot_output.starts_with("digraph TestGraph {"));
+        assert!(dot_output.contains("n0 [label=\"1\", tooltip=\"Root\"];"));
+        assert!(dot_output.contains("n0 -> n1"));
+        assert!(dot_output.ends_with("}
+"));
+    }
+}
 }

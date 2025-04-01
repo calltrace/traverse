@@ -269,6 +269,7 @@ dependencies = [
  "cc",
  "clap",
  "dot-generator",
+ "dot-structures",
  "ir",
  "language",
  "proc-macro2",
