@@ -258,14 +258,14 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
         }
     }
 
-    pub fn add_vertex(&mut self, id: HierarchicalId, value: Option<V>) -> Result<VertexIndex, String> {
-        if self.id_to_vertex.contains_key(&id) {
+    pub fn add_vertex(&mut self, id: &HierarchicalId, value: Option<V>) -> Result<VertexIndex, String> {
+        if self.id_to_vertex.contains_key(id) {
             return Err(format!("Vertex with ID {} already exists", id));
         }
         
         let vertex_idx = self.vertices.len();
         self.vertices.push(Vertex::new(id.clone(), value));
-        self.id_to_vertex.insert(id, vertex_idx);
+        self.id_to_vertex.insert(id.clone(), vertex_idx);
         
         Ok(vertex_idx)
     }
@@ -276,9 +276,11 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
     
     pub fn add_edge_with_value(&mut self, source_id: &HierarchicalId, target_id: &HierarchicalId, value: Option<E>, metadata: Option<E>) -> Result<EdgeIndex, String> {
         let source_idx = self.get_vertex_idx(source_id)
-            .ok_or_else(|| format!("Source vertex with ID {} does not exist", source_id))?;
+            .ok_or_else(|| self.add_vertex(source_id, None))
+            .or_else(|e| e)?;
         let target_idx = self.get_vertex_idx(target_id)
-            .ok_or_else(|| format!("Target vertex with ID {} does not exist", target_id))?;
+            .ok_or_else(|| self.add_vertex(target_id, None))
+            .or_else(|e| e)?;
         let source_vertex = &self.vertices[source_idx];
         let target_vertex = &self.vertices[target_idx];
         if target_vertex.id().is_ancestor_of(source_vertex.id()) {
@@ -287,7 +289,9 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
         
         let closest_edge_idx = self.find_closest_edge(source_id);
         
+        println!("closest_edge_idx: {:?}", closest_edge_idx);
         let edge_idx = self.edges.len();
+        println!("Internal Adding edge from {} to {}", source_id, target_id);
         self.edges.push(Edge::new_with_value(source_idx, target_idx, value, metadata));
         
         self.vertices[source_idx].add_outgoing(edge_idx);
@@ -308,6 +312,7 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
                     
                     if !source_vertex.id().is_ancestor_of(parent_vertex.id()) {
                         let parent_edge_idx = self.edges.len();
+                        println!("Adding parent edge from {} to {}", parent_id, source_id);
                         self.edges.push(Edge::new_with_value(parent_idx, source_idx, None, None));
                         
                         self.vertices[parent_idx].add_outgoing(parent_edge_idx);
@@ -321,6 +326,7 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
             
             if !closest_target_vertex.id().is_ancestor_of(target_vertex.id()) {
                 let target_edge_idx = self.edges.len();
+                println!("Adding target edge from {} to {}", target_id, closest_target_id);
                 self.edges.push(Edge::new_with_value(target_idx, closest_target_idx, None, None));
                 
                 self.vertices[target_idx].add_outgoing(target_edge_idx);
