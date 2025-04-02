@@ -17,8 +17,6 @@ which = "7.0.1"
 bytes = "1.9.0"
 tempdir = "0.3.7"
 reedline = "0.38.0"
-dot-generator = "0.2"
-dot-structures = "0.1.1"
 
 [build-dependencies]
 cc = "1.0"

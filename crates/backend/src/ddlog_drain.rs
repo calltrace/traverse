@@ -77,6 +77,19 @@ pub struct DdlogFact {
     pub diff: Option<i64>,
 }
 
+impl fmt::Display for DdlogFact {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{{", self.relation_name)?;
+        for (i, (key, value)) in self.attributes.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, ".{} = {}", key, value)?;
+        }
+        write!(f, "}}: {}", self.diff.unwrap_or(0))
+    }
+}
+
 // For backward compatibility with existing code
 impl DdlogFact {
     pub fn get_attribute_string(&self, key: &str) -> Option<String> {

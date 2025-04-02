@@ -7,26 +7,20 @@ use std::fmt::{self, Write};
 
 use crate::hig::{EdgeIndex, HierarchicalIntervalGraph, VertexIndex};
 
-/// Trait for converting a value to a DOT label
 pub trait ToDotLabel {
-    /// Convert the value to a DOT label string
     fn to_dot_label(&self) -> String;
 }
 
-/// Default implementation for types that implement Display
 impl<T: fmt::Display> ToDotLabel for T {
     fn to_dot_label(&self) -> String {
         self.to_string()
     }
 }
 
-/// Trait for converting a value to DOT attributes
 pub trait ToDotAttributes {
-    /// Convert the value to DOT attributes
     fn to_dot_attributes(&self) -> Vec<(String, String)>;
 }
 
-/// Default implementation that provides no attributes
 impl ToDotAttributes for &str
 {
     fn to_dot_attributes(&self) -> Vec<(String, String)> {
@@ -34,7 +28,6 @@ impl ToDotAttributes for &str
     }
 }
 
-/// Extension trait for HierarchicalIntervalGraph to export to DOT format
 pub trait HigToDot<V, E> {
     /// Export the graph to DOT format
     ///
@@ -81,17 +74,14 @@ where
                 let mut attrs = Vec::new();
                 let vertex = graph.get_vertex(idx).unwrap();
 
-                // Add label with hierarchical ID
                 attrs.push(("label".to_string(), format!("\"{}\"", vertex.id())));
 
-                // Add value as tooltip if available
                 if let Some(value) = vertex.value() {
                     attrs.push((
                         "tooltip".to_string(),
                         format!("\"{}\"", value.to_dot_label()),
                     ));
 
-                    // Add custom attributes from the value
                     attrs.extend(value.to_dot_attributes());
                 }
 
@@ -101,19 +91,16 @@ where
                 let mut attrs = Vec::new();
                 let edge = graph.get_edge(idx).unwrap();
 
-                // Add label if edge has a value
                 if let Some(value) = edge.value() {
                     attrs.push(("label".to_string(), format!("\"{}\"", value.to_dot_label())));
                 }
 
-                // Add metadata as tooltip if available
                 if let Some(metadata) = edge.metadata() {
                     attrs.push((
                         "tooltip".to_string(),
                         format!("\"{}\"", metadata.to_dot_label()),
                     ));
 
-                    // Add custom attributes from the metadata
                     attrs.extend(metadata.to_dot_attributes());
                 }
 
@@ -187,7 +174,6 @@ where
     }
 }
 
-/// Utility function to escape a string for DOT format
 pub fn escape_dot_string(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
@@ -289,12 +275,10 @@ mod tests {
             },
         );
 
-        // Validate custom formatting
         assert!(dot_output.contains("n0 [label=\"Node 1\", color=\"red\"];"));
         assert!(dot_output.contains("n0 -> n1 [label=\"Custom Edge\", style=\"dashed\"];"));
     }
 
-    // Custom type with ToDotAttributes implementation
     #[derive(Debug, Clone)]
     struct CustomNode {
         name: String,
