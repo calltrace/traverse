@@ -169,6 +169,7 @@ impl FactOrderingStrategy for PathOrderedDumpAlgorithm {
 struct DependencyDrivenDumpAlgorithm {
     value_attribute: String,
     edge_attributes: (String, String), // Tuple for inbound and outbound edge attributes
+    dependency_attribute: String, // Attribute for dependency identifier
     dependency_graph: HierarchicalIntervalGraph<String, String>,
 }
 
@@ -182,10 +183,11 @@ impl DependencyDrivenDumpAlgorithm {
     /// # Returns
     ///
     /// * `Self` - A new instance of DependencyDrivenDumpAlgorithm
-    pub fn new(value_attribute: String, edge_attributes: (String, String)) -> Self {
+    pub fn new(value_attribute: String, edge_attributes: (String, String), dependency_attribute: String) -> Self {
         DependencyDrivenDumpAlgorithm {
             value_attribute,
             edge_attributes,
+            dependency_attribute,
             dependency_graph: HierarchicalIntervalGraph::new(),
         }
     }
@@ -208,7 +210,7 @@ impl FactOrderingStrategy for DependencyDrivenDumpAlgorithm {
 
         for fact in &facts_vec {
             // Extract source, target, and value attributes
-            if let (Some(source), Some(target), Some(val)) = (
+            if let (Some(source), Some(target), Some(val), Some(dependency)) = (
                 fact.attributes
                     .get(&self.edge_attributes.0)
                     .and_then(|s| s.as_string()),
@@ -218,6 +220,9 @@ impl FactOrderingStrategy for DependencyDrivenDumpAlgorithm {
                 fact.attributes
                     .get(&self.value_attribute)
                     .and_then(|v| v.as_string()),
+                fact.attributes
+                    .get(&self.dependency_attribute)
+                    .and_then(|d| d.as_string()),
             ) {
                 let source_id = HierarchicalId::new(source);
                 let target_id = HierarchicalId::new(target);
@@ -280,12 +285,16 @@ pub struct BucketConfig {
     value_attributes: HashMap<String, String>,
     #[serde(default)]
     edge_attributes: HashMap<String, (String, String)>,
+    #[serde(default)]
+    dependency_attributes: HashMap<String, String>,
     #[serde(default = "default_path_attribute")]
     default_path_attribute: String,
     #[serde(default = "default_value_attribute")]
     default_value_attribute: String,
     #[serde(default = "default_edge_attributes")]
     default_edge_attributes: (String, String),
+    #[serde(default = "default_dependency_attribute")]
+    default_dependency_attribute: String,
     #[serde(default)]
     default_priority: u32,
     #[serde(default = "default_pool_shape")]
@@ -329,6 +338,10 @@ fn default_edge_attributes() -> (String, String) {
     ("inbound".to_string(), "outbound".to_string())
 }
 
+fn default_dependency_attribute() -> String {
+    "dependency".to_string()
+}
+
 fn default_pool_shape() -> String {
     "default".to_string()
 }
@@ -340,8 +353,10 @@ impl BucketConfig {
             path_attributes: HashMap::new(),
             value_attributes: HashMap::new(),
             edge_attributes: HashMap::new(),
+            dependency_attributes: HashMap::new(),
             default_path_attribute: "path".to_string(),
             default_value_attribute: "val".to_string(),
+            default_dependency_attribute: "dependency".to_string(),
             default_edge_attributes: (
                 // Default edge attributes for inbound/outbound relations
                 "inbound".to_string(),
@@ -439,6 +454,7 @@ impl BucketConfig {
         priority: u32,
         path_attribute: &str,
         value_attribute: &str,
+        dependency_attribute: &str,
         input_sources: Vec<InputSource>,
     ) -> Self {
         // Set bucket priority
@@ -451,6 +467,10 @@ impl BucketConfig {
         // Set bucket value attribute
         self.value_attributes
             .insert(bucket_name.to_string(), value_attribute.to_string());
+
+        // Set bucket dependency attribute
+        self.dependency_attributes
+            .insert(bucket_name.to_string(), dependency_attribute.to_string());
 
         // Store the input sources for this bucket
         self.bucket_relations
@@ -474,6 +494,7 @@ impl BucketConfig {
         priority: u32,
         path_attribute: &str,
         value_attribute: &str,
+        dependency_attribute: &str,
         relations: Vec<&str>,
     ) -> Self {
         let input_sources: Vec<InputSource> = relations
@@ -486,6 +507,7 @@ impl BucketConfig {
             priority,
             path_attribute,
             value_attribute,
+            dependency_attribute,
             input_sources,
         )
     }
@@ -497,6 +519,11 @@ impl BucketConfig {
 
     pub fn with_default_value_attribute(mut self, attribute: &str) -> Self {
         self.default_value_attribute = attribute.to_string();
+        self
+    }
+
+    pub fn with_default_dependency_attribute(mut self, attribute: &str) -> Self {
+        self.default_dependency_attribute = attribute.to_string();
         self
     }
 
@@ -943,6 +970,11 @@ impl Hydrator {
                                         config.default_edge_attributes.1.clone(),
                                     )
                                 }),
+                            config
+                                .dependency_attributes
+                                .get(&bucket_names[0])
+                                .cloned()
+                                .unwrap_or_else(|| config.default_dependency_attribute.clone()),
                         ))
                     }
                 };
@@ -1006,6 +1038,10 @@ impl Hydrator {
                             Box::new(DependencyDrivenDumpAlgorithm::new(
                                 self.global_config.default_value_attribute.clone(),
                                 edge_attrs.clone(),
+                                self.global_config.dependency_attributes
+                                    .get(&bucket_name)
+                                    .cloned()
+                                    .unwrap_or_else(|| self.global_config.default_dependency_attribute.clone()),
                             ));
                         algo
                     })
@@ -1222,8 +1258,8 @@ mod tests {
     fn test_stream_collect_facts() {
         // Create a test configuration
         let config = BucketConfig::new()
-            .with_bucket_simple("bucket1", 100, "path", "val", vec!["relation1"])
-            .with_bucket_simple("bucket2", 200, "path", "val", vec!["relation2"])
+            .with_bucket_simple("bucket1", 100, "path", "val", "dependency", vec!["relation1"])
+            .with_bucket_simple("bucket2", 200, "path", "val", "dependency", vec!["relation2"])
             .with_stream_shape("test_stream", vec!["bucket1", "bucket2"], "test_shape");
 
         // Create a hydrator
@@ -1277,10 +1313,10 @@ mod tests {
     #[test]
     fn test_complex_stream_ordering() {
         let config = BucketConfig::new()
-            .with_bucket_simple("imports", 100, "path", "val", vec!["import_relation"])
-            .with_bucket_simple("functions", 90, "path", "val", vec!["function_relation"])
-            .with_bucket_simple("classes", 80, "path", "val", vec!["class_relation"])
-            .with_bucket_simple("methods", 70, "path", "val", vec!["method_relation"])
+            .with_bucket_simple("imports", 100, "path", "val", "dependency", vec!["import_relation"])
+            .with_bucket_simple("functions", 90, "path", "val", "dependency", vec!["function_relation"])
+            .with_bucket_simple("classes", 80, "path", "val", "dependency", vec!["class_relation"])
+            .with_bucket_simple("methods", 70, "path", "val", "dependency", vec!["method_relation"])
             .with_stream_shape(
                 "code_stream",
                 vec!["imports", "functions", "classes", "methods"],
@@ -1562,6 +1598,7 @@ mod tests {
                 100,
                 "path", // Still include path attribute for fallback
                 "val",
+                "dependency",
                 vec![InputSource::new("dependency_relation", 10)],
             )
             .with_stream(
@@ -1694,6 +1731,7 @@ mod tests {
             Box::new(DependencyDrivenDumpAlgorithm::new(
                 "val".to_string(),
                 ("source".to_string(), "target".to_string()),
+                "dependency".to_string(),
             )),
         );
 
@@ -1719,6 +1757,113 @@ mod tests {
         assert!(stream_a_b_pos < stream_a_e_pos);
 
     }
+
+
+#[test]
+fn test_dependency_driven_dump_algorithm_with_dependency_attribute() {
+    // Create a configuration for testing the dependency-driven algorithm with the dependency attribute
+    let config = BucketConfig::new()
+        .with_default_value_attribute("val")
+        .with_default_dependency_attribute("dependency")
+        .with_bucket(
+            "dependencies",
+            100,
+            "path", // Path attribute for fallback
+            "val",  // Value attribute
+            "dependency", // Dependency attribute
+            vec![InputSource::new("dependency_relation", 10)],
+        )
+        .with_stream(
+            "test_stream",
+            vec!["dependencies"],
+            StreamFactOrderingStrategy::Dependency,
+        );
+
+    // Add edge attributes to the bucket to trigger the dependency-driven algorithm
+    let mut config_with_edges = config.clone();
+    config_with_edges.edge_attributes.insert(
+        "dependencies".to_string(),
+        ("source".to_string(), "target".to_string()),
+    );
+
+    // Create a hydrator with the configuration
+    let mut hydrator = Hydrator::new(config_with_edges);
+
+    // Create test facts with dependencies and dependency attributes
+    let mut fact_a = DdlogFact {
+        relation_name: "dependency_relation".to_string(),
+        attributes: HashMap::new(),
+        diff: None,
+    };
+    fact_a.attributes.insert(
+        "source".to_string(),
+        AttributeValue::String("1.1".to_string()),
+    );
+    fact_a.attributes.insert(
+        "target".to_string(),
+        AttributeValue::String("1.2".to_string()),
+    );
+    fact_a.attributes.insert(
+        "val".to_string(),
+        AttributeValue::String("Node 1.1 depends on 1.2".to_string()),
+    );
+    fact_a.attributes.insert(
+        "dependency".to_string(),
+        AttributeValue::String("dep_1_1_to_1_2".to_string()),
+    );
+
+    let mut fact_b = DdlogFact {
+        relation_name: "dependency_relation".to_string(),
+        attributes: HashMap::new(),
+        diff: None,
+    };
+    fact_b.attributes.insert(
+        "source".to_string(),
+        AttributeValue::String("1.2".to_string()),
+    );
+    fact_b.attributes.insert(
+        "target".to_string(),
+        AttributeValue::String("1.3".to_string()),
+    );
+    fact_b.attributes.insert(
+        "val".to_string(),
+        AttributeValue::String("Node 1.2 depends on 1.3".to_string()),
+    );
+    fact_b.attributes.insert(
+        "dependency".to_string(),
+        AttributeValue::String("dep_1_2_to_1_3".to_string()),
+    );
+
+    // Process facts
+    assert!(hydrator.process_fact(fact_a.clone()).is_ok());
+    assert!(hydrator.process_fact(fact_b.clone()).is_ok());
+
+    let output = hydrator.dump();
+
+    // The output should contain all facts with their dependency attributes
+    assert!(output.contains("Node 1.1 depends on 1.2"));
+    assert!(output.contains("Node 1.2 depends on 1.3"));
+
+    // Create a stream with dependency-driven ordering
+    hydrator.add_stream_with_shape(
+        "dependency_stream",
+        vec!["dependencies".to_string()],
+        "dependency_shape",
+        Box::new(DependencyDrivenDumpAlgorithm::new(
+            "val".to_string(),
+            ("source".to_string(), "target".to_string()),
+            "dependency".to_string(),
+        )),
+    );
+
+    // Get the stream output
+    let stream_output = hydrator.dump_stream("dependency_stream").unwrap();
+
+    // Verify the stream output also maintains dependency order
+    assert!(stream_output.contains("dependency_shape"));
+    assert!(stream_output.contains("Node 1.1 depends on 1.2"));
+    assert!(stream_output.contains("Node 1.2 depends on 1.3"));
+}
 
     #[test]
     fn test_dependency_driven_dump_algorithm_unsorted_chain() {
@@ -1865,6 +2010,7 @@ mod tests {
             Box::new(DependencyDrivenDumpAlgorithm::new(
                 "val".to_string(),
                 ("source".to_string(), "target".to_string()),
+                "dependency".to_string(),
             )),
         );
 
