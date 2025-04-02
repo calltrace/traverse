@@ -221,21 +221,17 @@ impl FactOrderingStrategy for DependencyDrivenDumpAlgorithm {
             ) {
                 let source_id = HierarchicalId::new(source);
                 let target_id = HierarchicalId::new(target);
-                println!("Adding edge from {:?} to {:?}", source_id, target_id);
                 if let Err(e) =
                     graph.add_edge_with_value(&source_id, &target_id, Some(fact.clone()), None)
                 {
                     eprintln!("Error adding fact edge {:?} to graph: {:?}", fact, e);
                 }
-                println!("Edges in graph: {:?}", graph.edges().cloned().map(|e| { (e.source(), e.target()) }).collect::<Vec<(VertexIndex, VertexIndex)>>());
             }
         }
-        println!("Topological sort: {:?}", graph.topological_sort());
 
         
         let mut topologically_ordered_facts = Vec::new();
         if let Ok(graph_edges_idx) = graph.topological_sort_edges() {
-            println!("Graph edges: {:?}", graph_edges_idx);
             // map the graph edges to the facts
             for edge_idx in graph_edges_idx {
                 if let Some(edge) = graph.get_edge(edge_idx) {
@@ -245,10 +241,15 @@ impl FactOrderingStrategy for DependencyDrivenDumpAlgorithm {
             }
         }
 
-        let dot = graph.to_dot("trace_dependency_diagram");
-        // write dot to file
-        let mut file = File::create("trace_dependency_diagram.dot").unwrap();
+        let dot = graph.to_dot("trace_dependency_diagram", false);
+        // delete file first 
+        std::fs::remove_file("trace_dependency_diagram_unsorted.dot").unwrap_or_default();
+        let mut file = File::create("trace_dependency_diagram_unsorted.dot").unwrap();
         file.write_all(dot.as_bytes()).unwrap();
+        let sorted_dot = graph.to_dot("trace_dependency_diagram_sorted", true);
+        std::fs::remove_file("trace_dependency_diagram_sorted.dot").unwrap_or_default();
+        let mut sorted_file = File::create("trace_dependency_diagram_sorted.dot").unwrap();
+        sorted_file.write_all(sorted_dot.as_bytes()).unwrap();
 
         topologically_ordered_facts
     }
@@ -856,13 +857,11 @@ impl Stream {
             .order_facts(Box::new(all_facts.into_iter()));
 
         // Output the facts in order
-        println!("Ordered facts: {:?}", facts_all_buckets_ordered);
         for ordered_fact in facts_all_buckets_ordered {
             let bucket_name = ordered_fact.fact.relation_name.clone();
             let bucket = buckets.get(&bucket_name);
 
             let value_attr = bucket.map_or("val".to_string(), |b| b.value_attribute());
-            println!("Value attribute: {}", value_attr);
             let value = ordered_fact
                 .fact
                 .attributes
@@ -1701,8 +1700,6 @@ mod tests {
         // Get the stream output
         let stream_output = hydrator.dump_stream("dependency_stream").unwrap();
 
-        println!("stream_output: {}", stream_output);
-
         // Verify the stream output also maintains dependency order
         assert!(stream_output.contains("dependency_shape"));
         assert!(stream_output.contains("Node 1.3 depends on 1.4"));
@@ -1721,5 +1718,182 @@ mod tests {
         assert!(stream_a_b_pos < stream_b_pos);
         assert!(stream_a_b_pos < stream_a_e_pos);
 
+    }
+
+    #[test]
+    fn test_dependency_driven_dump_algorithm_unsorted_chain() {
+        // Create a configuration for testing the dependency-driven algorithm
+        // with unsorted hierarchical identifiers in a chain pattern
+        let config = BucketConfig::new()
+            .with_default_value_attribute("val")
+            .with_bucket(
+                "dependencies",
+                100,
+                "path",
+                "val",
+                vec![InputSource::new("dependency_relation", 10)],
+            )
+            .with_stream(
+                "test_stream",
+                vec!["dependencies"],
+                StreamFactOrderingStrategy::Dependency,
+            );
+
+        // Add edge attributes to the bucket to trigger the dependency-driven algorithm
+        let mut config_with_edges = config.clone();
+        config_with_edges.edge_attributes.insert(
+            "dependencies".to_string(),
+            ("source".to_string(), "target".to_string()),
+        );
+
+        // Create a hydrator with the configuration
+        let mut hydrator = Hydrator::new(config_with_edges);
+
+        // Create test facts with dependencies in a chain where:
+        // 1.1 -> 1.4 -> 1.3 -> 1.2 -> 1.5
+        // This tests that the target of edge n becomes the source of edge n+1
+        // with unsorted hierarchical identifiers
+
+        // Create fact for edge 1.1 -> 1.4
+        let mut fact_a = DdlogFact {
+            relation_name: "dependency_relation".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        fact_a
+            .attributes
+            .insert("id".to_string(), AttributeValue::String("1.1_1.4".to_string()));
+        fact_a.attributes.insert(
+            "source".to_string(),
+            AttributeValue::String("1.1".to_string()),
+        );
+        fact_a.attributes.insert(
+            "target".to_string(),
+            AttributeValue::String("1.4".to_string()),
+        );
+        fact_a.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("Node 1.1 depends on 1.4".to_string()),
+        );
+
+        // Create fact for edge 1.4 -> 1.3
+        let mut fact_b = DdlogFact {
+            relation_name: "dependency_relation".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        fact_b
+            .attributes
+            .insert("id".to_string(), AttributeValue::String("1.4_1.3".to_string()));
+        fact_b.attributes.insert(
+            "source".to_string(),
+            AttributeValue::String("1.4".to_string()),
+        );
+        fact_b.attributes.insert(
+            "target".to_string(),
+            AttributeValue::String("1.3".to_string()),
+        );
+        fact_b.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("Node 1.4 depends on 1.3".to_string()),
+        );
+
+        // Create fact for edge 1.3 -> 1.2
+        let mut fact_c = DdlogFact {
+            relation_name: "dependency_relation".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        fact_c
+            .attributes
+            .insert("id".to_string(), AttributeValue::String("1.3_1.2".to_string()));
+        fact_c.attributes.insert(
+            "source".to_string(),
+            AttributeValue::String("1.3".to_string()),
+        );
+        fact_c.attributes.insert(
+            "target".to_string(),
+            AttributeValue::String("1.2".to_string()),
+        );
+        fact_c.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("Node 1.3 depends on 1.2".to_string()),
+        );
+
+        // Create fact for edge 1.2 -> 1.5
+        let mut fact_d = DdlogFact {
+            relation_name: "dependency_relation".to_string(),
+            attributes: HashMap::new(),
+            diff: None,
+        };
+        fact_d
+            .attributes
+            .insert("id".to_string(), AttributeValue::String("1.2_1.5".to_string()));
+        fact_d.attributes.insert(
+            "source".to_string(),
+            AttributeValue::String("1.2".to_string()),
+        );
+        fact_d.attributes.insert(
+            "target".to_string(),
+            AttributeValue::String("1.5".to_string()),
+        );
+        fact_d.attributes.insert(
+            "val".to_string(),
+            AttributeValue::String("Node 1.2 depends on 1.5".to_string()),
+        );
+
+        // Process facts in random order to test dependency sorting
+        assert!(hydrator.process_fact(fact_c.clone()).is_ok());
+        assert!(hydrator.process_fact(fact_a.clone()).is_ok());
+        assert!(hydrator.process_fact(fact_d.clone()).is_ok());
+        assert!(hydrator.process_fact(fact_b.clone()).is_ok());
+
+        let output = hydrator.dump();
+
+        // The output should contain all facts in dependency order
+        // 1.5 should be first (leaf node), followed by 1.2, 1.3, 1.4, and finally 1.1
+        assert!(output.contains("Node 1.1 depends on 1.4"));
+        assert!(output.contains("Node 1.4 depends on 1.3"));
+        assert!(output.contains("Node 1.3 depends on 1.2"));
+        assert!(output.contains("Node 1.2 depends on 1.5"));
+
+        // Create a stream with dependency-driven ordering
+        hydrator.add_stream_with_shape(
+            "dependency_stream",
+            vec!["dependencies".to_string()],
+            "dependency_shape",
+            Box::new(DependencyDrivenDumpAlgorithm::new(
+                "val".to_string(),
+                ("source".to_string(), "target".to_string()),
+            )),
+        );
+
+        // Get the stream output
+        let stream_output = hydrator.dump_stream("dependency_stream").unwrap();
+
+        // Verify the stream output also maintains dependency order
+        assert!(stream_output.contains("dependency_shape"));
+        assert!(stream_output.contains("Node 1.1 depends on 1.4"));
+        assert!(stream_output.contains("Node 1.4 depends on 1.3"));
+        assert!(stream_output.contains("Node 1.3 depends on 1.2"));
+        assert!(stream_output.contains("Node 1.2 depends on 1.5"));
+
+        // Check that all nodes are in the output
+        assert!(stream_output.contains("Node 1.2 depends on 1.5"));
+        assert!(stream_output.contains("Node 1.3 depends on 1.2"));
+        assert!(stream_output.contains("Node 1.4 depends on 1.3"));
+        assert!(stream_output.contains("Node 1.1 depends on 1.4"));
+        
+        // Get positions of each node in the output
+        let node_1_5_pos = stream_output.find("Node 1.2 depends on 1.5").unwrap();
+        let node_1_2_pos = stream_output.find("Node 1.3 depends on 1.2").unwrap();
+        let node_1_3_pos = stream_output.find("Node 1.4 depends on 1.3").unwrap();
+        let node_1_4_pos = stream_output.find("Node 1.1 depends on 1.4").unwrap();
+        
+        // The topological sort should ensure that dependencies are processed before dependents
+        // In our chain: 1.1 -> 1.4 -> 1.3 -> 1.2 -> 1.5
+        assert!(node_1_4_pos < node_1_3_pos);
+        assert!(node_1_3_pos < node_1_2_pos);
+        assert!(node_1_2_pos < node_1_5_pos);
     }
 }

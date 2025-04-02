@@ -21,8 +21,7 @@ pub trait ToDotAttributes {
     fn to_dot_attributes(&self) -> Vec<(String, String)>;
 }
 
-impl ToDotAttributes for &str
-{
+impl ToDotAttributes for &str {
     fn to_dot_attributes(&self) -> Vec<(String, String)> {
         Vec::new()
     }
@@ -38,7 +37,7 @@ pub trait HigToDot<V, E> {
     /// # Returns
     ///
     /// A string containing the DOT representation of the graph
-    fn to_dot(&self, name: &str) -> String;
+    fn to_dot(&self, name: &str, sort: bool) -> String;
 
     /// Export the graph to DOT format with custom node and edge formatters
     ///
@@ -56,6 +55,7 @@ pub trait HigToDot<V, E> {
         name: &str,
         node_formatter: NF,
         edge_formatter: EF,
+        sort: bool,
     ) -> String
     where
         NF: Fn(VertexIndex, &Self) -> Vec<(String, String)>,
@@ -67,7 +67,7 @@ where
     V: ToDotLabel + ToDotAttributes,
     E: ToDotLabel + ToDotAttributes,
 {
-    fn to_dot(&self, name: &str) -> String {
+    fn to_dot(&self, name: &str, sort: bool) -> String {
         self.to_dot_with_formatters(
             name,
             |idx, graph| {
@@ -106,6 +106,7 @@ where
 
                 attrs
             },
+            sort,
         )
     }
 
@@ -114,28 +115,30 @@ where
         name: &str,
         node_formatter: NF,
         edge_formatter: EF,
+        sort: bool,
     ) -> String
     where
         NF: Fn(VertexIndex, &Self) -> Vec<(String, String)>,
         EF: Fn(EdgeIndex, &Self) -> Vec<(String, String)>,
     {
-        let mut dot_output = String::new();
-
+        // Estimate capacity to avoid reallocations
+        let vertex_count = self.vertices().count();
+        let edge_count = self.edges().count();
+        let estimated_capacity = 500 + (vertex_count * 100) + (edge_count * 100);
+        
+        let mut dot_output = String::with_capacity(estimated_capacity);
+        
         // Start the digraph
-        writeln!(&mut dot_output, "digraph {} {{", name).unwrap();
-
+        dot_output.push_str(&format!("digraph {} {{\n", name));
+        
         // Add graph attributes
-        writeln!(&mut dot_output, "    // Graph attributes").unwrap();
-        writeln!(
-            &mut dot_output,
-            "    graph [rankdir=LR, fontname=\"Arial\", splines=true];"
-        )
-        .unwrap();
-        writeln!(&mut dot_output, "    node [shape=box, style=\"rounded,filled\", fillcolor=lightblue, fontname=\"Arial\"];").unwrap();
-        writeln!(&mut dot_output, "    edge [fontname=\"Arial\"];").unwrap();
-
+        dot_output.push_str("    // Graph attributes\n");
+        dot_output.push_str("    graph [rankdir=LR, fontname=\"Arial\", splines=true];\n");
+        dot_output.push_str("    node [shape=box, style=\"rounded,filled\", fillcolor=lightblue, fontname=\"Arial\"];\n");
+        dot_output.push_str("    edge [fontname=\"Arial\"];\n");
+        
         // Add nodes
-        writeln!(&mut dot_output, "    // Nodes").unwrap();
+        dot_output.push_str("    // Nodes\n");
         for (idx, _vertex) in self.vertices().enumerate() {
             let attrs = node_formatter(idx, self);
             let attrs_str = attrs
@@ -143,33 +146,45 @@ where
                 .map(|(k, v)| format!("{}={}", k, v))
                 .collect::<Vec<_>>()
                 .join(", ");
-
-            writeln!(&mut dot_output, "    n{} [{}];", idx, attrs_str).unwrap();
+                
+            dot_output.push_str(&format!("    n{} [{}];\n", idx, attrs_str));
         }
-
+        
         // Add edges
-        writeln!(&mut dot_output, "    // Edges").unwrap();
-        for (idx, edge) in self.edges().enumerate() {
+        dot_output.push_str("    // Edges\n");
+        let edges = if sort {
+            if let Ok(edges) = self.topological_sort_edges() {
+                edges
+                    .into_iter()
+                    .map(|e| self.get_edge(e).unwrap())
+                    .collect::<Vec<_>>()
+            } else {
+                self.edges().collect::<Vec<_>>()
+            }
+        } else {
+            self.edges().collect::<Vec<_>>()
+        };
+        
+        for (idx, edge) in edges.iter().enumerate() {
             let attrs = edge_formatter(idx, self);
             let attrs_str = attrs
                 .iter()
                 .map(|(k, v)| format!("{}={}", k, v))
                 .collect::<Vec<_>>()
                 .join(", ");
-
-            writeln!(
-                &mut dot_output,
-                "    n{} -> n{} [{}];",
+            
+            // Remove debug print statement
+            dot_output.push_str(&format!(
+                "    n{} -> n{} [{}];\n",
                 edge.source(),
                 edge.target(),
                 attrs_str
-            )
-            .unwrap();
+            ));
         }
-
+        
         // End the digraph
-        writeln!(&mut dot_output, "}}").unwrap();
-
+        dot_output.push_str("}\n");
+        
         dot_output
     }
 }
