@@ -1642,6 +1642,10 @@ mod tests {
             "val".to_string(),
             AttributeValue::String("Node 1.1 depends on 1.2".to_string()),
         );
+        fact_a.attributes.insert(
+            "dependency".to_string(),
+            AttributeValue::String("dep_1_1_to_1_2".to_string()),
+        );
 
         let mut fact_a_e = DdlogFact {
             relation_name: "dependency_relation".to_string(),
@@ -1664,6 +1668,10 @@ mod tests {
             "val".to_string(),
             AttributeValue::String("Node 1.1 depends on 2.1".to_string()),
         );
+        fact_a_e.attributes.insert(
+            "dependency".to_string(),
+            AttributeValue::String("dep_1_1_to_2_1".to_string()),
+        );
 
         let mut fact_b = DdlogFact {
             relation_name: "dependency_relation".to_string(),
@@ -1685,6 +1693,10 @@ mod tests {
             "val".to_string(),
             AttributeValue::String("Node 1.2 depends on 1.3".to_string()),
         );
+        fact_b.attributes.insert(
+            "dependency".to_string(),
+            AttributeValue::String("dep_1_2_to_1_3".to_string()),
+        );
 
         let mut fact_c = DdlogFact {
             relation_name: "dependency_relation".to_string(),
@@ -1705,6 +1717,10 @@ mod tests {
         fact_c.attributes.insert(
             "val".to_string(),
             AttributeValue::String("Node 1.3 depends on 1.4".to_string()),
+        );
+        fact_c.attributes.insert(
+            "dependency".to_string(),
+            AttributeValue::String("dep_1_3_to_1_4".to_string()),
         );
 
         //
@@ -1737,6 +1753,8 @@ mod tests {
 
         // Get the stream output
         let stream_output = hydrator.dump_stream("dependency_stream").unwrap();
+
+        println!("{}", stream_output);
 
         // Verify the stream output also maintains dependency order
         assert!(stream_output.contains("dependency_shape"));
@@ -1876,6 +1894,7 @@ fn test_dependency_driven_dump_algorithm_with_dependency_attribute() {
                 100,
                 "path",
                 "val",
+                "dependency",
                 vec![InputSource::new("dependency_relation", 10)],
             )
             .with_stream(
@@ -1920,6 +1939,10 @@ fn test_dependency_driven_dump_algorithm_with_dependency_attribute() {
             "val".to_string(),
             AttributeValue::String("Node 1.1 depends on 1.4".to_string()),
         );
+        fact_a.attributes.insert(
+            "dependency".to_string(),
+            AttributeValue::String("dep_1.1_to_1.4".to_string()),
+        );
 
         // Create fact for edge 1.4 -> 1.3
         let mut fact_b = DdlogFact {
@@ -1941,6 +1964,10 @@ fn test_dependency_driven_dump_algorithm_with_dependency_attribute() {
         fact_b.attributes.insert(
             "val".to_string(),
             AttributeValue::String("Node 1.4 depends on 1.3".to_string()),
+        );
+        fact_b.attributes.insert(
+            "dependency".to_string(),
+            AttributeValue::String("dep_1.4_to_1.3".to_string()),
         );
 
         // Create fact for edge 1.3 -> 1.2
@@ -1964,6 +1991,10 @@ fn test_dependency_driven_dump_algorithm_with_dependency_attribute() {
             "val".to_string(),
             AttributeValue::String("Node 1.3 depends on 1.2".to_string()),
         );
+        fact_c.attributes.insert(
+            "dependency".to_string(),
+            AttributeValue::String("dep_1.3_to_1.2".to_string()),
+        );
 
         // Create fact for edge 1.2 -> 1.5
         let mut fact_d = DdlogFact {
@@ -1985,6 +2016,10 @@ fn test_dependency_driven_dump_algorithm_with_dependency_attribute() {
         fact_d.attributes.insert(
             "val".to_string(),
             AttributeValue::String("Node 1.2 depends on 1.5".to_string()),
+        );
+        fact_d.attributes.insert(
+            "dependency".to_string(),
+            AttributeValue::String("dep_1.2_to_1.5".to_string()),
         );
 
         // Process facts in random order to test dependency sorting
