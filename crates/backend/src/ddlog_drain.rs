@@ -42,6 +42,7 @@ impl AttributeValue {
     pub fn as_string(&self) -> Option<&String> {
         match self {
             AttributeValue::String(s) => Some(s),
+            AttributeValue::Path(p) => Some(p),
             _ => None,
         }
     }

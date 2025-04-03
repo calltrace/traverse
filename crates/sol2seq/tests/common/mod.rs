@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 use backend::ddlog_drain::DdlogDrain;
 use backend::ddlog_rt::{self, run_ddlog_crate};
 use backend::facts::{DDLogCommand, TreeSitterToDDLog};
-use backend::hydrate::{self, BucketConfig, Hydrator, InputSource};
+use backend::hydrate::{self, BucketConfig, Hydrator, InputSource, StreamFactOrderingStrategy};
 use compiler::compile::{CompilationResult, Compiler, CompilerError};
 use language::{Language, Mermaid, Solidity};
 use mermaid::sequence_diagram_ast::SequenceDiagram;
@@ -344,7 +344,11 @@ pub fn run_ddlog_with_sources(
         DDLogExecutionError::CommandExecution(format!("Failed to run DDlog project: {}", e))
     })?;
 
-    let hydrator_config = create_default_hydrator_config();
+    // Note: disable legacy path-based configuration
+    //let hydrator_config = create_default_hydrator_config();
+    let hydrator_config = create_dependency_driven_hydrator_config();
+
+    println!("Hydrator config: {:?}", hydrator_config);
 
     let mut hydrator = Hydrator::new(hydrator_config);
 
@@ -395,6 +399,8 @@ fn create_default_hydrator_config() -> BucketConfig {
             100,
             "",
             "val",
+            "dependency",
+            ("downstream", "upstream"),
             vec![
                 InputSource::new("EmitMermaidLineMockActorLine", 100),
                 //InputSource::new("EmitMermaidLineMockActorLineReturn", 100),
@@ -402,11 +408,13 @@ fn create_default_hydrator_config() -> BucketConfig {
                 //  InputSource::new("EmitMermaidLineContractParticipantLine", 90),
             ],
         )
-       .with_bucket(
+        .with_bucket(
             "contract-participants",
             95,
             "",
             "val",
+            "dependency",
+            ("downstream", "upstream"),
             vec![InputSource::new(
                 "EmitMermaidLineContractParticipantLine",
                 95,
@@ -417,6 +425,8 @@ fn create_default_hydrator_config() -> BucketConfig {
             90,
             "",
             "val",
+            "dependency",
+            ("downstream", "upstream"),
             vec![InputSource::new(
                 "EmitMermaidLineLibraryParticipantLine",
                 90,
@@ -427,6 +437,8 @@ fn create_default_hydrator_config() -> BucketConfig {
             100,
             "no_return_func_id_path",
             "val",
+            "dependency",
+            ("downstream", "upstream"),
             vec![InputSource::new(
                 "EmitMermaidLineMockActorSignalNoReturnLine",
                 100,
@@ -437,6 +449,8 @@ fn create_default_hydrator_config() -> BucketConfig {
             95,
             "return_stmt_id_path",
             "val",
+            "dependency",
+            ("downstream", "upstream"),
             vec![
                 //InputSource::new("EmitMermaidLineMockActorSignalLine", 100),
                 InputSource::new("EmitMermaidLineMockActorReturnSignalLine", 95),
@@ -447,6 +461,8 @@ fn create_default_hydrator_config() -> BucketConfig {
             90,
             "intra_ce_no_return_id_path",
             "val",
+            "dependency",
+            ("downstream", "upstream"),
             vec![
                 InputSource::new("EmitMermaidLineIntraSignalLine", 100),
                 InputSource::new("EmitMermaidLineIntraSignalLineNoReturn", 100),
@@ -462,6 +478,8 @@ fn create_default_hydrator_config() -> BucketConfig {
             90,
             "ce_id_path",
             "val",
+            "dependency",
+            ("downstream", "upstream"),
             vec![
                 InputSource::new("EmitMermaidLineSignalLine", 100),
                 InputSource::new("EmitMermaidLineActivateLine", 90),
@@ -474,6 +492,8 @@ fn create_default_hydrator_config() -> BucketConfig {
             85,
             "call_expr_id_path",
             "val",
+            "dependency",
+            ("downstream", "upstream"),
             vec![InputSource::new("EmitMermaidLineLibrarySignalLine", 85)],
         )
         .with_stream_shape(
@@ -486,8 +506,27 @@ fn create_default_hydrator_config() -> BucketConfig {
                 "mock-actor-return-flows",
                 "intra-contract-flows",
                 "inter-contract-flows",
-                "library-flows"
+                "library-flows",
             ],
             "sequenceDiagram",
+        )
+}
+
+fn create_dependency_driven_hydrator_config() -> BucketConfig {
+    BucketConfig::new()
+        .with_default_value_attribute("val")
+        .with_bucket(
+            "inter-contract-flows",
+            100,
+            "path",
+            "val",
+            "ce_id_dependency",
+            ("caller_contract_downstream", "callee_contract_upstream"),
+            vec![InputSource::new("EmitMermaidLineSignalLine", 100)],
+        )
+        .with_stream(
+            "solidity-to-mermaid",
+            vec!["inter-contract-flows"],
+            StreamFactOrderingStrategy::Dependency,
         )
 }

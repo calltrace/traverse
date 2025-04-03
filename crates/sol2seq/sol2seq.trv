@@ -605,9 +605,9 @@ insert Identifier(207, 205, "add");
    * and function name.
    */
   (emit MermaidLineSignalLine
-    @:path:CeId
-    @CallerContract
-    @CalleeContract
+    @:downstream:CallerContract
+    @:dependency:CeId
+    @:upstream:CalleeContract
     @CalleeFunc
     (do
       {(format @CallerContract "->>" @CalleeContract ": " @CalleeFunc)}
