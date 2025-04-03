@@ -667,6 +667,15 @@ impl IrGenerator {
                                             attr_type: AttributeType::String,
                                         });
                                     }
+                                    Some(ProvenanceType::Dependency) => {
+                                        relation_attributes.insert(Attribute {
+                                            name: format!(
+                                                "{}_dependency",
+                                                normalize_string(&mapping.symbol)
+                                            ),
+                                            attr_type: AttributeType::String,
+                                        });
+                                    }
                                     Some(ProvenanceType::Upstream) => {
                                         relation_attributes.insert(Attribute {
                                             name: format!(
@@ -778,6 +787,12 @@ impl IrGenerator {
                                     Some(ProvenanceType::Downstream) => {
                                         lhs_attributes.insert(format!(
                                             "lhs_{}_downstream",
+                                            normalize_string(&mapping.symbol)
+                                        ));
+                                    }
+                                    Some(ProvenanceType::Dependency) => {
+                                        lhs_attributes.insert(format!(
+                                            "lhs_{}_dependency",
                                             normalize_string(&mapping.symbol)
                                         ));
                                     }
@@ -902,6 +917,10 @@ impl IrGenerator {
                                             )),
                                             ProvenanceType::Downstream => Some(format!(
                                                 "rhs_{}_downstream",
+                                                mapping.symbol.to_lowercase()
+                                            )),
+                                            ProvenanceType::Dependency => Some(format!(
+                                                "rhs_{}_dependency",
                                                 mapping.symbol.to_lowercase()
                                             )),
                                             ProvenanceType::Upstream => Some(format!(
@@ -1109,6 +1128,12 @@ impl IrGenerator {
                                                 attr_type: AttributeType::String,
                                             });
                                         }
+                                        ProvenanceType::Dependency => {
+                                            outbound_attrs.push_front(Attribute {
+                                                name: format!("{}_dependency", clean_name),
+                                                attr_type: AttributeType::String,
+                                            });
+                                        }
                                         ProvenanceType::Upstream => {
                                             outbound_attrs.push_front(Attribute {
                                                 name: format!("{}_upstream", clean_name),
@@ -1219,6 +1244,12 @@ impl IrGenerator {
                                     attr_type: AttributeType::String,
                                 });
                             }
+                            ProvenanceType::Dependency => {
+                                outbound_attrs.push_front(Attribute {
+                                    name: format!("{}_dependency", capture_name),
+                                    attr_type: AttributeType::String,
+                                });
+                            }
                             ProvenanceType::Upstream => {
                                 outbound_attrs.push_front(Attribute {
                                     name: format!("{}_upstream", capture_name),
@@ -1275,6 +1306,12 @@ impl IrGenerator {
                                 ProvenanceType::Downstream => {
                                     outbound_attrs.push_front(Attribute {
                                         name: format!("{}_downstream", capture_name),
+                                        attr_type: AttributeType::String,
+                                    });
+                                }
+                                ProvenanceType::Dependency => {
+                                    outbound_attrs.push_front(Attribute {
+                                        name: format!("{}_dependency", capture_name),
                                         attr_type: AttributeType::String,
                                     });
                                 }

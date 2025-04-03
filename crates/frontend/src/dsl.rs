@@ -19,6 +19,7 @@ pub enum ProvenanceType {
     Default,
     Path,
     Downstream,
+    Dependency,
     Upstream,
     Span,
     Full,
@@ -277,6 +278,7 @@ impl fmt::Display for ProvenanceType {
         match self {
             ProvenanceType::Path => write!(f, "path"),
             ProvenanceType::Downstream => write!(f, "downstream"),
+            ProvenanceType::Dependency => write!(f, "dependency"),
             ProvenanceType::Upstream => write!(f, "upstream"),
             ProvenanceType::Span => write!(f, "span"),
             ProvenanceType::Full => write!(f, "full"),
@@ -407,6 +409,7 @@ impl fmt::Display for Lval {
                 Some(ProvenanceType::Default) => write!(f, "@:{}", capture),
                 Some(ProvenanceType::Path) => write!(f, "@:path:{}", capture),
                 Some(ProvenanceType::Downstream) => write!(f, "@:downstream:{}", capture),
+                Some(ProvenanceType::Dependency) => write!(f, "@:dependency:{}", capture),
                 Some(ProvenanceType::Upstream) => write!(f, "@:upstream:{}", capture),
                 Some(ProvenanceType::Span) => write!(f, "@:span:{}", capture),
                 Some(ProvenanceType::Full) => write!(f, "@:full:{}", capture),

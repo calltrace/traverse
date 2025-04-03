@@ -241,7 +241,7 @@ mod tests {
             )
             .unwrap();
 
-        let dot_output = graph.to_dot("TestGraph");
+        let dot_output = graph.to_dot("TestGraph", true);
 
         // Basic validation
         assert!(dot_output.starts_with("digraph TestGraph {"));
@@ -288,6 +288,7 @@ mod tests {
                     ("style".to_string(), "\"dashed\"".to_string()),
                 ]
             },
+            true,
         );
 
         assert!(dot_output.contains("n0 [label=\"Node 1\", color=\"red\"];"));
@@ -347,7 +348,7 @@ mod tests {
             )
             .unwrap();
 
-        let dot_output = graph.to_dot("AttributeGraph");
+        let dot_output = graph.to_dot("AttributeGraph", true);
 
         // Validate custom attributes
         assert!(dot_output.contains("color=\"red\""));

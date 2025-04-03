@@ -1,4 +1,5 @@
 use crate::dsl::{Lval, ProvenanceType};
+use crate::syntax::SyntaxHighlighter;
 use indexmap::IndexMap;
 use pest::{iterators::Pair, Parser};
 use pest_derive::Parser;
@@ -238,6 +239,7 @@ fn lval_read(parsed: Pair<Rule>) -> DslResult {
                             provenance = Some(match prov_type.as_str() {
                                 "path" => ProvenanceType::Path,
                                 "downstream" => ProvenanceType::Downstream,
+                                "dependency" => ProvenanceType::Dependency,
                                 "upstream" => ProvenanceType::Upstream,
                                 "span" => ProvenanceType::Span,
                                 "full" => ProvenanceType::Full,
@@ -457,7 +459,35 @@ mod tests {
             result, expected,
             "Parsed result does not match expected structure"
         );
+    
+    #[test]
+    fn test_dependency_provenance() {
+        let highlighter = SyntaxHighlighter::default();
+        let input = "(emit TestNode (key1 @:dependency:var1))";
+        let parsed = Dsl::parse(Rule::rulebook, input)
+            .expect("Parse failed")
+            .next()
+            .unwrap();
+        let result = lval_read(parsed).expect("Lval construction failed");
+        
+        // Verify the capture has the correct provenance type
+        if let Lval::Rulebook(items) = &*result {
+            if let Lval::Emit(_, captures, _, _) = &*items[0] {
+                if let Lval::KeyVal(kv) = &*captures[0] {
+                    if let (Some(key), Some(value)) = (kv.first(), kv.get(1)) {
+                        if let (Lval::Sym(key_str), Lval::Capture(capture_name, provenance)) = (&**key, &**value) {
+                            assert_eq!(key_str, "key1");
+                            assert_eq!(capture_name, "@var1");
+                            assert!(matches!(provenance, Some(ProvenanceType::Dependency)));
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        panic!("Expected capture with dependency provenance not found");
     }
+}
 
     #[test]
     fn test_parse_simple_emit() {

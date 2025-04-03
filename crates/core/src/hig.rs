@@ -188,6 +188,8 @@ impl<T> Vertex<T> {
 pub struct Edge<E> {
     source: VertexIndex,
     target: VertexIndex,
+    // Optional hierarchical identifier for the edge
+    id: Option<HierarchicalId>,
     // --- Added value back ---
     value: Option<E>,
     metadata: Option<E>,
@@ -199,6 +201,7 @@ impl<E> Edge<E> {
         Self {
             source,
             target,
+            id: None,
             value: None,
             metadata,
         } // Initialize value to None
@@ -214,6 +217,40 @@ impl<E> Edge<E> {
         Self {
             source,
             target,
+            id: None,
+            value,
+            metadata,
+        }
+    }
+
+    /// Creates a new edge with an identifier and metadata, setting value to None.
+    pub fn new_with_id(
+        source: VertexIndex,
+        target: VertexIndex,
+        id: HierarchicalId,
+        metadata: Option<E>,
+    ) -> Self {
+        Self {
+            source,
+            target,
+            id: Some(id),
+            value: None,
+            metadata,
+        }
+    }
+
+    /// Creates a new edge with an identifier, value, and metadata.
+    pub fn new_with_id_and_value(
+        source: VertexIndex,
+        target: VertexIndex,
+        id: HierarchicalId,
+        value: Option<E>,
+        metadata: Option<E>,
+    ) -> Self {
+        Self {
+            source,
+            target,
+            id: Some(id),
             value,
             metadata,
         }
@@ -224,6 +261,16 @@ impl<E> Edge<E> {
     }
     pub fn target(&self) -> VertexIndex {
         self.target
+    }
+
+    /// Returns the edge's hierarchical ID, if it has one
+    pub fn id(&self) -> Option<&HierarchicalId> {
+        self.id.as_ref()
+    }
+
+    /// Sets the edge's hierarchical ID
+    pub fn set_id(&mut self, id: Option<HierarchicalId>) {
+        self.id = id;
     }
 
     // --- Added value accessors ---
@@ -245,6 +292,7 @@ pub struct HierarchicalIntervalGraph<V, E> {
     vertices: Vec<Vertex<V>>,
     edges: Vec<Edge<E>>,
     id_to_vertex: HashMap<HierarchicalId, VertexIndex>,
+    id_to_edge: HashMap<HierarchicalId, EdgeIndex>,
 }
 
 impl<V, E> Default for HierarchicalIntervalGraph<V, E> {
@@ -259,6 +307,7 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
             vertices: Vec::new(),
             edges: Vec::new(),
             id_to_vertex: HashMap::new(),
+            id_to_edge: HashMap::new(),
         }
     }
 
@@ -300,6 +349,27 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
         value: Option<E>, // Added value parameter
         metadata: Option<E>,
     ) -> Result<EdgeIndex, String> {
+        self.add_edge_with_id_and_value(source_id, target_id, None, value, metadata)
+    }
+
+    /// Adds an edge with an optional identifier, value, and metadata.
+    /// If the vertices do not exist, they are created with `None` values.
+    /// Returns an error if adding the edge would create a cycle or if the edge ID already exists.
+    pub fn add_edge_with_id_and_value(
+        &mut self,
+        source_id: &HierarchicalId,
+        target_id: &HierarchicalId,
+        edge_id: Option<HierarchicalId>,
+        value: Option<E>,
+        metadata: Option<E>,
+    ) -> Result<EdgeIndex, String> {
+        // Check if edge ID already exists
+        if let Some(ref id) = edge_id {
+            if self.id_to_edge.contains_key(id) {
+                return Err(format!("Edge with ID {} already exists", id));
+            }
+        }
+
         // Ensure source vertex exists, create if not
         let source_idx = match self.id_to_vertex.get(source_id) {
             Some(&idx) => idx,
@@ -330,15 +400,38 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
 
         // --- Add the edge ---
         let edge_idx = self.edges.len();
-        // Use the specific constructor
-        self.edges.push(Edge::new_with_value(
-            source_idx, target_idx, value, metadata,
-        ));
+
+        // Create the edge with or without an ID
+        let edge = if let Some(id) = edge_id.clone() {
+            Edge::new_with_id_and_value(source_idx, target_idx, id, value, metadata)
+        } else {
+            Edge::new_with_value(source_idx, target_idx, value, metadata)
+        };
+
+        self.edges.push(edge);
+
+        // If the edge has an ID, add it to the mapping
+        if let Some(id) = edge_id {
+            self.id_to_edge.insert(id, edge_idx);
+        }
 
         self.vertices[source_idx].add_outgoing(edge_idx);
         self.vertices[target_idx].add_incoming(edge_idx);
 
         Ok(edge_idx)
+    }
+
+    /// Adds an edge with an identifier and metadata, setting value to None.
+    /// If the vertices do not exist, they are created with `None` values.
+    /// Returns an error if adding the edge would create a cycle or if the edge ID already exists.
+    pub fn add_edge_with_id(
+        &mut self,
+        source_id: &HierarchicalId,
+        target_id: &HierarchicalId,
+        edge_id: HierarchicalId,
+        metadata: Option<E>,
+    ) -> Result<EdgeIndex, String> {
+        self.add_edge_with_id_and_value(source_id, target_id, Some(edge_id), None, metadata)
     }
 
     /// Helper function to check if a path exists from start_idx to end_idx using BFS.
@@ -393,6 +486,23 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
     }
     pub fn get_edge(&self, idx: EdgeIndex) -> Option<&Edge<E>> {
         self.edges.get(idx)
+    }
+
+    pub fn get_edge_idx(&self, id: &HierarchicalId) -> Option<EdgeIndex> {
+        self.id_to_edge.get(id).copied()
+    }
+
+    pub fn get_edge_by_id(&self, id: &HierarchicalId) -> Option<&Edge<E>> {
+        self.get_edge_idx(id).and_then(|idx| self.get_edge(idx))
+    }
+
+    pub fn get_edge_mut(&mut self, idx: EdgeIndex) -> Option<&mut Edge<E>> {
+        self.edges.get_mut(idx)
+    }
+
+    pub fn get_edge_by_id_mut(&mut self, id: &HierarchicalId) -> Option<&mut Edge<E>> {
+        self.get_edge_idx(id)
+            .and_then(move |idx| self.get_edge_mut(idx))
     }
     pub fn vertices(&self) -> impl Iterator<Item = &Vertex<V>> {
         self.vertices.iter()
@@ -686,6 +796,73 @@ mod tests {
         assert_eq!(ancestors.len(), 2);
     }
 
+    #[test]
+    fn test_edge_with_id() {
+        let mut graph = HierarchicalIntervalGraph::<&str, &str>::new();
+
+        // Add vertices
+        graph
+            .add_vertex(HierarchicalId::new("1"), Some("Root"))
+            .unwrap();
+        graph
+            .add_vertex(HierarchicalId::new("1.1"), Some("Child 1"))
+            .unwrap();
+        graph
+            .add_vertex(HierarchicalId::new("1.2"), Some("Child 2"))
+            .unwrap();
+
+        // Add edge with ID
+        let edge_id = HierarchicalId::new("e.1");
+        let edge_idx = graph
+            .add_edge_with_id(
+                &HierarchicalId::new("1"),
+                &HierarchicalId::new("1.1"),
+                edge_id.clone(),
+                Some("Edge metadata"),
+            )
+            .unwrap();
+
+        // Add edge with ID and value
+        let edge_id2 = HierarchicalId::new("e.2");
+        let edge_idx2 = graph
+            .add_edge_with_id_and_value(
+                &HierarchicalId::new("1"),
+                &HierarchicalId::new("1.2"),
+                Some(edge_id2.clone()),
+                Some("Edge value"),
+                Some("Edge metadata"),
+            )
+            .unwrap();
+
+        // Verify edges can be retrieved by ID
+        let edge = graph.get_edge_by_id(&edge_id).unwrap();
+        assert_eq!(edge.id(), Some(&edge_id));
+        assert_eq!(edge.metadata(), Some(&"Edge metadata"));
+        assert_eq!(edge.value(), None);
+
+        let edge2 = graph.get_edge_by_id(&edge_id2).unwrap();
+        assert_eq!(edge2.id(), Some(&edge_id2));
+        assert_eq!(edge2.value(), Some(&"Edge value"));
+        assert_eq!(edge2.metadata(), Some(&"Edge metadata"));
+
+        // Test error on duplicate edge ID
+        let result = graph.add_edge_with_id(
+            &HierarchicalId::new("1.1"),
+            &HierarchicalId::new("1.2"),
+            edge_id.clone(),
+            None,
+        );
+        assert!(result.is_err());
+
+        // Test modifying edge by ID
+        if let Some(edge) = graph.get_edge_by_id_mut(&edge_id) {
+            edge.set_value(Some("Updated value"));
+        }
+
+        let updated_edge = graph.get_edge_by_id(&edge_id).unwrap();
+        assert_eq!(updated_edge.value(), Some(&"Updated value"));
+    }
+
     #[cfg(test)]
     mod dot_tests {
         use super::*;
@@ -730,7 +907,7 @@ mod tests {
                 )
                 .unwrap();
 
-            let dot_output = graph.to_dot("TestGraph");
+            let dot_output = graph.to_dot("TestGraph", true);
 
             // Basic validation
             assert!(dot_output.starts_with("digraph TestGraph {"));
