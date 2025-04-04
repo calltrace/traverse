@@ -512,10 +512,28 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
     }
     pub fn outgoing_edges(&self, id: &HierarchicalId) -> Vec<&Edge<E>> {
         if let Some(vertex_idx) = self.get_vertex_idx(id) {
-            self.vertices[vertex_idx]
+            let mut edges_with_indices: Vec<(EdgeIndex, Option<&HierarchicalId>)> = self.vertices[vertex_idx]
                 .outgoing()
                 .iter()
-                .filter_map(|&edge_idx| self.edges.get(edge_idx))
+                .filter_map(|&edge_idx| self.edges.get(edge_idx).map(|edge| (edge_idx, edge.id())))
+                .collect();
+
+            // Sort based on the edge's HierarchicalId
+            // Edges with IDs come first, sorted by ID.
+            // Edges without IDs come last, sorted by their original EdgeIndex for stability.
+            edges_with_indices.sort_by(|(idx_a, id_a_opt), (idx_b, id_b_opt)| {
+                match (id_a_opt, id_b_opt) {
+                    (Some(id_a), Some(id_b)) => id_a.cmp(id_b),
+                    (Some(_), None) => Ordering::Less,  // Edges with IDs come before those without
+                    (None, Some(_)) => Ordering::Greater, // Edges without IDs come after those with
+                    (None, None) => idx_a.cmp(idx_b), // Sort edges without IDs by index
+                }
+            });
+
+            // Map back to edge references
+            edges_with_indices
+                .into_iter()
+                .filter_map(|(edge_idx, _)| self.edges.get(edge_idx))
                 .collect()
         } else {
             Vec::new()
@@ -523,10 +541,26 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
     }
     pub fn incoming_edges(&self, id: &HierarchicalId) -> Vec<&Edge<E>> {
         if let Some(vertex_idx) = self.get_vertex_idx(id) {
-            self.vertices[vertex_idx]
+            let mut edges_with_indices: Vec<(EdgeIndex, Option<&HierarchicalId>)> = self.vertices[vertex_idx]
                 .incoming()
                 .iter()
-                .filter_map(|&edge_idx| self.edges.get(edge_idx))
+                .filter_map(|&edge_idx| self.edges.get(edge_idx).map(|edge| (edge_idx, edge.id())))
+                .collect();
+
+            // Sort based on the edge's HierarchicalId (same logic as outgoing_edges)
+            edges_with_indices.sort_by(|(idx_a, id_a_opt), (idx_b, id_b_opt)| {
+                match (id_a_opt, id_b_opt) {
+                    (Some(id_a), Some(id_b)) => id_a.cmp(id_b),
+                    (Some(_), None) => Ordering::Less,
+                    (None, Some(_)) => Ordering::Greater,
+                    (None, None) => idx_a.cmp(idx_b),
+                }
+            });
+
+            // Map back to edge references
+            edges_with_indices
+                .into_iter()
+                .filter_map(|(edge_idx, _)| self.edges.get(edge_idx))
                 .collect()
         } else {
             Vec::new()
@@ -553,10 +587,10 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
             if !visited.contains(&idx) {
                 temp_visited.insert(idx);
                 if let Some(vertex) = graph.vertices.get(idx) {
-                    for &edge_idx in vertex.outgoing() {
-                        if let Some(edge) = graph.get_edge(edge_idx) {
-                            visit(graph, edge.target(), visited, temp_visited, result)?;
-                        }
+                    // Use the sorted outgoing edges for traversal
+                    let sorted_outgoing_edges = graph.outgoing_edges(vertex.id());
+                    for edge in sorted_outgoing_edges {
+                        visit(graph, edge.target(), visited, temp_visited, result)?;
                     }
                 }
                 temp_visited.remove(&idx);
@@ -574,20 +608,42 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
         Ok(result)
     }
 
+    /// Performs a topological sort of the edges based primarily on their HierarchicalId.
+    /// Edges with IDs are sorted first according to their ID, followed by edges without IDs
+    /// sorted by their internal index.
+    /// Returns an error if the graph contains a cycle.
     pub fn topological_sort_edges(&self) -> Result<Vec<EdgeIndex>, String> {
-        let sorted_vertices = self.topological_sort()?;
-        let mut result = Vec::new();
-        let mut added_edges = HashSet::new();
-        for &vertex_idx in &sorted_vertices {
-            if let Some(vertex) = self.vertices.get(vertex_idx) {
-                for &edge_idx in vertex.outgoing() {
-                    if self.edges.get(edge_idx).is_some() && added_edges.insert(edge_idx) {
-                        result.push(edge_idx);
-                    }
-                }
+        // 1. Check for cycles using vertex topological sort.
+        self.topological_sort()?; // Propagate cycle error if found.
+
+        // 2. Collect all edge indices and their optional IDs.
+        let mut edges_with_ids: Vec<(EdgeIndex, Option<&HierarchicalId>)> = self
+            .edges
+            .iter()
+            .enumerate()
+            .map(|(idx, edge)| (idx, edge.id()))
+            .collect();
+
+
+        // 3. Sort the edges globally.
+        // Edges with IDs come first, sorted by ID.
+        // Edges without IDs come last, sorted by their original EdgeIndex for stability.
+        edges_with_ids.sort_by(|(idx_a, id_a_opt), (idx_b, id_b_opt)| {
+            match (id_a_opt, id_b_opt) {
+                (Some(id_a), Some(id_b)) => id_a.cmp(id_b),
+                (Some(_), None) => Ordering::Less,  // Edges with IDs come before those without
+                (None, Some(_)) => Ordering::Greater, // Edges without IDs come after those with
+                (None, None) => idx_a.cmp(idx_b), // Sort edges without IDs by index
             }
-        }
-        Ok(result)
+        });
+
+        // 4. Extract the sorted edge indices.
+        let sorted_edge_indices = edges_with_ids
+            .into_iter()
+            .map(|(idx, _)| idx)
+            .collect();
+
+        Ok(sorted_edge_indices)
     }
 
     pub fn query_interval(&self, start: &HierarchicalId, end: &HierarchicalId) -> Vec<VertexIndex> {

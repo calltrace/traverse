@@ -522,11 +522,24 @@ fn create_dependency_driven_hydrator_config() -> BucketConfig {
             "val",
             "ce_id_dependency",
             ("caller_contract_downstream", "callee_contract_upstream"),
-            vec![InputSource::new("EmitMermaidLineSignalLine", 100)],
+            vec![
+                InputSource::new("EmitMermaidLineSignalLine", 100),
+                InputSource::new("EmitMermaidLineInterSignalLineNoReturn", 100),
+            ],
+        )
+        //EmitMermaidLineReturnSignalLine{.val = "Counter-->>CounterCaller: return count;", .callee_contract_downstream = "0.1.7", .return_stmt_id_dependency = "0.1.7.9.15.22.31.32", .caller_contract_upstream = "0.1.60"}: +1
+        .with_bucket(
+            "inter-contract-return-flows",
+            95,
+            "path",
+            "val",
+            "return_stmt_id_dependency",
+            ("callee_contract_downstream", "caller_contract_upstream"),
+            vec![InputSource::new("EmitMermaidLineReturnSignalLine", 95)],
         )
         .with_stream(
             "solidity-to-mermaid",
-            vec!["inter-contract-flows"],
+            vec!["inter-contract-flows", "inter-contract-return-flows"],
             StreamFactOrderingStrategy::Dependency,
         )
 }

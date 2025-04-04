@@ -152,34 +152,63 @@ where
         
         // Add edges
         dot_output.push_str("    // Edges\n");
-        let edges = if sort {
-            if let Ok(edges) = self.topological_sort_edges() {
-                edges
-                    .into_iter()
-                    .map(|e| self.get_edge(e).unwrap())
-                    .collect::<Vec<_>>()
+        if sort {
+            if let Ok(sorted_edge_indices) = self.topological_sort_edges() {
+                // Iterate over the sorted edge indices
+                for edge_index in sorted_edge_indices {
+                    if let Some(edge) = self.get_edge(edge_index) {
+                        // Pass the correct edge_index to the formatter
+                        let attrs = edge_formatter(edge_index, self);
+                        let attrs_str = attrs
+                            .iter()
+                            .map(|(k, v)| format!("{}={}", k, v))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+
+                        dot_output.push_str(&format!(
+                            "    n{} -> n{} [{}];\n",
+                            edge.source(),
+                            edge.target(),
+                            attrs_str
+                        ));
+                    }
+                }
             } else {
-                self.edges().collect::<Vec<_>>()
+                // Fallback if topological sort fails (e.g., cycle detected)
+                // Iterate over original edges with their indices
+                for (edge_index, edge) in self.edges().enumerate() {
+                    let attrs = edge_formatter(edge_index, self);
+                    let attrs_str = attrs
+                        .iter()
+                        .map(|(k, v)| format!("{}={}", k, v))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+
+                    dot_output.push_str(&format!(
+                        "    n{} -> n{} [{}];\n",
+                        edge.source(),
+                        edge.target(),
+                        attrs_str
+                    ));
+                }
             }
         } else {
-            self.edges().collect::<Vec<_>>()
-        };
-        
-        for (idx, edge) in edges.iter().enumerate() {
-            let attrs = edge_formatter(idx, self);
-            let attrs_str = attrs
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, v))
-                .collect::<Vec<_>>()
-                .join(", ");
-            
-            // Remove debug print statement
-            dot_output.push_str(&format!(
-                "    n{} -> n{} [{}];\n",
-                edge.source(),
-                edge.target(),
-                attrs_str
-            ));
+            // Iterate over original edges if sorting is disabled
+            for (edge_index, edge) in self.edges().enumerate() {
+                let attrs = edge_formatter(edge_index, self);
+                let attrs_str = attrs
+                    .iter()
+                    .map(|(k, v)| format!("{}={}", k, v))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                dot_output.push_str(&format!(
+                    "    n{} -> n{} [{}];\n",
+                    edge.source(),
+                    edge.target(),
+                    attrs_str
+                ));
+            }
         }
         
         // End the digraph

@@ -36,7 +36,7 @@
   )
 
   /* 
-   * Infers a complete function call relationship between contracts.
+   * Infers a complete function call relationship between contracts with callee returning values.
    * This rule combines information about:
    * - The call expression itself
    * - The caller (contract and function)
@@ -51,6 +51,26 @@
         (Caller ?ce_id, ?caller_contract, ?caller_contract_id, ?caller_func, ?caller_func_id)
         (CalleeContract ?ce_id, ?callee_contract_id, ?callee_contract)
         (CalleeFunction ?ce_id, ?callee_func_id, ?callee_func, ?return_stmt_id, ?return_stmt)
+    )
+  )
+
+
+  /* 
+   * Infers a complete function call relationship between contracts with callee not returning values.
+   * This rule combines information about:
+   * - The call expression itself
+   * - The caller (contract and function)
+   * - The callee contract
+   * - The callee function 
+   * 
+   * This creates a comprehensive view of a cross-contract function call,
+   * capturing both the call and the return flow.
+   */
+  (infer CallExpressionFunctionContractNoReturn (?ce_id, ?caller_contract, ?caller_func, ?caller_contract_id, ?caller_func_id, ?callee_func, ?callee_func_id, ?callee_contract_id, ?callee_contract)
+    via ((CallExpression ?ce_id, _, _)
+        (Caller ?ce_id, ?caller_contract, ?caller_contract_id, ?caller_func, ?caller_func_id)
+        (ContractFunctionNoReturn ?callee_contract, ?callee_contract_id, ?callee_func_id, ?callee_func, _)
+        (CalleeFunctionNoReturn ?ce_id, ?callee_func_id, ?callee_func)
     )
   )
 
@@ -88,6 +108,15 @@
    */
   (infer CalleeContract (?ce_id, ?contract_id, ?contract_name)
     via ((CalleeFunction ?ce_id, ?func_id, _, _, _)
+        (FunctionDefinition ?func_id, _, _)
+        (ContractDeclaration ?contract_id, _, _)
+        (Identifier _, ?contract_id, ?contract_name)
+        (Ancestor ?func_id, ?contract_id)
+    )
+  )
+
+  (infer CalleeContractNoReturn (?ce_id, ?contract_id, ?contract_name)
+    via ((CalleeFunctionNoReturn ?ce_id, ?func_id, _)
         (FunctionDefinition ?func_id, _, _)
         (ContractDeclaration ?contract_id, _, _)
         (Identifier _, ?contract_id, ?contract_name)
@@ -192,6 +221,26 @@
     )
   )
 
+  /*
+   * Identifies the function being called without requiring a return statement.
+   * Similar to CalleeFunction, but for functions that don't return values.
+   * It works by:
+   * 1. Finding the call expression
+   * 2. Navigating through member expressions to find the function name
+   * 3. Locating the actual function definition with that name
+   */
+  (infer CalleeFunctionNoReturn (?ce_id, ?func_id, ?func_name)
+    via ((CallExpression ?ce_id, _, _)
+        (Expression ?expr_id, ?ce_id, _)
+        (MemberExpression ?member_expr, ?expr_id, _)
+        (Ancestor ?member_expr, ?container_func_id)
+        (Identifier ?identifier_id, ?member_expr_id, ?func_name)
+        (FunctionDefinition ?func_id, _, _)
+        (Identifier _, ?func_id, ?func_name)
+        (Ancestor ?identifier_id, ?ce_id)
+        not (FunctionHasReturn ?func_id)
+    )
+  )
 
  /*
   * Introduces a mock actor required for mapping out operations that are not 
@@ -233,6 +282,17 @@
     )
   )
 
+  (infer ContractFunctionReturn (?return_contract, ?return_contract_id, ?return_func, ?return_func_id, ?return_stmt_id, ?return_stmt)
+    via ((FunctionDefinition ?return_func_id, _, ?return_func)
+        (ContractDeclaration ?return_contract_id, _, _)
+        (Identifier _, ?return_contract_id, ?return_contract)
+        (Ancestor ?return_func_id, ?return_contract_id)
+        (ReturnStatement ?return_stmt_id, _, ?return_stmt)
+        (Ancestor ?return_stmt_id, ?return_func_id)
+    )
+  )
+
+
  (infer ContractFunctionNoReturn (?no_return_contract, ?no_return_contract_id, ?no_return_func_id, ?no_return_func, ?no_return_visibility)
     via ((FunctionDefinition ?no_return_func_id, _, _)
         (Visibility _, ?no_return_func_id, ?no_return_visibility)
@@ -240,8 +300,20 @@
         (ContractDeclaration ?no_return_contract_id, _, _)
         (Identifier _, ?no_return_contract_id, ?no_return_contract)
         (Ancestor ?no_return_func_id, ?no_return_contract_id)
+        not (FunctionHasReturn ?no_return_func_id)
     )
   )
+
+  /*
+   * Helper rule to identify functions that have at least one return statement.
+   */
+  (infer FunctionHasReturn (?func_id)
+    via ((FunctionDefinition ?func_id, _, _)
+         (ReturnStatement ?return_stmt_id, _, _)
+         (Ancestor ?return_stmt_id, ?func_id)
+    )
+  )
+
 
   /*
    * Identifies state variables in contracts and extracts their names and types.
@@ -374,6 +446,17 @@ insert Identifier(207, 205, "add");
     (no_return_visibility @NoReturnVisibility)
     (when (eq @no_return_visibility "external"))
   )
+
+  (capture ContractFunctionReturn
+    (return_contract @ReturnContract)
+    (return_contract_id @ReturnContractId)
+    (return_func_id @ReturnFuncId)
+    (return_func @ReturnFunc)
+    (return_stmt_id @ReturnStmtId)
+    (return_stmt @ReturnReturnStmt)
+  )
+
+
   
   /* 
    * Captures the essential elements of a cross-contract function call.
@@ -397,6 +480,29 @@ insert Identifier(207, 205, "add");
     (callee_contract @CalleeContract)
     (callee_func @CalleeFunc)
     (return_stmt @ReturnStmt)
+    (return_stmt_id @ReturnStmtId)
+  )
+ 
+  /* 
+   * Captures the essential elements of a cross-contract non-returning function calls.
+   * This rule extracts and names the key components needed for visualization:
+   * - CeId: The unique ID of the call expression
+   * - CallerContract: The name of the contract making the call
+   * - CallerFunc: The name of the function making the call
+   * - CalleeContract: The name of the contract being called
+   * - CalleeFunc: The name of the function being called
+   * 
+   * These captured values are used by the emit rules to generate
+   * the sequence diagram visualization.
+   */
+  (capture CallExpressionFunctionContractNoReturn
+    (ce_id @NoReturnCeId)
+    (caller_contract_id @NoReturnCallerContractId)
+    (caller_contract @NoReturnCallerContract)
+    (caller_func @NoReturnCallerFunc)
+    (callee_contract_id @NoReturnCalleeContractId)
+    (callee_contract @NoReturnCalleeContract)
+    (callee_func @NoReturnCalleeFunc)
   )
 
   /* 
@@ -614,6 +720,36 @@ insert Identifier(207, 205, "add");
     )
   )
 
+  (emit MermaidLineReturnSignalLine
+    @:downstream:CalleeContract
+    @:dependency:ReturnStmtId
+    @:upstream:CallerContract
+    @CallerFunc
+    (do
+      {(format @CalleeContract "-->>" @CallerContract ": " @ReturnStmt)}
+    )
+  )
+
+  /* 
+   * Emits a Mermaid syntax line that represents the function call as an arrow.
+   * This creates an arrow in the sequence diagram from the caller contract
+   * to the callee contract, labeled with the name of the function being called.
+   * 
+   * The multiple @:path parameters ensure that each unique function call
+   * is represented correctly in the diagram, with the proper source, target,
+   * and function name.
+   */
+  
+  (emit MermaidLineInterSignalLineNoReturn
+    @:downstream:NoReturnCallerContract
+    @:dependency:NoReturnCeId
+    @:upstream:NoReturnCalleeContract
+    @NoReturnCalleeFunc
+    (do
+      {(format @NoReturnCallerContract "->>" @NoReturnCalleeContract ": " @NoReturnCalleeFunc)}
+    )
+  )
+
   /* 
    * Emits a Mermaid syntax line that activates the callee contract.
    * This creates an activation bar in the sequence diagram for the callee contract,
@@ -655,15 +791,16 @@ insert Identifier(207, 205, "add");
    * is represented correctly in the diagram, with the proper source, target,
    * and return value.
    */
+  /*
   (emit MermaidLineReturnSignalLine
-    @:path:CeId
-    @CallerContract
-    @CalleeContract
-    @ReturnStmt
+    @:dependency:ReturnReturnStmtId
+    @:downstream:ReturnCallerContract
+    @:upstream:ReturnCalleeContract
+    @ReturnReturnStmt
     (do
-      {(format @CalleeContract "-->>" @CallerContract ": " @ReturnStmt)}
+      {(format @ReturnCalleeContract "-->>" @ReturnCallerContract ": " @ReturnReturnStmt)}
     )
-  )
+  )*/
 
   /* ------- LIBRARY EMISSIONS -------- */
 

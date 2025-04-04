@@ -167,10 +167,10 @@ impl FactOrderingStrategy for PathOrderedDumpAlgorithm {
 
 #[derive(Debug)]
 struct DependencyDrivenDumpAlgorithm {
-    value_attribute: String,
-    edge_attributes: (String, String), // Tuple for inbound and outbound edge attributes
-    dependency_attribute: String,      // Attribute for dependency identifier
-    dependency_graph: HierarchicalIntervalGraph<String, String>,
+    // Store a collection of all unique attribute triplets
+    attribute_triplets: Vec<(String, (String, String), String)>,
+    // The graph remains the same
+    dependency_graph: HierarchicalIntervalGraph<String, String>, // Note: Graph value type might need adjustment if facts don't fit
 }
 
 impl DependencyDrivenDumpAlgorithm {
@@ -184,14 +184,12 @@ impl DependencyDrivenDumpAlgorithm {
     ///
     /// * `Self` - A new instance of DependencyDrivenDumpAlgorithm
     pub fn new(
-        value_attribute: String,
-        edge_attributes: (String, String),
-        dependency_attribute: String,
+        // Accept the collection of unique triplets
+        attribute_triplets: Vec<(String, (String, String), String)>,
     ) -> Self {
         DependencyDrivenDumpAlgorithm {
-            value_attribute,
-            edge_attributes,
-            dependency_attribute,
+            attribute_triplets,
+            // Initialize the graph
             dependency_graph: HierarchicalIntervalGraph::new(),
         }
     }
@@ -212,79 +210,44 @@ impl FactOrderingStrategy for DependencyDrivenDumpAlgorithm {
 
         let mut graph = HierarchicalIntervalGraph::<&str, DdlogFact>::new();
 
-        println!("Value attribute for graph: {:?}", self.value_attribute);
         for fact in &facts_vec {
-            let source_attr_name = &self.edge_attributes.0;
-            let target_attr_name = &self.edge_attributes.1;
-            let value_attr_name = &self.value_attribute;
-            let dependency_attr_name = &self.dependency_attribute;
+            let mut found_attributes_for_fact = false;
+            // Iterate through all available attribute triplets
+            for (value_attr_name, (source_attr_name, target_attr_name), dependency_attr_name) in &self.attribute_triplets {
+                // Try to extract attributes using the current triplet
+                let source_opt = fact.attributes.get(source_attr_name).and_then(|s| s.as_string());
+                let target_opt = fact.attributes.get(target_attr_name).and_then(|t| t.as_string());
+                let val_opt = fact.attributes.get(value_attr_name).and_then(|v| v.as_string()); // Value is often optional for structure
+                let dependency_opt = fact.attributes.get(dependency_attr_name).and_then(|d| d.as_string());
 
-            let source_opt = fact
-                .attributes
-                .get(source_attr_name)
-                .and_then(|s| s.as_string());
-            let target_opt = fact
-                .attributes
-                .get(target_attr_name)
-                .and_then(|t| t.as_string());
-            let val_opt = fact
-                .attributes
-                .get(value_attr_name)
-                .and_then(|v| v.as_string());
-            let dependency_opt = fact
-                .attributes
-                .get(dependency_attr_name)
-                .and_then(|d| d.as_string());
+                // Check if this triplet provides the essential attributes for *this* fact
+                if let (Some(source), Some(target), Some(dependency)) = (source_opt, target_opt, dependency_opt) {
+                    // Use val_opt if present, otherwise handle potentially missing value if needed
+                    // let val = val_opt.unwrap_or_default(); // Example: use default if missing
 
-            let mut missing_attributes = false;
-
-            if source_opt.is_none() {
-                eprintln!(
-                    "Warning: Missing source attribute '{}' in fact: {:?}",
-                    source_attr_name, fact
-                );
-                missing_attributes = true;
-            }
-            if target_opt.is_none() {
-                eprintln!(
-                    "Warning: Missing target attribute '{}' in fact: {:?}",
-                    target_attr_name, fact
-                );
-                missing_attributes = true;
-            }
-            if val_opt.is_none() {
-                // Optional: Only warn if value is strictly required for graph structure/ordering
-                // eprintln!(
-                //     "Warning: Missing value attribute '{}' in fact: {:?}",
-                //     value_attr_name, fact
-                // );
-                // missing_attributes = true; // Decide if missing value prevents edge addition
-            }
-            if dependency_opt.is_none() {
-                eprintln!(
-                    "Warning: Missing dependency attribute '{}' in fact: {:?}",
-                    dependency_attr_name, fact
-                );
-                missing_attributes = true;
-            }
-
-            // Only proceed if all essential attributes are present
-            if !missing_attributes {
-                if let (Some(source), Some(target), Some(val), Some(dependency)) =
-                    (source_opt, target_opt, val_opt, dependency_opt)
-                {
                     let source_id = HierarchicalId::new(source);
                     let target_id = HierarchicalId::new(target);
-                    println!(
-                        "Adding edge from {} to {} with value {:?} and dependency {:?}",
-                        source, target, val, dependency
-                    );
-                    if let Err(e) =
-                        graph.add_edge_with_value(&source_id, &target_id, Some(fact.clone()), None)
-                    {
-                        eprintln!("Error adding fact edge {:?} to graph: {:?}", fact, e);
+                    let dependency_id = HierarchicalId::new(dependency);
+
+                    // Add edge to the graph using the extracted attributes
+                    if let Err(e) = graph.add_edge_with_id_and_value(&source_id, &target_id, Some(dependency_id), Some(fact.clone()), None) {
+                        eprintln!(
+                            "Error adding fact edge {:?} using triplet ('{}', ('{}', '{}'), '{}') to graph: {:?}",
+                            fact, value_attr_name, source_attr_name, target_attr_name, dependency_attr_name, e
+                        );
                     }
+                    found_attributes_for_fact = true;
+                    break; // Found a working triplet for this fact, move to the next fact
                 }
+                // If source, target, or dependency are missing for *this triplet*, continue to the next triplet
+            }
+
+            if !found_attributes_for_fact {
+                 eprintln!(
+                    "Warning: No matching attribute triplet found in {:?} for fact: {:?}",
+                    self.attribute_triplets, fact
+                 );
+                 // Decide how to handle facts that don't match any triplet (e.g., skip, error, add as isolated node?)
             }
         }
 
@@ -649,6 +612,47 @@ impl BucketConfig {
         self.stream_shapes
             .insert(stream_name.to_string(), shape.to_string());
         self
+    }
+
+    /// Collects all unique combinations of (value_attribute, edge_attributes, dependency_attribute)
+    /// used across all defined buckets in the configuration.
+    ///
+    /// It iterates through each bucket defined in `bucket_relations`, determines the effective
+    /// attribute names (considering bucket-specific overrides and defaults), and returns a
+    /// vector of unique triplets.
+    ///
+    /// # Returns
+    ///
+    /// * `Vec<(String, (String, String), String)>` - A vector containing unique triplets of attribute names.
+    pub fn get_unique_attribute_triplets(&self) -> Vec<(String, (String, String), String)> {
+        use std::collections::HashSet;
+
+        let mut unique_triplets = HashSet::new();
+
+        // Iterate through all defined buckets (using bucket_relations keys as the source of truth)
+        for bucket_name in self.bucket_relations.keys() {
+            let value_attr = self
+                .value_attributes
+                .get(bucket_name)
+                .cloned()
+                .unwrap_or_else(|| self.default_value_attribute.clone());
+
+            let edge_attrs = self
+                .edge_attributes
+                .get(bucket_name)
+                .cloned()
+                .unwrap_or_else(|| self.default_edge_attributes.clone());
+
+            let dep_attr = self
+                .dependency_attributes
+                .get(bucket_name)
+                .cloned()
+                .unwrap_or_else(|| self.default_dependency_attribute.clone());
+
+            unique_triplets.insert((value_attr, edge_attrs, dep_attr));
+        }
+
+        unique_triplets.into_iter().collect()
     }
 }
 
@@ -1020,24 +1024,10 @@ impl Hydrator {
                         &config.default_path_attribute,
                     )),
                     StreamFactOrderingStrategy::Dependency => {
-                        Box::new(DependencyDrivenDumpAlgorithm::new(
-                            config.default_value_attribute.clone(),
-                            config
-                                .edge_attributes
-                                .get(&bucket_names[0]) // Assuming first bucket for simplicity
-                                .cloned()
-                                .unwrap_or_else(|| {
-                                    (
-                                        config.default_edge_attributes.0.clone(),
-                                        config.default_edge_attributes.1.clone(),
-                                    )
-                                }),
-                            config
-                                .dependency_attributes
-                                .get(&bucket_names[0])
-                                .cloned()
-                                .unwrap_or_else(|| config.default_dependency_attribute.clone()),
-                        ))
+                        // Get all unique attribute triplets from the config
+                        let unique_triplets = config.get_unique_attribute_triplets();
+                        // Pass the collection of triplets to the algorithm
+                        Box::new(DependencyDrivenDumpAlgorithm::new(unique_triplets))
                     }
                 };
 
@@ -1095,19 +1085,14 @@ impl Hydrator {
                 self.global_config
                     .edge_attributes
                     .get(&bucket_name)
-                    .map(|edge_attrs| {
+                    // Note: We use get() here, but don't actually *need* the specific edge_attrs
+                    // for the constructor anymore. The presence of edge_attributes for the bucket
+                    // is just the signal to use the DependencyDriven algorithm.
+                    .map(|_edge_attrs| { // Changed edge_attrs to _edge_attrs as it's not directly used below
+                        // Get all unique attribute triplets from the global config
+                        let unique_triplets = self.global_config.get_unique_attribute_triplets();
                         let algo: Box<dyn FactOrderingStrategy> =
-                            Box::new(DependencyDrivenDumpAlgorithm::new(
-                                self.global_config.default_value_attribute.clone(),
-                                edge_attrs.clone(),
-                                self.global_config
-                                    .dependency_attributes
-                                    .get(&bucket_name)
-                                    .cloned()
-                                    .unwrap_or_else(|| {
-                                        self.global_config.default_dependency_attribute.clone()
-                                    }),
-                            ));
+                            Box::new(DependencyDrivenDumpAlgorithm::new(unique_triplets));
                         println!(
                             "Using DependencyDrivenDumpAlgorithm {:?} for bucket: {}",
                             algo, bucket_name
@@ -1835,15 +1820,13 @@ mod tests {
         assert!(output.contains("Node 1.1 depends on 2.1"));
         //
         // Create a stream with dependency-driven ordering
+        // Get the triplets from the config used in the test
+        let triplets = hydrator.global_config.get_unique_attribute_triplets();
         hydrator.add_stream_with_shape(
             "dependency_stream",
             vec!["dependencies".to_string()],
             "dependency_shape",
-            Box::new(DependencyDrivenDumpAlgorithm::new(
-                "val".to_string(),
-                ("source".to_string(), "target".to_string()),
-                "dependency".to_string(),
-            )),
+            Box::new(DependencyDrivenDumpAlgorithm::new(triplets)),
         );
 
         // Get the stream output

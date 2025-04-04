@@ -12,6 +12,10 @@ contract Counter {
     function getCount() public view returns (uint256) {
         return count;
     }
+
+    function resetCount() public {
+        count = 0;
+    }
 }
 
 contract CounterCaller {
@@ -24,5 +28,9 @@ contract CounterCaller {
     function incrementAndGet() public returns (uint256) {
         counter.increment();
         return counter.getCount();
+    }
+
+    function resetCounter() public {
+        counter.resetCount();
     }
 }
