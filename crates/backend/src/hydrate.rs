@@ -213,15 +213,31 @@ impl FactOrderingStrategy for DependencyDrivenDumpAlgorithm {
         for fact in &facts_vec {
             let mut found_attributes_for_fact = false;
             // Iterate through all available attribute triplets
-            for (value_attr_name, (source_attr_name, target_attr_name), dependency_attr_name) in &self.attribute_triplets {
+            for (value_attr_name, (source_attr_name, target_attr_name), dependency_attr_name) in
+                &self.attribute_triplets
+            {
                 // Try to extract attributes using the current triplet
-                let source_opt = fact.attributes.get(source_attr_name).and_then(|s| s.as_string());
-                let target_opt = fact.attributes.get(target_attr_name).and_then(|t| t.as_string());
-                let val_opt = fact.attributes.get(value_attr_name).and_then(|v| v.as_string()); // Value is often optional for structure
-                let dependency_opt = fact.attributes.get(dependency_attr_name).and_then(|d| d.as_string());
+                let source_opt = fact
+                    .attributes
+                    .get(source_attr_name)
+                    .and_then(|s| s.as_string());
+                let target_opt = fact
+                    .attributes
+                    .get(target_attr_name)
+                    .and_then(|t| t.as_string());
+                let val_opt = fact
+                    .attributes
+                    .get(value_attr_name)
+                    .and_then(|v| v.as_string()); // Value is often optional for structure
+                let dependency_opt = fact
+                    .attributes
+                    .get(dependency_attr_name)
+                    .and_then(|d| d.as_string());
 
                 // Check if this triplet provides the essential attributes for *this* fact
-                if let (Some(source), Some(target), Some(dependency)) = (source_opt, target_opt, dependency_opt) {
+                if let (Some(source), Some(target), Some(dependency)) =
+                    (source_opt, target_opt, dependency_opt)
+                {
                     // Use val_opt if present, otherwise handle potentially missing value if needed
                     // let val = val_opt.unwrap_or_default(); // Example: use default if missing
 
@@ -230,7 +246,13 @@ impl FactOrderingStrategy for DependencyDrivenDumpAlgorithm {
                     let dependency_id = HierarchicalId::new(dependency);
 
                     // Add edge to the graph using the extracted attributes
-                    if let Err(e) = graph.add_edge_with_id_and_value(&source_id, &target_id, Some(dependency_id), Some(fact.clone()), None) {
+                    if let Err(e) = graph.add_edge_with_id_and_value(
+                        &source_id,
+                        &target_id,
+                        Some(dependency_id),
+                        Some(fact.clone()),
+                        None,
+                    ) {
                         eprintln!(
                             "Error adding fact edge {:?} using triplet ('{}', ('{}', '{}'), '{}') to graph: {:?}",
                             fact, value_attr_name, source_attr_name, target_attr_name, dependency_attr_name, e
@@ -243,22 +265,11 @@ impl FactOrderingStrategy for DependencyDrivenDumpAlgorithm {
             }
 
             if !found_attributes_for_fact {
-                 eprintln!(
+                eprintln!(
                     "Warning: No matching attribute triplet found in {:?} for fact: {:?}",
                     self.attribute_triplets, fact
-                 );
-                 // Decide how to handle facts that don't match any triplet (e.g., skip, error, add as isolated node?)
-            }
-        }
-
-        let mut topologically_ordered_facts = Vec::new();
-        if let Ok(graph_edges_idx) = graph.topological_sort_edges() {
-            // map the graph edges to the facts
-            for edge_idx in graph_edges_idx {
-                if let Some(edge) = graph.get_edge(edge_idx) {
-                    let fact = edge.value();
-                    topologically_ordered_facts.push(OrderedFact::new(fact.cloned().unwrap()));
-                }
+                );
+                // Decide how to handle facts that don't match any triplet (e.g., skip, error, add as isolated node?)
             }
         }
 
@@ -267,6 +278,58 @@ impl FactOrderingStrategy for DependencyDrivenDumpAlgorithm {
         std::fs::remove_file("trace_dependency_diagram_unsorted.dot").unwrap_or_default();
         let mut file = File::create("trace_dependency_diagram_unsorted.dot").unwrap();
         file.write_all(dot.as_bytes()).unwrap();
+
+        println!("Generating acyclic graph DOT...");
+        let dot_acyclic = match graph.transform_to_acyclic() {
+            Ok(g) => g.to_dot("trace_dependency_diagram_acyclic", true), // Use sort: true to get acyclic structure
+            Err(e) => {
+                eprintln!("Failed to generate acyclic graph for DOT: {}", e);
+                // Provide a default empty graph string or handle error appropriately
+                format!("digraph trace_dependency_diagram_acyclic {{ error [label=\"Error generating acyclic graph: {}\"]; }}", escape_dot_string(&e))
+            }
+        };
+
+        // Write the acyclic DOT file with error handling
+        if let Err(e) = std::fs::remove_file("trace_dependency_diagram_acyclic.dot") {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                eprintln!("Warning: Could not remove existing acyclic DOT file: {}", e);
+            }
+        }
+        match File::create("trace_dependency_diagram_acyclic.dot") {
+            Ok(mut file) => {
+                if let Err(e) = file.write_all(dot_acyclic.as_bytes()) {
+                    eprintln!("Error writing acyclic DOT file: {}", e);
+                } else {
+                    println!("Successfully wrote trace_dependency_diagram_acyclic.dot");
+                }
+            }
+            Err(e) => eprintln!("Error creating acyclic DOT file: {}", e),
+        }
+
+        println!("Attempting topological sort for fact ordering...");
+        let topologically_ordered_facts = match graph.transform_to_acyclic() {
+            Ok(acyclic_graph) => match acyclic_graph.topological_sort_edges() {
+                Ok(graph_edges_idx) => graph_edges_idx
+                    .into_iter()
+                    .filter_map(|edge_idx| acyclic_graph.get_edge(edge_idx))
+                    .filter_map(|edge| edge.value().cloned())
+                    .map(OrderedFact::new)
+                    .collect(),
+                Err(e) => {
+                    eprintln!("Failed to get topological sort edges: {:?}", e);
+                    Vec::new()
+                }
+            },
+            Err(e) => {
+                eprintln!("Failed to get sorted edges: {:?}", e);
+                Vec::new()
+            }
+        };
+        println!(
+            "Topologically ordered facts: {:?}",
+            topologically_ordered_facts
+        );
+
         let sorted_dot = graph.to_dot("trace_dependency_diagram_sorted", true);
         std::fs::remove_file("trace_dependency_diagram_sorted.dot").unwrap_or_default();
         let mut sorted_file = File::create("trace_dependency_diagram_sorted.dot").unwrap();
@@ -1088,7 +1151,8 @@ impl Hydrator {
                     // Note: We use get() here, but don't actually *need* the specific edge_attrs
                     // for the constructor anymore. The presence of edge_attributes for the bucket
                     // is just the signal to use the DependencyDriven algorithm.
-                    .map(|_edge_attrs| { // Changed edge_attrs to _edge_attrs as it's not directly used below
+                    .map(|_edge_attrs| {
+                        // Changed edge_attrs to _edge_attrs as it's not directly used below
                         // Get all unique attribute triplets from the global config
                         let unique_triplets = self.global_config.get_unique_attribute_triplets();
                         let algo: Box<dyn FactOrderingStrategy> =

@@ -755,75 +755,141 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
             old_to_new_idx_map.insert(old_idx, new_idx);
         }
 
-        // 2. Process edges, breaking cycles
-        for (edge_idx, edge) in self.edges.iter().enumerate() {
-            let u_old_idx = edge.source();
-            let v_old_idx = edge.target();
-
-            let u_new_idx = *old_to_new_idx_map.get(&u_old_idx).unwrap(); // Should exist
-            let v_new_idx = *old_to_new_idx_map.get(&v_old_idx).unwrap(); // Should exist
-
+        // 2. Process edges, breaking cycles by iterating through original vertices and their outgoing edges
+        for u_old_idx in 0..num_vertices {
             let u_orig_vertex = self.get_vertex(u_old_idx).unwrap(); // Should exist
-            let v_orig_vertex = self.get_vertex(v_old_idx).unwrap(); // Should exist
+            let u_new_idx = *old_to_new_idx_map.get(&u_old_idx).unwrap(); // Should exist
 
-            if back_edges.contains(&(u_old_idx, v_old_idx)) {
-                // --- Cycle Breaking Logic ---
-                let u_orig_vertex = self.get_vertex(u_old_idx).unwrap();
+            // Iterate through the outgoing edges of the original vertex u
+            for &edge_idx in u_orig_vertex.outgoing() {
+                if let Some(edge) = self.get_edge(edge_idx) {
+                    let v_old_idx = edge.target();
+                    let v_orig_vertex = self.get_vertex(v_old_idx).unwrap(); // Should exist
+                    let v_new_idx = *old_to_new_idx_map.get(&v_old_idx).unwrap(); // Should exist
 
-                // Generate intermediate node ID as a child of u
-                // Using a fixed large number component (e.g., 99999) for the intermediate node.
-                // This avoids the parsing issue with ".ret" and reduces collision chances.
-                const INTERMEDIATE_NODE_COMPONENT: usize = 99999;
-                let base_ret_node_id = u_orig_vertex.id().create_child(INTERMEDIATE_NODE_COMPONENT); // e.g., "3.99999"
+                    // Check if this specific edge is a back edge
+                    if back_edges.contains(&(u_old_idx, v_old_idx)) {
+                        // --- Cycle Breaking Logic ---
+                        // Generate intermediate node ID as a child of u
+                        const INTERMEDIATE_NODE_COMPONENT: usize = 99999;
+                        let base_ret_node_id = u_orig_vertex.id().create_child(INTERMEDIATE_NODE_COMPONENT);
 
-                // Check for collision and generate unique ID if needed
-                let mut ret_node_id = base_ret_node_id.clone();
-                let mut i = 0;
-                while cfg.get_vertex_idx(&ret_node_id).is_some() {
-                    i += 1;
-                    // If base ID collides, create siblings: 3.99999 -> 3.100000 -> 3.100001 etc.
-                    // Get parent ID ("3")
-                    let parent_id = base_ret_node_id.parent().ok_or_else(|| format!("Intermediate node base {} has no parent", base_ret_node_id))?;
-                    // Create sibling ID by incrementing the component number
-                    ret_node_id = parent_id.create_child(INTERMEDIATE_NODE_COMPONENT + i);
+                        // Check for collision and generate unique ID if needed
+                        let mut ret_node_id = base_ret_node_id.clone();
+                        let mut i = 0;
+                        while cfg.get_vertex_idx(&ret_node_id).is_some() {
+                            i += 1;
+                            let parent_id = base_ret_node_id.parent().ok_or_else(|| format!("Intermediate node base {} has no parent", base_ret_node_id))?;
+                            ret_node_id = parent_id.create_child(INTERMEDIATE_NODE_COMPONENT + i);
+                            if i > 100 { return Err(format!("Failed to generate unique return node ID for base {}", base_ret_node_id)); }
+                        }
 
-                    if i > 100 { // Limit attempts
-                        return Err(format!("Failed to generate unique return node ID for base {}", base_ret_node_id));
+                        // Add the unique return node to the CFG if it doesn't exist yet
+                        // We might encounter the same back edge multiple times if iterating by vertex,
+                        // so ensure the intermediate node is only added once per original source vertex.
+                        // A better approach might be to create intermediate nodes beforehand based on `back_edges`.
+                        // For now, let's try adding it and rely on `add_vertex`'s error handling,
+                        // or better, check existence first.
+                        let ret_node_new_idx = match cfg.get_vertex_idx(&ret_node_id) {
+                             Some(idx) => idx,
+                             None => cfg.add_vertex(ret_node_id.clone(), None)?, // No value initially
+                        };
+
+
+                        // Add edge: u -> u_ret (only if it doesn't exist already)
+                        // Check if an edge from u_new_idx to ret_node_new_idx already exists in cfg
+                        let u_to_ret_exists = cfg.get_vertex(u_new_idx).map_or(false, |v| {
+                            v.outgoing().iter().any(|&out_edge_idx| {
+                                cfg.get_edge(out_edge_idx).map_or(false, |e| e.target() == ret_node_new_idx)
+                            })
+                        });
+
+                        if !u_to_ret_exists {
+                            cfg.add_edge_with_value(
+                                u_orig_vertex.id(), // Use original ID for lookup
+                                &ret_node_id,       // Use the final unique ID
+                                None,               // No value for u -> u_ret
+                                None,               // No metadata for u -> u_ret
+                            )?;
+                        }
+
+
+                        // --- Create Clone of Target Node 'v' ---
+                        // Generate clone node ID as child of v
+                        const CLONE_NODE_COMPONENT: usize = 100000;
+                        let base_clone_node_id = v_orig_vertex.id().create_child(CLONE_NODE_COMPONENT);
+
+                        // Check for clone ID collision and generate unique ID
+                        let mut clone_node_id = base_clone_node_id.clone();
+                        let mut j = 0;
+                        while cfg.get_vertex_idx(&clone_node_id).is_some() {
+                            j += 1;
+                            clone_node_id = v_orig_vertex.id().create_child(CLONE_NODE_COMPONENT + j);
+                            if j > 100 { return Err(format!("Failed to generate unique clone node ID for base {}", base_clone_node_id)); }
+                        }
+
+                        // Add the unique clone node to the CFG, copying v's value
+                        let clone_node_new_idx = match cfg.get_vertex_idx(&clone_node_id) {
+                            Some(idx) => idx,
+                            None => cfg.add_vertex(
+                                clone_node_id.clone(),
+                                v_orig_vertex.value().cloned() // Clone value from original v
+                            )?,
+                        };
+
+
+                        // Add edge: u_ret -> v_clone (inherits value/metadata from original u -> v edge)
+                        // Check if this specific edge already exists to avoid duplicates
+                         let ret_to_clone_exists = cfg.get_vertex(ret_node_new_idx).map_or(false, |v| {
+                            v.outgoing().iter().any(|&out_edge_idx| {
+                                cfg.get_edge(out_edge_idx).map_or(false, |e| {
+                                    // Check target and potentially value/metadata if needed for uniqueness
+                                    e.target() == clone_node_new_idx
+                                })
+                            })
+                        });
+
+                        if !ret_to_clone_exists {
+                            cfg.add_edge_with_value(
+                                &ret_node_id,       // Source is the intermediate node
+                                &clone_node_id,     // Target is the new clone node
+                                edge.value().cloned(),    // Inherit value from original u->v edge
+                                edge.metadata().cloned(), // Inherit metadata from original u->v edge
+                            )?;
+                        }
+
+                        // IMPORTANT: Do NOT add the original back edge u -> v to cfg
+
+                    } else {
+                        // --- Not a back edge, add directly to cfg ---
+                        // Check if this edge already exists in cfg to prevent duplicates
+                        // (Needed because we iterate outgoing edges of original graph)
+                        let edge_already_exists = cfg.get_vertex(u_new_idx).map_or(false, |v_cfg| {
+                            v_cfg.outgoing().iter().any(|&out_edge_idx| {
+                                cfg.get_edge(out_edge_idx).map_or(false, |e_cfg| {
+                                    // Basic check: source and target match
+                                    e_cfg.source() == u_new_idx && e_cfg.target() == v_new_idx &&
+                                    // Optional: More robust check comparing value/metadata/id if needed
+                                    e_cfg.id().cloned() == edge.id().cloned() &&
+                                    // Comparing Option<E: Clone> might require E: PartialEq
+                                    // e_cfg.value().cloned() == edge.value().cloned() &&
+                                    // e_cfg.metadata().cloned() == edge.metadata().cloned()
+                                    true // Placeholder if E is not PartialEq
+                                })
+                            })
+                        });
+
+                        if !edge_already_exists {
+                            cfg.add_edge_with_id_and_value(
+                                u_orig_vertex.id(), // Use original ID for lookup
+                                v_orig_vertex.id(), // Use original ID for lookup
+                                edge.id().cloned(),       // Clone original edge ID
+                                edge.value().cloned(),    // Clone value
+                                edge.metadata().cloned(), // Clone metadata
+                            )?;
+                        }
                     }
                 }
-
-                // Add the unique return node to the CFG
-                let ret_node_new_idx = cfg.add_vertex(ret_node_id.clone(), None)?; // No value initially
-
-                // Add edge: u -> u_ret (no value/metadata from original edge)
-                // Use the original edge's ID if it exists for this new edge? No, likely confusing.
-                cfg.add_edge_with_value(
-                    u_orig_vertex.id(),
-                    &ret_node_id, // Use the final unique ID
-                    None, // No value for u -> u_ret
-                    None, // No metadata for u -> u_ret
-                )?;
-
-                // // Add edge: u_ret -> v (inherits value/metadata from original u -> v)
-                // // NOTE: Removing this edge to ensure acyclicity. This changes semantics slightly.
-                // // If needed, uncomment and ensure it uses the correct ret_node_id.
-                // cfg.add_edge_with_value(
-                //     &ret_node_id, // Use the final unique ID
-                //     v_orig_vertex.id(),
-                //     edge.value().cloned(),    // Inherit value
-                //     edge.metadata().cloned(), // Inherit metadata
-                // )?;
-
-            } else {
-                // --- Not a back edge, add directly ---
-                // Preserve original edge ID if it exists
-                cfg.add_edge_with_id_and_value(
-                    u_orig_vertex.id(),
-                    v_orig_vertex.id(),
-                    edge.id().cloned(),       // Clone original edge ID
-                    edge.value().cloned(),    // Clone value
-                    edge.metadata().cloned(), // Clone metadata
-                )?;
             }
         }
 
@@ -1220,6 +1286,92 @@ mod tests {
             acyclic_graph.outgoing_edges(&c_id).into_iter().find(|e| acyclic_graph.get_vertex(e.target()).unwrap().id() == &a_id).is_none(),
             "Original back edge C -> A should not exist"
         );
+    }
+
+    #[test]
+    fn test_topological_sort_edges_on_transformed_acyclic_graph() {
+        let mut graph = HierarchicalIntervalGraph::<&str, &str>::new();
+
+        // --- Setup: Create a graph with a cycle ---
+        let a_id = HierarchicalId::new("1");
+        let b_id = HierarchicalId::new("1.1");
+        let c_id = HierarchicalId::new("1.1.1");
+        graph.add_vertex(a_id.clone(), Some("A")).unwrap();
+        graph.add_vertex(b_id.clone(), Some("B")).unwrap();
+        graph.add_vertex(c_id.clone(), Some("C")).unwrap();
+
+        // Edges: A -> B -> C -> A (cycle)
+        graph
+            .add_edge_with_value(&a_id, &b_id, Some("val_ab"), Some("meta_ab"))
+            .unwrap();
+        graph
+            .add_edge_with_value(&b_id, &c_id, Some("val_bc"), Some("meta_bc"))
+            .unwrap();
+        graph // Back edge
+            .add_edge_with_value(&c_id, &a_id, Some("val_ca"), Some("meta_ca"))
+            .unwrap();
+
+        // --- Transform to acyclic graph ---
+        // Expected structure: A -> B -> C -> C_intermediate
+        let acyclic_graph = graph.transform_to_acyclic().unwrap();
+
+        // Quick check: vertex sort should succeed
+        assert!(
+            acyclic_graph.topological_sort().is_ok(),
+            "Transformed graph should be acyclic"
+        );
+
+        // --- Focus: Test topological_sort_edges on the result ---
+        let edge_sort_result = acyclic_graph.topological_sort_edges();
+        assert!(
+            edge_sort_result.is_ok(),
+            "topological_sort_edges should succeed on the acyclic graph, but failed: {:?}", edge_sort_result.err()
+        );
+        let sorted_edge_indices = edge_sort_result.unwrap();
+
+        // --- Verification ---
+        assert_eq!(
+            acyclic_graph.edges().count(),
+            3,
+            "Acyclic graph should have 3 edges (A->B, B->C, C->intermediate)"
+        );
+        assert_eq!(
+            sorted_edge_indices.len(),
+            3,
+            "Sorted edge list should contain 3 edges"
+        );
+
+        // Find the indices of the specific edges in the *acyclic* graph
+        const INTERMEDIATE_NODE_COMPONENT: usize = 99999;
+        let expected_ret_node_id = c_id.create_child(INTERMEDIATE_NODE_COMPONENT);
+
+        // Helper to find edge index by source/target IDs in the acyclic graph
+        let find_edge_idx = |graph: &HierarchicalIntervalGraph<&str, &str>, src_id: &HierarchicalId, tgt_id: &HierarchicalId| -> Option<EdgeIndex> {
+            graph.edges().enumerate().find(|(_, e)| {
+                let source_match = graph.get_vertex(e.source()).map_or(false, |v| v.id() == src_id);
+                let target_match = graph.get_vertex(e.target()).map_or(false, |v| v.id() == tgt_id);
+                source_match && target_match
+            }).map(|(idx, _)| idx)
+        };
+
+        let edge_ab_new_idx = find_edge_idx(&acyclic_graph, &a_id, &b_id)
+            .expect("Edge A->B should exist in acyclic graph");
+        let edge_bc_new_idx = find_edge_idx(&acyclic_graph, &b_id, &c_id)
+            .expect("Edge B->C should exist in acyclic graph");
+        let edge_c_ret_new_idx = find_edge_idx(&acyclic_graph, &c_id, &expected_ret_node_id)
+            .expect("Edge C->intermediate should exist in acyclic graph");
+
+        // Find the positions of these edges in the sorted list
+        let pos_ab = sorted_edge_indices.iter().position(|&idx| idx == edge_ab_new_idx)
+            .expect("Edge A->B index should be in sorted list");
+        let pos_bc = sorted_edge_indices.iter().position(|&idx| idx == edge_bc_new_idx)
+            .expect("Edge B->C index should be in sorted list");
+        let pos_c_ret = sorted_edge_indices.iter().position(|&idx| idx == edge_c_ret_new_idx)
+            .expect("Edge C->intermediate index should be in sorted list");
+
+        // Assert the topological order of edges based on dependencies
+        assert!(pos_ab < pos_bc, "Edge A->B must come before B->C in topological edge sort (pos_ab={}, pos_bc={})", pos_ab, pos_bc);
+        assert!(pos_bc < pos_c_ret, "Edge B->C must come before C->intermediate in topological edge sort (pos_bc={}, pos_c_ret={})", pos_bc, pos_c_ret);
     }
 
 }

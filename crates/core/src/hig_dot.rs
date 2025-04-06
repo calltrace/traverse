@@ -64,8 +64,8 @@ pub trait HigToDot<V, E> {
 
 impl<V, E> HigToDot<V, E> for HierarchicalIntervalGraph<V, E>
 where
-    V: ToDotLabel + ToDotAttributes,
-    E: ToDotLabel + ToDotAttributes,
+    V: ToDotLabel + ToDotAttributes + Clone,
+    E: ToDotLabel + ToDotAttributes + Clone,
 {
     fn to_dot(&self, name: &str, sort: bool) -> String {
         self.to_dot_with_formatters(
@@ -136,66 +136,115 @@ where
         dot_output.push_str("    graph [rankdir=LR, fontname=\"Arial\", splines=true];\n");
         dot_output.push_str("    node [shape=box, style=\"rounded,filled\", fillcolor=lightblue, fontname=\"Arial\"];\n");
         dot_output.push_str("    edge [fontname=\"Arial\"];\n");
-        
-        // Add nodes
-        dot_output.push_str("    // Nodes\n");
-        for (idx, _vertex) in self.vertices().enumerate() {
-            let attrs = node_formatter(idx, self);
-            let attrs_str = attrs
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, v))
-                .collect::<Vec<_>>()
-                .join(", ");
-                
-            dot_output.push_str(&format!("    n{} [{}];\n", idx, attrs_str));
-        }
-        
-        // Add edges
-        dot_output.push_str("    // Edges\n");
-        if sort {
-            if let Ok(sorted_edge_indices) = self.topological_sort_edges() {
-                // Iterate over the sorted edge indices
-                for edge_index in sorted_edge_indices {
-                    if let Some(edge) = self.get_edge(edge_index) {
-                        // Pass the correct edge_index to the formatter
-                        let attrs = edge_formatter(edge_index, self);
-                        let attrs_str = attrs
-                            .iter()
-                            .map(|(k, v)| format!("{}={}", k, v))
-                            .collect::<Vec<_>>()
-                            .join(", ");
 
+        // Node and Edge generation depends on whether sorting (and thus transformation) is enabled
+        if sort {
+            // Create the transformed graph once
+            match self.transform_to_acyclic() {
+                Ok(transformed_graph) => {
+                    // --- Add nodes from the TRANSFORMED graph ---
+                    // Generate node definitions *before* processing edges.
+                    dot_output.push_str("    // Nodes (from transformed graph)\n");
+                    for (idx, vertex) in transformed_graph.vertices().enumerate() {
+                        // Simple node definition using only ID for label and basic attributes.
+                        // We avoid the potentially complex node_formatter here as it expects the original graph.
+                        // You might enhance this later if more complex node attributes are needed for transformed graphs.
                         dot_output.push_str(&format!(
-                            "    n{} -> n{} [{}];\n",
-                            edge.source(),
-                            edge.target(),
-                            attrs_str
+                            "    n{} [label=\"{}\"];\n", // Use vertex ID as label
+                            idx,
+                            vertex.id()
                         ));
                     }
-                }
-            } else {
-                // Fallback if topological sort fails (e.g., cycle detected)
-                // Iterate over original edges with their indices
-                for (edge_index, edge) in self.edges().enumerate() {
-                    let attrs = edge_formatter(edge_index, self);
-                    let attrs_str = attrs
-                        .iter()
-                        .map(|(k, v)| format!("{}={}", k, v))
-                        .collect::<Vec<_>>()
-                        .join(", ");
 
-                    dot_output.push_str(&format!(
-                        "    n{} -> n{} [{}];\n",
-                        edge.source(),
-                        edge.target(),
-                        attrs_str
-                    ));
+                    // Get the sorted edges from the transformed graph
+                    match transformed_graph.topological_sort_edges() {
+                        Ok(sorted_edge_indices) => {
+                            dot_output.push_str("    // Edges (from transformed graph, topologically sorted)\n");
+                            // Iterate over the sorted edge indices
+                            for edge_index in sorted_edge_indices {
+                                // Get the edge from the TRANSFORMED graph
+                                if let Some(transformed_edge) = transformed_graph.get_edge(edge_index) {
+                                    let mut attrs = Vec::new();
+
+                                    // Use value from transformed_edge for label
+                                    if let Some(value) = transformed_edge.value() {
+                                        attrs.push(("label".to_string(), format!("\"{}\"", value.to_dot_label())));
+                                    }
+
+                                    // Use metadata from transformed_edge for tooltip and other attributes
+                                    if let Some(metadata) = transformed_edge.metadata() {
+                                        // Add tooltip only if label wasn't already set by value
+                                        if transformed_edge.value().is_none() {
+                                             attrs.push(("tooltip".to_string(), format!("\"{}\"", metadata.to_dot_label())));
+                                        } else {
+                                            // If value set the label, maybe add metadata to tooltip? Or skip?
+                                            // Adding metadata to tooltip for now, even if value exists.
+                                             attrs.push(("tooltip".to_string(), format!("\"Value: {}\\nMeta: {}\"",
+                                                transformed_edge.value().map(|v| v.to_dot_label()).unwrap_or_default(),
+                                                metadata.to_dot_label()
+                                             )));
+                                        }
+                                        // Add other attributes from metadata
+                                        attrs.extend(metadata.to_dot_attributes());
+                                    }
+
+                                    let attrs_str = attrs
+                                        .iter()
+                                        .map(|(k, v)| format!("{}={}", k, v))
+                                        .collect::<Vec<_>>()
+                                        .join(", ");
+
+                                    // Use source() and target() from the transformed_edge
+                                    dot_output.push_str(&format!(
+                                        "    n{} -> n{} [{}];\n",
+                                        transformed_edge.source(),
+                                        transformed_edge.target(),
+                                        attrs_str
+                                    ));
+                                } else {
+                                     eprintln!("Warning: Could not find edge with index {} in transformed graph, skipping.", edge_index);
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            eprintln!("Error sorting edges in transformed graph: {}. Falling back to original edges.", e);
+                            // Fallback: Iterate over original edges if sorting the transformed graph fails
+                            for (edge_index, edge) in self.edges().enumerate() {
+                                let attrs = edge_formatter(edge_index, self);
+                                let attrs_str = attrs.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(", ");
+                                dot_output.push_str(&format!("    n{} -> n{} [{}];\n", edge.source(), edge.target(), attrs_str));
+                            }
+                        }
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Error transforming graph to acyclic: {}. Falling back to original edges.", e);
+                    // Fallback: Iterate over original edges if transformation fails
+                    for (edge_index, edge) in self.edges().enumerate() {
+                        let attrs = edge_formatter(edge_index, self);
+                        let attrs_str = attrs.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(", ");
+                        dot_output.push_str(&format!("    n{} -> n{} [{}];\n", edge.source(), edge.target(), attrs_str));
+                    }
                 }
             }
         } else {
-            // Iterate over original edges if sorting is disabled
+            // --- Add nodes from the ORIGINAL graph ---
+            dot_output.push_str("    // Nodes (from original graph)\n");
+            for (idx, _vertex) in self.vertices().enumerate() {
+                // Use the provided node_formatter for the original graph
+                let attrs = node_formatter(idx, self);
+                let attrs_str = attrs
+                    .iter()
+                    .map(|(k, v)| format!("{}={}", k, v))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                dot_output.push_str(&format!("    n{} [{}];\n", idx, attrs_str));
+            }
+
+            dot_output.push_str("    // Edges (from original graph)\n");
+            // --- Add edges from the ORIGINAL graph ---
             for (edge_index, edge) in self.edges().enumerate() {
-                let attrs = edge_formatter(edge_index, self);
+                let attrs = edge_formatter(edge_index, self); // Use original formatter and graph
                 let attrs_str = attrs
                     .iter()
                     .map(|(k, v)| format!("{}={}", k, v))
