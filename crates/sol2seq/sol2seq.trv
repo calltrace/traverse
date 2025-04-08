@@ -479,6 +479,7 @@ insert Identifier(207, 205, "add");
     (callee_contract_id @CalleeContractId)
     (callee_contract @CalleeContract)
     (callee_func @CalleeFunc)
+    (callee_func_id @CalleeFuncId)
     (return_stmt @ReturnStmt)
     (return_stmt_id @ReturnStmtId)
   )
@@ -714,6 +715,7 @@ insert Identifier(207, 205, "add");
     @:downstream:CallerContract
     @:dependency:CeId
     @:upstream:CalleeContract
+    @:path:CalleeFunc
     @CalleeFunc
     (do
       {(format @CallerContract "->>" @CalleeContract ": " @CalleeFunc)}
@@ -795,8 +797,9 @@ insert Identifier(207, 205, "add");
   (emit MermaidLineReturnSignalLine
     @:dependency:ReturnReturnStmtId
     @:downstream:ReturnCallerContract
-    @:upstream:ReturnCalleeContract
+    @:upstream:ReturnFunc
     @ReturnReturnStmt
+    @ReturnCalleeContract
     (do
       {(format @ReturnCalleeContract "-->>" @ReturnCallerContract ": " @ReturnReturnStmt)}
     )

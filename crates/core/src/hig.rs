@@ -106,7 +106,6 @@ impl HierarchicalId {
     }
 }
 
-
 impl Ord for HierarchicalId {
     fn cmp(&self, other: &Self) -> Ordering {
         for (a, b) in self.components.iter().zip(other.components.iter()) {
@@ -513,7 +512,8 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
     }
     pub fn outgoing_edges(&self, id: &HierarchicalId) -> Vec<&Edge<E>> {
         if let Some(vertex_idx) = self.get_vertex_idx(id) {
-            let mut edges_with_indices: Vec<(EdgeIndex, Option<&HierarchicalId>)> = self.vertices[vertex_idx]
+            let mut edges_with_indices: Vec<(EdgeIndex, Option<&HierarchicalId>)> = self.vertices
+                [vertex_idx]
                 .outgoing()
                 .iter()
                 .filter_map(|&edge_idx| self.edges.get(edge_idx).map(|edge| (edge_idx, edge.id())))
@@ -525,9 +525,9 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
             edges_with_indices.sort_by(|(idx_a, id_a_opt), (idx_b, id_b_opt)| {
                 match (id_a_opt, id_b_opt) {
                     (Some(id_a), Some(id_b)) => id_a.cmp(id_b),
-                    (Some(_), None) => Ordering::Less,  // Edges with IDs come before those without
+                    (Some(_), None) => Ordering::Less, // Edges with IDs come before those without
                     (None, Some(_)) => Ordering::Greater, // Edges without IDs come after those with
-                    (None, None) => idx_a.cmp(idx_b), // Sort edges without IDs by index
+                    (None, None) => idx_a.cmp(idx_b),  // Sort edges without IDs by index
                 }
             });
 
@@ -542,7 +542,8 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
     }
     pub fn incoming_edges(&self, id: &HierarchicalId) -> Vec<&Edge<E>> {
         if let Some(vertex_idx) = self.get_vertex_idx(id) {
-            let mut edges_with_indices: Vec<(EdgeIndex, Option<&HierarchicalId>)> = self.vertices[vertex_idx]
+            let mut edges_with_indices: Vec<(EdgeIndex, Option<&HierarchicalId>)> = self.vertices
+                [vertex_idx]
                 .incoming()
                 .iter()
                 .filter_map(|&edge_idx| self.edges.get(edge_idx).map(|edge| (edge_idx, edge.id())))
@@ -609,41 +610,171 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
         Ok(result)
     }
 
-    /// Performs a topological sort of the edges based primarily on their HierarchicalId.
-    /// Edges with IDs are sorted first according to their ID, followed by edges without IDs
-    /// sorted by their internal index.
+    /// Performs a topological sort of the edges using a Depth-First Search (DFS) approach.
+    ///
+    /// This method aims to produce an "interleaved" order by exploring paths deeply.
+    /// Edges are added to the result in pre-order traversal sequence, sorted locally
+    /// at each step by their HierarchicalId.
+    ///
     /// Returns an error if the graph contains a cycle.
     pub fn topological_sort_edges(&self) -> Result<Vec<EdgeIndex>, String> {
-        // 1. Check for cycles using vertex topological sort.
-        self.topological_sort()?; // Propagate cycle error if found.
+        // 1. Perform vertex topological sort first as an efficient cycle check.
+        self.topological_sort()?;
 
-        // 2. Collect all edge indices and their optional IDs.
-        let mut edges_with_ids: Vec<(EdgeIndex, Option<&HierarchicalId>)> = self
-            .edges
-            .iter()
-            .enumerate()
-            .map(|(idx, edge)| (idx, edge.id()))
-            .collect();
+        let mut result = Vec::with_capacity(self.edges.len());
+        let mut visited_edges = HashSet::with_capacity(self.edges.len());
+        // Used for detecting cycles during the edge DFS itself (redundant if vertex sort passed, but good practice)
+        let mut visiting_edges = HashSet::with_capacity(self.edges.len());
 
-        // 3. Sort the edges globally.
-        // Edges with IDs come first, sorted by ID.
-        // Edges without IDs come last, sorted by their original EdgeIndex for stability.
-        edges_with_ids.sort_by(|(idx_a, id_a_opt), (idx_b, id_b_opt)| {
-            match (id_a_opt, id_b_opt) {
+        // 2. Define the recursive DFS visit function
+        fn visit<V, E>(
+            graph: &HierarchicalIntervalGraph<V, E>,
+            edge_idx: EdgeIndex,
+            visited_edges: &mut HashSet<EdgeIndex>,
+            visiting_edges: &mut HashSet<EdgeIndex>,
+            result: &mut Vec<EdgeIndex>,
+        ) -> Result<(), String> {
+            // Check if already fully processed
+            if visited_edges.contains(&edge_idx) {
+                return Ok(());
+            }
+            // Check if currently being visited (indicates a cycle)
+            if visiting_edges.contains(&edge_idx) {
+                // This should ideally not happen if the initial vertex sort passed
+                let edge = graph.get_edge(edge_idx).unwrap(); // Assume edge exists
+                let source_id = graph
+                    .get_vertex(edge.source())
+                    .map(|v| v.id().to_string())
+                    .unwrap_or("?".to_string());
+                let target_id = graph
+                    .get_vertex(edge.target())
+                    .map(|v| v.id().to_string())
+                    .unwrap_or("?".to_string());
+                return Err(format!(
+                    "Cycle detected during edge DFS involving edge {} ({} -> {})",
+                    edge_idx, source_id, target_id
+                ));
+            }
+
+            // Mark as visiting
+            visiting_edges.insert(edge_idx);
+
+            // --- Pre-order Add ---
+            // Add the edge to the result *before* visiting its successors
+            result.push(edge_idx);
+            // Mark as visited immediately after adding to prevent adding duplicates
+            // in case of multiple paths leading to the same edge start.
+            visited_edges.insert(edge_idx);
+
+            // Get the target vertex of the current edge
+            if let Some(edge) = graph.get_edge(edge_idx) {
+                let target_vertex_idx = edge.target();
+
+                // Get outgoing edges from the target vertex, sorted by HierarchicalId
+                if let Some(target_vertex) = graph.get_vertex(target_vertex_idx) {
+                    // Use the existing outgoing_edges helper which sorts correctly
+                    let sorted_next_edges = graph.outgoing_edges(target_vertex.id());
+
+                    // Recursively visit each successor edge
+                    for next_edge in sorted_next_edges {
+                        // Find the index of the next edge
+                        // This is slightly inefficient; consider storing indices directly if performance is critical
+                        if let Some(next_edge_idx) = graph
+                            .edges()
+                            .enumerate()
+                            .find(|(_, e)| {
+                                e.source() == next_edge.source()
+                                    && e.target() == next_edge.target()
+                                    && e.id() == next_edge.id() // Match based on source, target, and ID
+                            })
+                            .map(|(idx, _)| idx)
+                        {
+                            // Only visit if not already fully processed by another path
+                            if !visited_edges.contains(&next_edge_idx) {
+                                visit(graph, next_edge_idx, visited_edges, visiting_edges, result)?;
+                            }
+                        } else {
+                            // This case should ideally not happen if outgoing_edges is consistent
+                            eprintln!("Warning: Could not find index for edge reference during DFS traversal.");
+                        }
+                    }
+                }
+            }
+
+            // Mark as finished visiting
+            visiting_edges.remove(&edge_idx);
+
+            Ok(())
+        }
+
+        // 3. Determine initial edges (originating from vertices with in-degree 0)
+        let mut in_degrees = vec![0; self.vertices.len()];
+        for edge in self.edges.iter() {
+            in_degrees[edge.target()] += 1;
+        }
+
+        let mut initial_edges = Vec::new();
+        for (vertex_idx, &degree) in in_degrees.iter().enumerate() {
+            if degree == 0 {
+                if let Some(vertex) = self.get_vertex(vertex_idx) {
+                    // Get outgoing edges, already sorted by the helper function
+                    let sorted_outgoing = self.outgoing_edges(vertex.id());
+                    // Find indices for these edges
+                    for edge_ref in sorted_outgoing {
+                        if let Some(edge_idx) = self
+                            .edges()
+                            .enumerate()
+                            .find(|(_, e)| {
+                                e.source() == edge_ref.source()
+                                    && e.target() == edge_ref.target()
+                                    && e.id() == edge_ref.id()
+                            })
+                            .map(|(idx, _)| idx)
+                        {
+                            initial_edges.push(edge_idx);
+                        }
+                    }
+                }
+            }
+        }
+        // Note: The initial_edges collected above might contain duplicates if multiple source nodes
+        // point to the same edge (not typical). The `visited_edges` check in `visit` handles this.
+        // We also need to ensure the initial edges themselves are processed in ID order.
+        initial_edges.sort_by(|&idx_a, &idx_b| {
+            let edge_a = self.get_edge(idx_a);
+            let edge_b = self.get_edge(idx_b);
+            match (edge_a.and_then(|e| e.id()), edge_b.and_then(|e| e.id())) {
                 (Some(id_a), Some(id_b)) => id_a.cmp(id_b),
-                (Some(_), None) => Ordering::Less,  // Edges with IDs come before those without
-                (None, Some(_)) => Ordering::Greater, // Edges without IDs come after those with
-                (None, None) => idx_a.cmp(idx_b), // Sort edges without IDs by index
+                (Some(_), None) => Ordering::Less,
+                (None, Some(_)) => Ordering::Greater,
+                (None, None) => idx_a.cmp(&idx_b),
             }
         });
 
-        // 4. Extract the sorted edge indices.
-        let sorted_edge_indices = edges_with_ids
-            .into_iter()
-            .map(|(idx, _)| idx)
-            .collect();
+        // 4. Start DFS from each initial edge
+        for edge_idx in initial_edges {
+            // Only start DFS if the edge hasn't been visited by a previous DFS path
+            if !visited_edges.contains(&edge_idx) {
+                visit(
+                    self,
+                    edge_idx,
+                    &mut visited_edges,
+                    &mut visiting_edges,
+                    &mut result,
+                )?;
+            }
+        }
 
-        Ok(sorted_edge_indices)
+        // 5. Sanity check: Ensure all edges were added.
+        if result.len() != self.edges.len() {
+            eprintln!("Warning: DFS topological_sort_edges did not add all edges. Expected {}, got {}. This might indicate disconnected components or graph issues.", self.edges.len(), result.len());
+            // Consider adding remaining edges if disconnected graphs are allowed,
+            // but this might violate strict topological order if not handled carefully.
+            // For now, we rely on the initial vertex sort ensuring connectivity or erroring out.
+            // return Err("Failed to include all edges in topological sort; possible disconnected components or graph issue.".to_string());
+        }
+
+        Ok(result)
     }
 
     pub fn query_interval(&self, start: &HierarchicalId, end: &HierarchicalId) -> Vec<VertexIndex> {
@@ -681,225 +812,328 @@ impl<V, E> HierarchicalIntervalGraph<V, E> {
 
     /// Transforms the graph into a new, acyclic graph by breaking cycles.
     ///
-    /// This function takes the potentially cyclic graph and constructs a new graph
-    /// suitable for topological sorting. Cycles are detected using a DFS-based approach
-    /// to find back edges. Back edges identified during the search are replaced by
-    /// introducing intermediate nodes.
+    /// This function creates a new graph that preserves all vertices and edges from the original graph,
+    /// but breaks any cycles by introducing intermediate nodes. For each back edge that would create
+    /// a cycle, an intermediate node is created as a clone of the target vertex, and the back edge
+    /// is redirected to this intermediate node instead.
     ///
-    /// For a back edge `u -> v`, it's replaced with:
-    ///   - A new node `u_intermediate` (ID derived from `u`, e.g., `u.id + ".ret"`)
-    ///   - A new edge `u -> u_intermediate` (value/metadata typically None or specific)
-    ///   - A new edge `u_intermediate -> v` (inherits value/metadata from original `u -> v`)
+    /// # Returns
     ///
-    /// The specific naming suffix ".ret" for the intermediate node is a convention
-    /// often used in control flow graphs, but the mechanism is generic.
-    ///
-    /// Assumes `V` and `E` implement `Clone`.
-    /// Returns an error string if issues occur (e.g., ID generation conflict).
+    /// * `Result<HierarchicalIntervalGraph<V, E>, String>` - A new acyclic graph or an error message
     pub fn transform_to_acyclic(&self) -> Result<HierarchicalIntervalGraph<V, E>, String>
     where
-        V: Clone, // Require V to be Cloneable
-        E: Clone, // Require E to be Cloneable
+        V: Clone, // Require V to be Cloneable for copying vertices
+        E: Clone, // Require E to be Cloneable for copying edge values/metadata
     {
-        let mut cfg = HierarchicalIntervalGraph::<V, E>::new();
-        let num_vertices = self.vertices.len();
+        // Create a new graph to hold the acyclic transformation
+        let mut acyclic_graph = HierarchicalIntervalGraph::new();
+
+        // Special component value to use for intermediate node IDs
+        const INTERMEDIATE_NODE_COMPONENT: usize = 99999;
+
+        // Step 1: Copy all vertices to the new graph
+        for (idx, vertex) in self.vertices.iter().enumerate() {
+            let vertex_id = vertex.id().clone();
+            let vertex_value = vertex.value().cloned();
+
+            // Add the vertex to the new graph, preserving its index
+            let new_idx = acyclic_graph.add_vertex(vertex_id, vertex_value)?;
+
+            // Sanity check: indices should match between original and new graph
+            if idx != new_idx {
+                return Err(format!(
+                    "Vertex index mismatch during transformation: {} != {}",
+                    idx, new_idx
+                ));
+            }
+        }
+
+        // Step 2: Identify cycles and determine which edges need to be redirected
+        // We'll use a depth-first search to detect back edges
+
+        // Track vertices being visited in the current DFS path
+        let mut path = HashSet::new();
+        // Track vertices that have been fully processed
         let mut visited = HashSet::new();
-        let mut recursion_stack = HashSet::new(); // Tracks nodes in current DFS path
-        let mut back_edges = HashSet::<(VertexIndex, VertexIndex)>::new(); // Store (source_idx, target_idx) of back edges
+        // Store edges that create cycles (need to be redirected)
+        let mut cycle_edges = Vec::new();
 
-        // --- Simple DFS to find back edges ---
-        // A more robust implementation might use Tarjan's for SCCs, but
-        // finding back edges directly is sufficient for breaking cycles here.
-        fn find_back_edges<V, E>(
+        // Helper function for DFS cycle detection
+        fn detect_cycles<V, E>(
             graph: &HierarchicalIntervalGraph<V, E>,
-            u_idx: VertexIndex,
+            vertex_idx: VertexIndex,
+            path: &mut HashSet<VertexIndex>,
             visited: &mut HashSet<VertexIndex>,
-            recursion_stack: &mut HashSet<VertexIndex>,
-            back_edges: &mut HashSet<(VertexIndex, VertexIndex)>,
+            cycle_edges: &mut Vec<EdgeIndex>,
         ) {
-            visited.insert(u_idx);
-            recursion_stack.insert(u_idx);
+            // If already fully processed, no need to visit again
+            if visited.contains(&vertex_idx) {
+                return;
+            }
 
-            if let Some(u_vertex) = graph.get_vertex(u_idx) {
-                // Iterate through outgoing edges using indices directly
-                for &edge_idx in u_vertex.outgoing() {
+            // If already in current path, we've found a cycle
+            if path.contains(&vertex_idx) {
+                return; // We'll detect the specific back edge later
+            }
+
+            // Add to current path
+            path.insert(vertex_idx);
+
+            // Visit all outgoing edges
+            if let Some(vertex) = graph.get_vertex(vertex_idx) {
+                for &edge_idx in vertex.outgoing() {
                     if let Some(edge) = graph.get_edge(edge_idx) {
-                        let v_idx = edge.target();
-                        if recursion_stack.contains(&v_idx) {
-                            // Found a back edge to a node currently in the recursion stack
-                            back_edges.insert((u_idx, v_idx));
-                        } else if !visited.contains(&v_idx) {
-                            find_back_edges(graph, v_idx, visited, recursion_stack, back_edges);
-                        }
-                        // If v_idx is visited but not in recursion_stack, it's a cross or forward edge - ignore.
-                    }
-                }
-            }
+                        let target_idx = edge.target();
 
-            recursion_stack.remove(&u_idx); // Remove u from stack when backtracking
-        }
-
-        // Run DFS from all unvisited nodes to find all back edges
-        for i in 0..num_vertices {
-            if !visited.contains(&i) {
-                find_back_edges(self, i, &mut visited, &mut recursion_stack, &mut back_edges);
-            }
-        }
-
-        // --- Build the new CFG ---
-        let mut old_to_new_idx_map = HashMap::new();
-
-        // 1. Add all original vertices to the new graph
-        for (old_idx, vertex) in self.vertices.iter().enumerate() {
-            let new_idx = cfg.add_vertex(vertex.id().clone(), vertex.value().cloned())?; // Clone value
-            old_to_new_idx_map.insert(old_idx, new_idx);
-        }
-
-        // 2. Process edges, breaking cycles by iterating through original vertices and their outgoing edges
-        for u_old_idx in 0..num_vertices {
-            let u_orig_vertex = self.get_vertex(u_old_idx).unwrap(); // Should exist
-            let u_new_idx = *old_to_new_idx_map.get(&u_old_idx).unwrap(); // Should exist
-
-            // Iterate through the outgoing edges of the original vertex u
-            for &edge_idx in u_orig_vertex.outgoing() {
-                if let Some(edge) = self.get_edge(edge_idx) {
-                    let v_old_idx = edge.target();
-                    let v_orig_vertex = self.get_vertex(v_old_idx).unwrap(); // Should exist
-                    let v_new_idx = *old_to_new_idx_map.get(&v_old_idx).unwrap(); // Should exist
-
-                    // Check if this specific edge is a back edge
-                    if back_edges.contains(&(u_old_idx, v_old_idx)) {
-                        // --- Cycle Breaking Logic ---
-                        // Generate intermediate node ID as a child of u
-                        const INTERMEDIATE_NODE_COMPONENT: usize = 99999;
-                        let base_ret_node_id = u_orig_vertex.id().create_child(INTERMEDIATE_NODE_COMPONENT);
-
-                        // Check for collision and generate unique ID if needed
-                        let mut ret_node_id = base_ret_node_id.clone();
-                        let mut i = 0;
-                        while cfg.get_vertex_idx(&ret_node_id).is_some() {
-                            i += 1;
-                            let parent_id = base_ret_node_id.parent().ok_or_else(|| format!("Intermediate node base {} has no parent", base_ret_node_id))?;
-                            ret_node_id = parent_id.create_child(INTERMEDIATE_NODE_COMPONENT + i);
-                            if i > 100 { return Err(format!("Failed to generate unique return node ID for base {}", base_ret_node_id)); }
-                        }
-
-                        // Add the unique return node to the CFG if it doesn't exist yet
-                        // We might encounter the same back edge multiple times if iterating by vertex,
-                        // so ensure the intermediate node is only added once per original source vertex.
-                        // A better approach might be to create intermediate nodes beforehand based on `back_edges`.
-                        // For now, let's try adding it and rely on `add_vertex`'s error handling,
-                        // or better, check existence first.
-                        let ret_node_new_idx = match cfg.get_vertex_idx(&ret_node_id) {
-                             Some(idx) => idx,
-                             None => cfg.add_vertex(ret_node_id.clone(), None)?, // No value initially
-                        };
-
-
-                        // Add edge: u -> u_ret (only if it doesn't exist already)
-                        // Check if an edge from u_new_idx to ret_node_new_idx already exists in cfg
-                        let u_to_ret_exists = cfg.get_vertex(u_new_idx).map_or(false, |v| {
-                            v.outgoing().iter().any(|&out_edge_idx| {
-                                cfg.get_edge(out_edge_idx).map_or(false, |e| e.target() == ret_node_new_idx)
-                            })
-                        });
-
-                        if !u_to_ret_exists {
-                            cfg.add_edge_with_value(
-                                u_orig_vertex.id(), // Use original ID for lookup
-                                &ret_node_id,       // Use the final unique ID
-                                None,               // No value for u -> u_ret
-                                None,               // No metadata for u -> u_ret
-                            )?;
-                        }
-
-
-                        // --- Create Clone of Target Node 'v' ---
-                        // Generate clone node ID as child of v
-                        const CLONE_NODE_COMPONENT: usize = 100000;
-                        let base_clone_node_id = v_orig_vertex.id().create_child(CLONE_NODE_COMPONENT);
-
-                        // Check for clone ID collision and generate unique ID
-                        let mut clone_node_id = base_clone_node_id.clone();
-                        let mut j = 0;
-                        while cfg.get_vertex_idx(&clone_node_id).is_some() {
-                            j += 1;
-                            clone_node_id = v_orig_vertex.id().create_child(CLONE_NODE_COMPONENT + j);
-                            if j > 100 { return Err(format!("Failed to generate unique clone node ID for base {}", base_clone_node_id)); }
-                        }
-
-                        // Add the unique clone node to the CFG, copying v's value
-                        let clone_node_new_idx = match cfg.get_vertex_idx(&clone_node_id) {
-                            Some(idx) => idx,
-                            None => cfg.add_vertex(
-                                clone_node_id.clone(),
-                                v_orig_vertex.value().cloned() // Clone value from original v
-                            )?,
-                        };
-
-
-                        // Add edge: u_ret -> v_clone (inherits value/metadata from original u -> v edge)
-                        // Check if this specific edge already exists to avoid duplicates
-                         let ret_to_clone_exists = cfg.get_vertex(ret_node_new_idx).map_or(false, |v| {
-                            v.outgoing().iter().any(|&out_edge_idx| {
-                                cfg.get_edge(out_edge_idx).map_or(false, |e| {
-                                    // Check target and potentially value/metadata if needed for uniqueness
-                                    e.target() == clone_node_new_idx
-                                })
-                            })
-                        });
-
-                        if !ret_to_clone_exists {
-                            cfg.add_edge_with_value(
-                                &ret_node_id,       // Source is the intermediate node
-                                &clone_node_id,     // Target is the new clone node
-                                edge.value().cloned(),    // Inherit value from original u->v edge
-                                edge.metadata().cloned(), // Inherit metadata from original u->v edge
-                            )?;
-                        }
-
-                        // IMPORTANT: Do NOT add the original back edge u -> v to cfg
-
-                    } else {
-                        // --- Not a back edge, add directly to cfg ---
-                        // Check if this edge already exists in cfg to prevent duplicates
-                        // (Needed because we iterate outgoing edges of original graph)
-                        let edge_already_exists = cfg.get_vertex(u_new_idx).map_or(false, |v_cfg| {
-                            v_cfg.outgoing().iter().any(|&out_edge_idx| {
-                                cfg.get_edge(out_edge_idx).map_or(false, |e_cfg| {
-                                    // Basic check: source and target match
-                                    e_cfg.source() == u_new_idx && e_cfg.target() == v_new_idx &&
-                                    // Optional: More robust check comparing value/metadata/id if needed
-                                    e_cfg.id().cloned() == edge.id().cloned() &&
-                                    // Comparing Option<E: Clone> might require E: PartialEq
-                                    // e_cfg.value().cloned() == edge.value().cloned() &&
-                                    // e_cfg.metadata().cloned() == edge.metadata().cloned()
-                                    true // Placeholder if E is not PartialEq
-                                })
-                            })
-                        });
-
-                        if !edge_already_exists {
-                            cfg.add_edge_with_id_and_value(
-                                u_orig_vertex.id(), // Use original ID for lookup
-                                v_orig_vertex.id(), // Use original ID for lookup
-                                edge.id().cloned(),       // Clone original edge ID
-                                edge.value().cloned(),    // Clone value
-                                edge.metadata().cloned(), // Clone metadata
-                            )?;
+                        // If target is already in our path, this edge creates a cycle
+                        if path.contains(&target_idx) {
+                            cycle_edges.push(edge_idx);
+                        } else {
+                            // Continue DFS from target
+                            detect_cycles(graph, target_idx, path, visited, cycle_edges);
                         }
                     }
                 }
             }
+
+            // Remove from current path and mark as visited
+            path.remove(&vertex_idx);
+            visited.insert(vertex_idx);
         }
 
-        Ok(cfg)
+        // Run cycle detection from each unvisited vertex
+        for vertex_idx in 0..self.vertices.len() {
+            if !visited.contains(&vertex_idx) {
+                detect_cycles(self, vertex_idx, &mut path, &mut visited, &mut cycle_edges);
+            }
+        }
+
+        // Step 3: Copy all edges to the new graph, redirecting cycle edges
+        for (edge_idx, edge) in self.edges.iter().enumerate() {
+            let source_idx = edge.source();
+            let target_idx = edge.target();
+            let original_edge_id = edge.id().cloned(); // Keep original ID for the new edge
+            let edge_value = edge.value().cloned();
+            let edge_metadata = edge.metadata().cloned();
+
+            // Check if this edge creates a cycle
+            if cycle_edges.contains(&edge_idx) {
+                // This edge creates a cycle. Create a unique intermediate node for it.
+                let target_vertex = self.get_vertex(target_idx).ok_or_else(|| {
+                    format!(
+                        "Target vertex {} not found for cycle edge {}",
+                        target_idx, edge_idx
+                    )
+                })?;
+                let target_id = target_vertex.id();
+
+                // Create a unique intermediate ID using target ID + component + edge index
+                let intermediate_id = target_id
+                    .create_child(INTERMEDIATE_NODE_COMPONENT)
+                    .create_child(edge_idx);
+
+                // Add the unique intermediate node to the new graph
+                // Intermediate nodes typically don't carry the original vertex's value.
+                let intermediate_idx = acyclic_graph.add_vertex(intermediate_id.clone(), None)?;
+
+                // Get the source vertex ID from the acyclic graph
+                let source_id = acyclic_graph
+                    .get_vertex(source_idx)
+                    .ok_or_else(|| {
+                        format!(
+                            "Source vertex {} not found for cycle edge {}",
+                            source_idx, edge_idx
+                        )
+                    })?
+                    .id()
+                    .clone();
+
+                // Add the redirected edge (source -> intermediate) to the new graph,
+                // preserving the original edge's ID, value, and metadata.
+                acyclic_graph.add_edge_with_id_and_value(
+                    &source_id,
+                    &intermediate_id, // Target is the new intermediate node
+                    original_edge_id, // Use the original edge's ID
+                    edge_value,
+                    edge_metadata,
+                )?;
+            } else {
+                // Regular edge, copy it directly
+                // Get the IDs from the acyclic graph to ensure consistency
+                let source_id = acyclic_graph
+                    .get_vertex(source_idx)
+                    .ok_or_else(|| {
+                        format!(
+                            "Source vertex {} not found for edge {}",
+                            source_idx, edge_idx
+                        )
+                    })?
+                    .id()
+                    .clone();
+                let target_id = acyclic_graph
+                    .get_vertex(target_idx)
+                    .ok_or_else(|| {
+                        format!(
+                            "Target vertex {} not found for edge {}",
+                            target_idx, edge_idx
+                        )
+                    })?
+                    .id()
+                    .clone();
+
+                acyclic_graph.add_edge_with_id_and_value(
+                    &source_id,
+                    &target_id,
+                    original_edge_id, // Use the original edge's ID
+                    edge_value,
+                    edge_metadata,
+                )?;
+            }
+        }
+
+        Ok(acyclic_graph)
+    }
+
+    /// Adds synthetic edges based on hierarchical adjacency between edge attributes.
+    ///
+    /// This function assumes the graph is already a Directed Acyclic Graph (DAG).
+    /// It iterates through pairs of edges (`edge_path`, `edge_dep`) and checks for
+    /// specific hierarchical relationships between IDs extracted from their values
+    /// using the provided closures.
+    ///
+    /// - `get_path_id`: A closure that attempts to extract a `HierarchicalId` from an edge's
+    ///   value, typically representing a "path" or source reference (e.g., `callee_func_path`).
+    /// - `get_dependency_id`: A closure that attempts to extract a `HierarchicalId` from an edge's
+    ///   value, typically representing a "dependency" reference (e.g., `ce_id_dependency`).
+    ///
+    /// For each `edge_path` with a valid `path_id`, the function finds all `edge_dep` edges
+    /// where `get_dependency_id` returns a `dep_id` such that `dep_id.is_descendant_of(path_id)`.
+    /// Among these descendants, it identifies the one with the "closest" `dep_id` (the minimum
+    /// descendant ID according to `HierarchicalId`'s `Ord` implementation).
+    ///
+    /// If a unique closest descendant `edge_dep` is found, a synthetic edge is added:
+    /// - From: `edge_path.target()`
+    /// - To: `edge_dep.source()`
+    /// - Value: `None`
+    /// - Metadata: The provided `synthetic_edge_metadata`.
+    /// - ID: `None`
+    ///
+    /// # Arguments
+    ///
+    /// * `get_path_id`: `Fn(&E) -> Option<&HierarchicalId>` - Extracts the path ID.
+    /// * `get_dependency_id`: `Fn(&E) -> Option<&HierarchicalId>` - Extracts the dependency ID.
+    /// * `synthetic_edge_metadata`: `Option<E>` - Metadata to assign to the created synthetic edges.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if successful.
+    /// * `Err(String)` if an error occurs (e.g., vertex lookup fails, though unlikely).
+    ///
+    /// # Assumptions
+    ///
+    /// - The input graph is a DAG. This function does not perform cycle checks before adding edges.
+    /// - The relevant IDs are stored within the `value` field of the `Edge<E>`.
+    /// - `E` implements `Clone` for the synthetic metadata.
+    pub fn add_hierarchical_adjacency_edges<FPath, FDep>(
+        &mut self,
+        get_path_id: FPath,
+        get_dependency_id: FDep,
+        synthetic_edge_metadata: Option<E>,
+    ) -> Result<(), String>
+    where
+        FPath: Fn(&E) -> Option<&HierarchicalId>,
+        FDep: Fn(&E) -> Option<&HierarchicalId>,
+        E: Clone + fmt::Debug, // Require Clone for metadata and Debug for potential issues
+    {
+        let mut edges_to_add: Vec<(VertexIndex, VertexIndex)> = Vec::new();
+
+        // Iterate through all edges to find potential 'path' edges
+        for (path_idx, path_edge) in self.edges.iter().enumerate() {
+            // Assume the relevant ID is in the edge's value
+            if let Some(path_val) = path_edge.value() {
+                if let Some(path_id) = get_path_id(path_val) {
+                    let mut best_dep_edge_idx: Option<EdgeIndex> = None;
+                    let mut best_dep_id: Option<&HierarchicalId> = None;
+
+                    // Iterate through all edges again to find potential 'dependency' edges
+                    for (dep_idx, dep_edge) in self.edges.iter().enumerate() {
+                        // Don't compare an edge with itself if the logic could overlap
+                        // (e.g., if an edge could contain both path and dependency IDs)
+                        // if path_idx == dep_idx { continue; } // Optional: uncomment if needed
+
+                        if let Some(dep_val) = dep_edge.value() {
+                            if let Some(dep_id) = get_dependency_id(dep_val) {
+                                // Check if dep_id is a descendant of path_id
+                                if dep_id.is_descendant_of(path_id) {
+                                    // Check if this descendant is closer (smaller ID) than the current best
+                                    let is_closer = best_dep_id
+                                        .map_or(true, |current_best| dep_id < current_best);
+
+                                    if is_closer {
+                                        best_dep_id = Some(dep_id);
+                                        best_dep_edge_idx = Some(dep_idx);
+                                    }
+                                    // Note: If dep_id == current_best, we keep the first one found.
+                                }
+                            }
+                        }
+                    } // End inner loop (dep_edge)
+
+                    // If we found a closest dependency edge, record the synthetic edge to add
+                    if let Some(best_idx) = best_dep_edge_idx {
+                        let source_vertex_idx = path_edge.target(); // Target of the path edge
+                        let target_vertex_idx = self.edges[best_idx].source(); // Source of the dependency edge
+
+                        // Avoid adding self-loops
+                        if source_vertex_idx != target_vertex_idx {
+                            // Check if this exact edge already exists to prevent duplicates?
+                            // For now, let's allow potential duplicates if multiple paths lead to the same adjacency.
+                            edges_to_add.push((source_vertex_idx, target_vertex_idx));
+                        }
+                    }
+                }
+            }
+        } // End outer loop (path_edge)
+
+        // Add all the collected synthetic edges
+        for (source_idx, target_idx) in edges_to_add {
+            // Retrieve the actual HierarchicalIds of the vertices for the add_edge function
+            let source_vertex_id = self
+                .get_vertex(source_idx)
+                .ok_or_else(|| {
+                    format!("Source vertex {} not found for synthetic edge", source_idx)
+                })?
+                .id()
+                .clone();
+            let target_vertex_id = self
+                .get_vertex(target_idx)
+                .ok_or_else(|| {
+                    format!("Target vertex {} not found for synthetic edge", target_idx)
+                })?
+                .id()
+                .clone();
+
+            // Add the synthetic edge. It has no ID itself, no value, only the provided metadata.
+            // We use add_edge_with_id_and_value for clarity, passing None for edge_id and value.
+            // Note: This uses the version of add_edge that might not perform cycle checks
+            // based on the current state of the codebase where the check was removed.
+            self.add_edge_with_id_and_value(
+                &source_vertex_id,
+                &target_vertex_id,
+                None,                            // No HierarchicalId for the synthetic edge
+                None,                            // No value for the synthetic edge
+                synthetic_edge_metadata.clone(), // Clone the provided metadata
+            )?; // Propagate potential errors from add_edge
+        }
+
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hig_dot::HigToDot; // Ensure this import is present
     #[test]
     fn test_hierarchical_id() {
         let id = HierarchicalId::new("1.2.3");
@@ -1194,6 +1428,330 @@ mod tests {
     }
 
     #[test]
+    fn test_transform_to_acyclic_multiple_cycles() {
+        const INTERMEDIATE_NODE_COMPONENT: usize = 99999;
+        let mut graph = HierarchicalIntervalGraph::<&str, &str>::new();
+
+        // Define IDs
+        let v1_id = HierarchicalId::new("1");
+        let v2_id = HierarchicalId::new("2");
+        let v3_id = HierarchicalId::new("3");
+        let v4_id = HierarchicalId::new("4");
+        let v5_id = HierarchicalId::new("5");
+        let v6_id = HierarchicalId::new("6");
+
+        // Add vertices
+        graph.add_vertex(v1_id.clone(), Some("V1")).unwrap();
+        graph.add_vertex(v2_id.clone(), Some("V2")).unwrap();
+        graph.add_vertex(v3_id.clone(), Some("V3")).unwrap();
+        graph.add_vertex(v4_id.clone(), Some("V4")).unwrap();
+        graph.add_vertex(v5_id.clone(), Some("V5")).unwrap();
+        graph.add_vertex(v6_id.clone(), Some("V6")).unwrap();
+
+        // Add edges
+        // Simple edge: V1 -> V2
+        graph
+            .add_edge_with_value(&v1_id, &v2_id, Some("val_12"), Some("meta_12"))
+            .unwrap();
+        // Cycle 1: V3 -> V4 -> V3
+        graph
+            .add_edge_with_value(&v3_id, &v4_id, Some("val_34"), Some("meta_34"))
+            .unwrap();
+        graph
+            .add_edge_with_value(&v4_id, &v3_id, Some("val_43"), Some("meta_43"))
+            .unwrap(); // Back edge 1
+                       // Cycle 2: V5 -> V6 -> V5
+        graph
+            .add_edge_with_value(&v5_id, &v6_id, Some("val_56"), Some("meta_56"))
+            .unwrap();
+        graph
+            .add_edge_with_value(&v6_id, &v5_id, Some("val_65"), Some("meta_65"))
+            .unwrap(); // Back edge 2
+
+        println!("Original graph: {:#?}", graph);
+        // Transform the graph
+        let acyclic_result = graph.transform_to_acyclic();
+        assert!(acyclic_result.is_ok(), "Transformation should succeed");
+        let acyclic_graph = acyclic_result.unwrap();
+
+        // Verify acyclicity
+        assert!(
+            acyclic_graph.topological_sort().is_ok(),
+            "Transformed graph should be acyclic"
+        );
+
+        // Verify vertex count (original 6 + 2 intermediate)
+        assert_eq!(
+            acyclic_graph.vertices().count(),
+            8,
+            "Should have 8 vertices"
+        );
+
+        // Verify edge count (original 5 - 2 back edges + 2 new edges to intermediate nodes)
+        assert_eq!(acyclic_graph.edges().count(), 5, "Should have 5 edges");
+
+        // Define expected intermediate node IDs
+        let intermediate_v3_id =
+            HierarchicalId::from_components(vec![3, INTERMEDIATE_NODE_COMPONENT]);
+        let intermediate_v5_id =
+            HierarchicalId::from_components(vec![5, INTERMEDIATE_NODE_COMPONENT]);
+
+        // Verify intermediate nodes exist
+        assert!(
+            acyclic_graph.get_vertex_idx(&intermediate_v3_id).is_some(),
+            "Intermediate node for V3 should exist"
+        );
+        assert!(
+            acyclic_graph.get_vertex_idx(&intermediate_v5_id).is_some(),
+            "Intermediate node for V5 should exist"
+        );
+
+        // Helper to check if an edge exists between two IDs
+        let edge_exists = |graph: &HierarchicalIntervalGraph<_, _>,
+                           src_id: &HierarchicalId,
+                           tgt_id: &HierarchicalId|
+         -> bool {
+            graph.edges().any(|e| {
+                let src_match = graph
+                    .get_vertex(e.source())
+                    .map_or(false, |v| v.id() == src_id);
+                let tgt_match = graph
+                    .get_vertex(e.target())
+                    .map_or(false, |v| v.id() == tgt_id);
+                src_match && tgt_match
+            })
+        };
+
+        // dump graph
+        println!("Transformed graph: {:#?}", acyclic_graph);
+
+        // Verify expected edges exist
+        assert!(
+            edge_exists(&acyclic_graph, &v1_id, &v2_id),
+            "Edge V1->V2 should exist"
+        );
+        assert!(
+            edge_exists(&acyclic_graph, &v3_id, &v4_id),
+            "Edge V3->V4 should exist"
+        );
+        assert!(
+            edge_exists(&acyclic_graph, &v4_id, &intermediate_v3_id),
+            "Edge V4->V3_intermediate should exist"
+        );
+        assert!(
+            edge_exists(&acyclic_graph, &v5_id, &v6_id),
+            "Edge V5->V6 should exist"
+        );
+        assert!(
+            edge_exists(&acyclic_graph, &v6_id, &intermediate_v5_id),
+            "Edge V6->V5_intermediate should exist"
+        );
+
+        // Verify original back edges do NOT exist
+        assert!(
+            !edge_exists(&acyclic_graph, &v4_id, &v3_id),
+            "Edge V4->V3 should NOT exist"
+        );
+        assert!(
+            !edge_exists(&acyclic_graph, &v6_id, &v5_id),
+            "Edge V6->V5 should NOT exist"
+        );
+
+        // Verify edge values/metadata were transferred correctly to the new edges
+        let edge_v4_int3 = acyclic_graph
+            .edges()
+            .find(|e| {
+                let src_match = acyclic_graph
+                    .get_vertex(e.source())
+                    .map_or(false, |v| v.id() == &v4_id);
+                let tgt_match = acyclic_graph
+                    .get_vertex(e.target())
+                    .map_or(false, |v| v.id() == &intermediate_v3_id);
+                src_match && tgt_match
+            })
+            .unwrap();
+        assert_eq!(
+            edge_v4_int3.value(),
+            Some(&"val_43"),
+            "Value mismatch for V4->V3_intermediate"
+        );
+        assert_eq!(
+            edge_v4_int3.metadata(),
+            Some(&"meta_43"),
+            "Metadata mismatch for V4->V3_intermediate"
+        );
+
+        let edge_v6_int5 = acyclic_graph
+            .edges()
+            .find(|e| {
+                let src_match = acyclic_graph
+                    .get_vertex(e.source())
+                    .map_or(false, |v| v.id() == &v6_id);
+                let tgt_match = acyclic_graph
+                    .get_vertex(e.target())
+                    .map_or(false, |v| v.id() == &intermediate_v5_id);
+                src_match && tgt_match
+            })
+            .unwrap();
+        assert_eq!(
+            edge_v6_int5.value(),
+            Some(&"val_65"),
+            "Value mismatch for V6->V5_intermediate"
+        );
+        assert_eq!(
+            edge_v6_int5.metadata(),
+            Some(&"meta_65"),
+            "Metadata mismatch for V6->V5_intermediate"
+        );
+    }
+
+    #[test]
+    fn test_topological_sort_on_transformed_multiple_cycles() {
+        const INTERMEDIATE_NODE_COMPONENT: usize = 99999;
+        let mut graph = HierarchicalIntervalGraph::<&str, &str>::new();
+
+        // --- Setup: Same graph as test_transform_to_acyclic_multiple_cycles ---
+        let v1_id = HierarchicalId::new("1");
+        let v2_id = HierarchicalId::new("2");
+        let v3_id = HierarchicalId::new("3");
+        let v4_id = HierarchicalId::new("4");
+        let v5_id = HierarchicalId::new("5");
+        let v6_id = HierarchicalId::new("6");
+
+        graph.add_vertex(v1_id.clone(), Some("V1")).unwrap();
+        graph.add_vertex(v2_id.clone(), Some("V2")).unwrap();
+        graph.add_vertex(v3_id.clone(), Some("V3")).unwrap();
+        graph.add_vertex(v4_id.clone(), Some("V4")).unwrap();
+        graph.add_vertex(v5_id.clone(), Some("V5")).unwrap();
+        graph.add_vertex(v6_id.clone(), Some("V6")).unwrap();
+
+        // Edges: V1->V2, V3->V4->V3 (cycle), V5->V6->V5 (cycle)
+        graph
+            .add_edge_with_value(&v1_id, &v2_id, Some("val_12"), Some("meta_12"))
+            .unwrap();
+        graph
+            .add_edge_with_value(&v3_id, &v4_id, Some("val_34"), Some("meta_34"))
+            .unwrap();
+        graph // Back edge 1
+            .add_edge_with_value(&v4_id, &v3_id, Some("val_43"), Some("meta_43"))
+            .unwrap();
+        graph
+            .add_edge_with_value(&v5_id, &v6_id, Some("val_56"), Some("meta_56"))
+            .unwrap();
+        graph // Back edge 2
+            .add_edge_with_value(&v6_id, &v5_id, Some("val_65"), Some("meta_65"))
+            .unwrap();
+
+        // --- Transform ---
+        let acyclic_graph = graph.transform_to_acyclic().unwrap();
+
+        println!("Transformed graph: {:#?}", acyclic_graph);
+
+        // --- Topological Sort Edges ---
+        let sorted_edge_indices_result = acyclic_graph.topological_sort_edges();
+
+        assert!(
+            sorted_edge_indices_result.is_ok(),
+            "Topological sort of edges failed: {:?}",
+            sorted_edge_indices_result.err()
+        );
+        let sorted_edge_indices = sorted_edge_indices_result.unwrap();
+
+        println!(
+            "Sorted edge indices: {:?}",
+            sorted_edge_indices
+                .iter()
+                .filter_map(|eidx| acyclic_graph.get_edge(*eidx))
+                .collect::<Vec<_>>()
+        );
+
+        // --- Verification ---
+        assert_eq!(
+            sorted_edge_indices.len(),
+            5,
+            "Sorted list should contain 5 edges"
+        );
+
+        // Define expected intermediate node IDs
+        let intermediate_v3_id =
+            HierarchicalId::from_components(vec![3, INTERMEDIATE_NODE_COMPONENT]);
+        let intermediate_v5_id =
+            HierarchicalId::from_components(vec![5, INTERMEDIATE_NODE_COMPONENT]);
+
+        // Helper to find edge index by source/target IDs in the acyclic graph
+        let find_edge_idx = |graph: &HierarchicalIntervalGraph<&str, &str>,
+                             src_id: &HierarchicalId,
+                             tgt_id: &HierarchicalId|
+         -> Option<EdgeIndex> {
+            graph
+                .edges()
+                .enumerate()
+                .find(|(_, e)| {
+                    let source_match = graph
+                        .get_vertex(e.source())
+                        .map_or(false, |v| v.id() == src_id);
+                    let target_match = graph
+                        .get_vertex(e.target())
+                        .map_or(false, |v| v.id() == tgt_id);
+                    source_match && target_match
+                })
+                .map(|(idx, _)| idx)
+        };
+
+        // Find indices of the relevant edges in the *acyclic* graph
+        let edge_v1_v2_idx =
+            find_edge_idx(&acyclic_graph, &v1_id, &v2_id).expect("Edge V1->V2 should exist");
+        let edge_v3_v4_idx =
+            find_edge_idx(&acyclic_graph, &v3_id, &v4_id).expect("Edge V3->V4 should exist");
+        let edge_v4_int3_idx = find_edge_idx(&acyclic_graph, &v4_id, &intermediate_v3_id)
+            .expect("Edge V4->V3_intermediate should exist");
+        let edge_v5_v6_idx =
+            find_edge_idx(&acyclic_graph, &v5_id, &v6_id).expect("Edge V5->V6 should exist");
+        let edge_v6_int5_idx = find_edge_idx(&acyclic_graph, &v6_id, &intermediate_v5_id)
+            .expect("Edge V6->V5_intermediate should exist");
+
+        // Find positions in the sorted list
+        let pos_v1_v2 = sorted_edge_indices
+            .iter()
+            .position(|&idx| idx == edge_v1_v2_idx)
+            .unwrap();
+        let pos_v3_v4 = sorted_edge_indices
+            .iter()
+            .position(|&idx| idx == edge_v3_v4_idx)
+            .unwrap();
+        let pos_v4_int3 = sorted_edge_indices
+            .iter()
+            .position(|&idx| idx == edge_v4_int3_idx)
+            .unwrap();
+        let pos_v5_v6 = sorted_edge_indices
+            .iter()
+            .position(|&idx| idx == edge_v5_v6_idx)
+            .unwrap();
+        let pos_v6_int5 = sorted_edge_indices
+            .iter()
+            .position(|&idx| idx == edge_v6_int5_idx)
+            .unwrap();
+
+        // Assert dependencies within the broken cycles
+        assert!(
+            pos_v3_v4 < pos_v4_int3,
+            "Edge V3->V4 must come before V4->V3_intermediate (pos_v3_v4={}, pos_v4_int3={})",
+            pos_v3_v4,
+            pos_v4_int3
+        );
+        assert!(
+            pos_v5_v6 < pos_v6_int5,
+            "Edge V5->V6 must come before V6->V5_intermediate (pos_v5_v6={}, pos_v6_int5={})",
+            pos_v5_v6,
+            pos_v6_int5
+        );
+
+        // Note: The relative order between (V1->V2), (V3->V4 chain), and (V5->V6 chain)
+        // depends on the starting node selection and traversal order of the topological sort.
+        // We only assert the internal dependencies here.
+    }
+
+    #[test]
     fn test_transform_to_acyclic_breaks_cycle() {
         let mut graph = HierarchicalIntervalGraph::<&str, &str>::new();
 
@@ -1236,42 +1794,75 @@ mod tests {
         // Find the intermediate node (expected ID "3.99999" or similar if collision occurred)
         // Use the same constant as in the main function for consistency.
         const INTERMEDIATE_NODE_COMPONENT: usize = 99999;
-        let expected_ret_node_id = HierarchicalId::from_components(vec![3, INTERMEDIATE_NODE_COMPONENT]);
+        let expected_ret_node_id =
+            HierarchicalId::from_components(vec![3, INTERMEDIATE_NODE_COMPONENT]);
         // We assume no collision happened in this simple test case.
         // A more robust test might list vertices and find the one with parent "3" and last component >= INTERMEDIATE_NODE_COMPONENT.
-        let ret_node_idx = acyclic_graph.get_vertex_idx(&expected_ret_node_id)
-            .expect(&format!("Intermediate node '{}' should exist", expected_ret_node_id));
+        let ret_node_idx = acyclic_graph
+            .get_vertex_idx(&expected_ret_node_id)
+            .expect(&format!(
+                "Intermediate node '{}' should exist",
+                expected_ret_node_id
+            ));
         let ret_node = acyclic_graph.get_vertex(ret_node_idx).unwrap();
-        assert_eq!(ret_node.id(), &expected_ret_node_id, "Intermediate node ID should match expected");
-        assert!(ret_node.value().is_none(), "Intermediate node should have no value"); // This assertion should now pass
-
+        assert_eq!(
+            ret_node.id(),
+            &expected_ret_node_id,
+            "Intermediate node ID should match expected"
+        );
+        assert!(
+            ret_node.value().is_none(),
+            "Intermediate node should have no value"
+        ); // This assertion should now pass
 
         // 3. Verify edges in the acyclic graph
         // Expecting 3 edges: A->B, B->C, C->intermediate
         // The intermediate->A edge is currently commented out in transform_to_acyclic
-        assert_eq!(acyclic_graph.edges().count(), 3, "Should have 3 edges after transformation (A->B, B->C, C->ret)");
+        assert_eq!(
+            acyclic_graph.edges().count(),
+            3,
+            "Should have 3 edges after transformation (A->B, B->C, C->ret)"
+        );
 
         // Check original non-back edges still exist
-        let edge_ab = acyclic_graph.outgoing_edges(&a_id).into_iter().find(|e| acyclic_graph.get_vertex(e.target()).unwrap().id() == &b_id).expect("Edge A->B should exist");
+        let edge_ab = acyclic_graph
+            .outgoing_edges(&a_id)
+            .into_iter()
+            .find(|e| acyclic_graph.get_vertex(e.target()).unwrap().id() == &b_id)
+            .expect("Edge A->B should exist");
         assert_eq!(edge_ab.value(), Some(&"val_ab"));
         assert_eq!(edge_ab.metadata(), Some(&"meta_ab"));
 
-        let edge_bc = acyclic_graph.outgoing_edges(&b_id).into_iter().find(|e| acyclic_graph.get_vertex(e.target()).unwrap().id() == &c_id).expect("Edge B->C should exist");
+        let edge_bc = acyclic_graph
+            .outgoing_edges(&b_id)
+            .into_iter()
+            .find(|e| acyclic_graph.get_vertex(e.target()).unwrap().id() == &c_id)
+            .expect("Edge B->C should exist");
         assert_eq!(edge_bc.value(), Some(&"val_bc"));
         assert_eq!(edge_bc.metadata(), Some(&"meta_bc"));
 
         // Check the back edge C -> A was replaced by C -> intermediate_node
-        let edge_c_ret = acyclic_graph.outgoing_edges(&c_id).into_iter()
+        let edge_c_ret = acyclic_graph
+            .outgoing_edges(&c_id)
+            .into_iter()
             .find(|e| e.target() == ret_node_idx)
             .expect(&format!("Edge C -> {} should exist", expected_ret_node_id));
-        assert!(edge_c_ret.value().is_none(), "Edge C -> ret should have no value");
-        assert!(edge_c_ret.metadata().is_none(), "Edge C -> ret should have no metadata");
+        assert!(
+            edge_c_ret.value().is_none(),
+            "Edge C -> ret should have no value"
+        );
+        assert!(
+            edge_c_ret.metadata().is_none(),
+            "Edge C -> ret should have no metadata"
+        );
 
         // Check the edge from the intermediate node to A (this part depends on whether the edge was re-added)
         // Since it's currently commented out in transform_to_acyclic, assert it *doesn't* exist.
         assert!(
-            acyclic_graph.outgoing_edges(&expected_ret_node_id).is_empty(),
-             "Intermediate node should have no outgoing edges currently"
+            acyclic_graph
+                .outgoing_edges(&expected_ret_node_id)
+                .is_empty(),
+            "Intermediate node should have no outgoing edges currently"
         );
         /* // Keep this commented out unless the edge is re-enabled in transform_to_acyclic
         let edge_ret_a = acyclic_graph.outgoing_edges(&expected_ret_node_id).into_iter()
@@ -1282,14 +1873,19 @@ mod tests {
         */
 
         // Ensure the original back edge C -> A does *not* exist directly
-         assert!(
-            acyclic_graph.outgoing_edges(&c_id).into_iter().find(|e| acyclic_graph.get_vertex(e.target()).unwrap().id() == &a_id).is_none(),
+        assert!(
+            acyclic_graph
+                .outgoing_edges(&c_id)
+                .into_iter()
+                .find(|e| acyclic_graph.get_vertex(e.target()).unwrap().id() == &a_id)
+                .is_none(),
             "Original back edge C -> A should not exist"
         );
     }
 
     #[test]
     fn test_topological_sort_edges_on_transformed_acyclic_graph() {
+        const INTERMEDIATE_NODE_COMPONENT: usize = 99999;
         let mut graph = HierarchicalIntervalGraph::<&str, &str>::new();
 
         // --- Setup: Create a graph with a cycle ---
@@ -1325,7 +1921,8 @@ mod tests {
         let edge_sort_result = acyclic_graph.topological_sort_edges();
         assert!(
             edge_sort_result.is_ok(),
-            "topological_sort_edges should succeed on the acyclic graph, but failed: {:?}", edge_sort_result.err()
+            "topological_sort_edges should succeed on the acyclic graph, but failed: {:?}",
+            edge_sort_result.err()
         );
         let sorted_edge_indices = edge_sort_result.unwrap();
 
@@ -1342,16 +1939,26 @@ mod tests {
         );
 
         // Find the indices of the specific edges in the *acyclic* graph
-        const INTERMEDIATE_NODE_COMPONENT: usize = 99999;
         let expected_ret_node_id = c_id.create_child(INTERMEDIATE_NODE_COMPONENT);
 
         // Helper to find edge index by source/target IDs in the acyclic graph
-        let find_edge_idx = |graph: &HierarchicalIntervalGraph<&str, &str>, src_id: &HierarchicalId, tgt_id: &HierarchicalId| -> Option<EdgeIndex> {
-            graph.edges().enumerate().find(|(_, e)| {
-                let source_match = graph.get_vertex(e.source()).map_or(false, |v| v.id() == src_id);
-                let target_match = graph.get_vertex(e.target()).map_or(false, |v| v.id() == tgt_id);
-                source_match && target_match
-            }).map(|(idx, _)| idx)
+        let find_edge_idx = |graph: &HierarchicalIntervalGraph<&str, &str>,
+                             src_id: &HierarchicalId,
+                             tgt_id: &HierarchicalId|
+         -> Option<EdgeIndex> {
+            graph
+                .edges()
+                .enumerate()
+                .find(|(_, e)| {
+                    let source_match = graph
+                        .get_vertex(e.source())
+                        .map_or(false, |v| v.id() == src_id);
+                    let target_match = graph
+                        .get_vertex(e.target())
+                        .map_or(false, |v| v.id() == tgt_id);
+                    source_match && target_match
+                })
+                .map(|(idx, _)| idx)
         };
 
         let edge_ab_new_idx = find_edge_idx(&acyclic_graph, &a_id, &b_id)
@@ -1362,16 +1969,1104 @@ mod tests {
             .expect("Edge C->intermediate should exist in acyclic graph");
 
         // Find the positions of these edges in the sorted list
-        let pos_ab = sorted_edge_indices.iter().position(|&idx| idx == edge_ab_new_idx)
+        let pos_ab = sorted_edge_indices
+            .iter()
+            .position(|&idx| idx == edge_ab_new_idx)
             .expect("Edge A->B index should be in sorted list");
-        let pos_bc = sorted_edge_indices.iter().position(|&idx| idx == edge_bc_new_idx)
+        let pos_bc = sorted_edge_indices
+            .iter()
+            .position(|&idx| idx == edge_bc_new_idx)
             .expect("Edge B->C index should be in sorted list");
-        let pos_c_ret = sorted_edge_indices.iter().position(|&idx| idx == edge_c_ret_new_idx)
+        let pos_c_ret = sorted_edge_indices
+            .iter()
+            .position(|&idx| idx == edge_c_ret_new_idx)
             .expect("Edge C->intermediate index should be in sorted list");
 
         // Assert the topological order of edges based on dependencies
-        assert!(pos_ab < pos_bc, "Edge A->B must come before B->C in topological edge sort (pos_ab={}, pos_bc={})", pos_ab, pos_bc);
+        assert!(
+            pos_ab < pos_bc,
+            "Edge A->B must come before B->C in topological edge sort (pos_ab={}, pos_bc={})",
+            pos_ab,
+            pos_bc
+        );
         assert!(pos_bc < pos_c_ret, "Edge B->C must come before C->intermediate in topological edge sort (pos_bc={}, pos_c_ret={})", pos_bc, pos_c_ret);
     }
 
+    #[test]
+    fn test_topological_sort_edges_with_parallel_edges_and_ids() {
+        const INTERMEDIATE_NODE_COMPONENT: usize = 99999; // Consistent with transform_to_acyclic
+        let mut graph = HierarchicalIntervalGraph::<&str, &str>::new();
+
+        // --- Setup: Graph based on the DOT example ---
+        let n0_id = HierarchicalId::new("0.1.60");
+        let n1_id = HierarchicalId::new("0.1.7");
+
+        graph.add_vertex(n0_id.clone(), Some("N0")).unwrap();
+        graph.add_vertex(n1_id.clone(), Some("N1")).unwrap();
+
+        // Define Edge IDs (Dependency IDs from DOT)
+        let edge_id_n0_n1_a = HierarchicalId::new("0.1.60.62.112.115.116.117.118.119"); // resetCount
+        let edge_id_n0_n1_b = HierarchicalId::new("0.1.60.62.88.95.104.105.106.107"); // getCount
+        let edge_id_n0_n1_c = HierarchicalId::new("0.1.60.62.88.95.96.97.98.99"); // increment
+        let edge_id_n1_n0_a = HierarchicalId::new("0.1.7.9.15.22.31.32"); // return count (1)
+        let edge_id_n1_n0_b = HierarchicalId::new("0.1.7.9.35.43.44.45"); // return count (2)
+
+        // Add edges n0 -> n1 with IDs
+        graph
+            .add_edge_with_id_and_value(
+                &n0_id,
+                &n1_id,
+                Some(edge_id_n0_n1_a.clone()),
+                Some("resetCount"), // Value for identification
+                None,
+            )
+            .unwrap();
+        graph
+            .add_edge_with_id_and_value(
+                &n0_id,
+                &n1_id,
+                Some(edge_id_n0_n1_b.clone()),
+                Some("getCount"),
+                None,
+            )
+            .unwrap();
+        graph
+            .add_edge_with_id_and_value(
+                &n0_id,
+                &n1_id,
+                Some(edge_id_n0_n1_c.clone()),
+                Some("increment"),
+                None,
+            )
+            .unwrap();
+
+        // Add edges n1 -> n0 with IDs (these will cause cycles)
+        graph
+            .add_edge_with_id_and_value(
+                &n1_id,
+                &n0_id,
+                Some(edge_id_n1_n0_a.clone()),
+                Some("return count (1)"),
+                None,
+            )
+            .unwrap();
+        graph
+            .add_edge_with_id_and_value(
+                &n1_id,
+                &n0_id,
+                Some(edge_id_n1_n0_b.clone()),
+                Some("return count (2)"),
+                None,
+            )
+            .unwrap();
+
+        // --- Transform to Acyclic Graph ---
+        // This is necessary because topological sort only works on DAGs.
+        // The transformation will break the n1 -> n0 edges by redirecting them
+        // to an intermediate node like "0.1.60.99999".
+        let acyclic_graph = graph.transform_to_acyclic().unwrap();
+        println!("--- Acyclic Graph Dump for Parallel Edge Test ---");
+        println!("Vertices:");
+        for (idx, vertex) in acyclic_graph.vertices().enumerate() {
+            println!(
+                "  Index {}: ID={}, Value={:?}, Outgoing={:?}, Incoming={:?}",
+                idx,
+                vertex.id(),
+                vertex.value(),
+                vertex.outgoing(),
+                vertex.incoming()
+            );
+        }
+        println!("Edges:");
+        for (idx, edge) in acyclic_graph.edges().enumerate() {
+            println!(
+                "  Index {}: Source={}, Target={}, ID={:?}, Value={:?}, Metadata={:?}",
+                idx,
+                edge.source(),
+                edge.target(),
+                edge.id(),
+                edge.value(),
+                edge.metadata()
+            );
+        }
+        println!("--- End Acyclic Graph Dump ---");
+
+        // --- Verification of Acyclic Graph Structure ---
+
+        // 1. Verify Vertex and Edge Counts
+        assert_eq!(
+            acyclic_graph.vertices().count(),
+            4, // n0, n1, intermediate_a, intermediate_b
+            "Acyclic graph should have 4 vertices"
+        );
+        assert_eq!(
+            acyclic_graph.edges().count(),
+            5, // 3x n0->n1, 1x n1->intermediate_a, 1x n1->intermediate_b
+            "Acyclic graph should have 5 edges"
+        );
+
+        // 2. Find Intermediate Nodes and Verify Properties
+        let intermediate_nodes: Vec<_> = acyclic_graph
+            .vertices()
+            .filter(|v| {
+                v.id().components.len() > n0_id.components.len() // Must be deeper than original nodes
+                    && v.id().components.contains(&INTERMEDIATE_NODE_COMPONENT) // Must contain the special component
+                    && v.id().is_descendant_of(&n0_id) // Should be descendants of the original target (n0)
+            })
+            .collect();
+
+        assert_eq!(
+            intermediate_nodes.len(),
+            2,
+            "Should find exactly two intermediate nodes"
+        );
+
+        // Ensure the intermediate nodes are distinct
+        assert_ne!(
+            intermediate_nodes[0].id(),
+            intermediate_nodes[1].id(),
+            "Intermediate nodes must have distinct IDs"
+        );
+
+        // Store intermediate node IDs for edge verification
+        let intermediate_id_a = intermediate_nodes[0].id().clone();
+        let intermediate_id_b = intermediate_nodes[1].id().clone();
+
+        // 3. Verify Edges in Acyclic Graph
+
+        // Helper to check if an edge exists between two IDs, optionally checking the original edge ID
+        let edge_exists_with_original_id = |graph: &HierarchicalIntervalGraph<_, _>,
+                                            src_id: &HierarchicalId,
+                                            tgt_id: &HierarchicalId,
+                                            original_edge_id: Option<&HierarchicalId>|
+         -> bool {
+            graph.edges().any(|e| {
+                let src_match = graph
+                    .get_vertex(e.source())
+                    .map_or(false, |v| v.id() == src_id);
+                let tgt_match = graph
+                    .get_vertex(e.target())
+                    .map_or(false, |v| v.id() == tgt_id);
+                let id_match = match original_edge_id {
+                    Some(orig_id) => e.id() == Some(orig_id),
+                    None => true, // Don't check ID if None is provided
+                };
+                src_match && tgt_match && id_match
+            })
+        };
+
+        // Verify the original n0 -> n1 edges still exist
+        assert!(
+            edge_exists_with_original_id(&acyclic_graph, &n0_id, &n1_id, Some(&edge_id_n0_n1_a)),
+            "Edge n0->n1 (resetCount) should exist"
+        );
+        assert!(
+            edge_exists_with_original_id(&acyclic_graph, &n0_id, &n1_id, Some(&edge_id_n0_n1_b)),
+            "Edge n0->n1 (getCount) should exist"
+        );
+        assert!(
+            edge_exists_with_original_id(&acyclic_graph, &n0_id, &n1_id, Some(&edge_id_n0_n1_c)),
+            "Edge n0->n1 (increment) should exist"
+        );
+
+        // Verify the n1 -> intermediate edges exist (one for each original back-edge)
+        // We need to check against both possible intermediate IDs since we don't know which back-edge maps to which intermediate node
+        let n1_to_int_a_exists = edge_exists_with_original_id(
+            &acyclic_graph,
+            &n1_id,
+            &intermediate_id_a,
+            Some(&edge_id_n1_n0_a),
+        ) || edge_exists_with_original_id(
+            &acyclic_graph,
+            &n1_id,
+            &intermediate_id_a,
+            Some(&edge_id_n1_n0_b),
+        );
+        let n1_to_int_b_exists = edge_exists_with_original_id(
+            &acyclic_graph,
+            &n1_id,
+            &intermediate_id_b,
+            Some(&edge_id_n1_n0_a),
+        ) || edge_exists_with_original_id(
+            &acyclic_graph,
+            &n1_id,
+            &intermediate_id_b,
+            Some(&edge_id_n1_n0_b),
+        );
+
+        assert!(
+            n1_to_int_a_exists,
+            "Edge n1 -> intermediate_a with an original back-edge ID should exist"
+        );
+        assert!(
+            n1_to_int_b_exists,
+            "Edge n1 -> intermediate_b with an original back-edge ID should exist"
+        );
+
+        // Verify the original n1 -> n0 back-edges do NOT exist
+        assert!(
+            !edge_exists_with_original_id(&acyclic_graph, &n1_id, &n0_id, None),
+            "Direct edge n1->n0 should NOT exist in the acyclic graph"
+        );
+
+        // 4. Optional: Generate DOT file for visual inspection
+        use crate::hig_dot::HigToDot; // Make sure this use statement is present at the top of the mod tests block or file
+        let dot_output = acyclic_graph.to_dot("test_parallel_edges_acyclic", true);
+        std::fs::write("test_parallel_edges_acyclic.dot", dot_output)
+            .expect("Failed to write DOT file");
+        println!("Generated DOT file: test_parallel_edges_acyclic.dot");
+    }
+
+    #[test]
+    fn test_topological_sort_on_transformed_parallel_edges() {
+        const INTERMEDIATE_NODE_COMPONENT: usize = 99999; // Consistent with transform_to_acyclic
+        let mut graph = HierarchicalIntervalGraph::<&str, &str>::new();
+
+        // --- Setup: Graph based on the DOT example (same as test_topological_sort_edges_with_parallel_edges_and_ids) ---
+        let n0_id = HierarchicalId::new("0.1.60");
+        let n1_id = HierarchicalId::new("0.1.7");
+
+        graph.add_vertex(n0_id.clone(), Some("N0")).unwrap();
+        graph.add_vertex(n1_id.clone(), Some("N1")).unwrap();
+
+        // Define Edge IDs (Dependency IDs from DOT)
+        let edge_id_n0_n1_a = HierarchicalId::new("0.1.60.62.112.115.116.117.118.119"); // resetCount
+        let edge_id_n0_n1_b = HierarchicalId::new("0.1.60.62.88.95.104.105.106.107"); // getCount
+        let edge_id_n0_n1_c = HierarchicalId::new("0.1.60.62.88.95.96.97.98.99"); // increment
+        let edge_id_n1_n0_a = HierarchicalId::new("0.1.7.9.15.22.31.32"); // return count (1)
+        let edge_id_n1_n0_b = HierarchicalId::new("0.1.7.9.35.43.44.45"); // return count (2)
+
+        // Add edges n0 -> n1 with IDs
+        graph
+            .add_edge_with_id_and_value(
+                &n0_id,
+                &n1_id,
+                Some(edge_id_n0_n1_a.clone()),
+                Some("resetCount"), // Value for identification
+                None,
+            )
+            .unwrap();
+        graph
+            .add_edge_with_id_and_value(
+                &n0_id,
+                &n1_id,
+                Some(edge_id_n0_n1_b.clone()),
+                Some("getCount"),
+                None,
+            )
+            .unwrap();
+        graph
+            .add_edge_with_id_and_value(
+                &n0_id,
+                &n1_id,
+                Some(edge_id_n0_n1_c.clone()),
+                Some("increment"),
+                None,
+            )
+            .unwrap();
+
+        // Add edges n1 -> n0 with IDs (these will cause cycles)
+        graph
+            .add_edge_with_id_and_value(
+                &n1_id,
+                &n0_id,
+                Some(edge_id_n1_n0_a.clone()),
+                Some("return count (1)"),
+                None,
+            )
+            .unwrap();
+        graph
+            .add_edge_with_id_and_value(
+                &n1_id,
+                &n0_id,
+                Some(edge_id_n1_n0_b.clone()),
+                Some("return count (2)"),
+                None,
+            )
+            .unwrap();
+
+        // --- Transform to Acyclic Graph ---
+        let acyclic_graph = graph.transform_to_acyclic().unwrap();
+
+        // --- Topological Sort Edges on Acyclic Graph ---
+        let sorted_edge_indices_result = acyclic_graph.topological_sort_edges();
+        assert!(
+            sorted_edge_indices_result.is_ok(),
+            "Topological sort of edges failed: {:?}",
+            sorted_edge_indices_result.err()
+        );
+        let sorted_edge_indices = sorted_edge_indices_result.unwrap();
+
+        println!("Sorted edge indices: {:?}", sorted_edge_indices);
+        println!("Sorted edges (detail):");
+        for (pos, &edge_idx) in sorted_edge_indices.iter().enumerate() {
+            if let Some(edge) = acyclic_graph.get_edge(edge_idx) {
+                let source_id = acyclic_graph
+                    .get_vertex(edge.source())
+                    .map(|v| v.id().to_string())
+                    .unwrap_or("?".to_string());
+                let target_id = acyclic_graph
+                    .get_vertex(edge.target())
+                    .map(|v| v.id().to_string())
+                    .unwrap_or("?".to_string());
+                println!(
+                    "  Pos {}: Index={}, {} -> {} (ID: {:?}, Value: {:?})",
+                    pos,
+                    edge_idx,
+                    source_id,
+                    target_id,
+                    edge.id(),
+                    edge.value()
+                );
+            } else {
+                println!("  Pos {}: Index={} (Edge not found!)", pos, edge_idx);
+            }
+        }
+
+        // --- Verification of Topological Sort Order ---
+        assert_eq!(
+            sorted_edge_indices.len(),
+            5,
+            "Sorted list should contain 5 edges"
+        );
+
+        // Helper to find edge index by source/target IDs and *original* edge ID in the acyclic graph
+        let find_edge_idx_by_original_id = |graph: &HierarchicalIntervalGraph<&str, &str>,
+                                            original_edge_id: &HierarchicalId|
+         -> Option<EdgeIndex> {
+            graph
+                .edges()
+                .enumerate()
+                .find(|(_, e)| e.id() == Some(original_edge_id))
+                .map(|(idx, _)| idx)
+        };
+
+        // Find indices of the relevant edges in the *acyclic* graph using their original IDs
+        let edge_n0_n1_a_idx = find_edge_idx_by_original_id(&acyclic_graph, &edge_id_n0_n1_a)
+            .expect("Edge n0->n1 (resetCount) should exist");
+        let edge_n0_n1_b_idx = find_edge_idx_by_original_id(&acyclic_graph, &edge_id_n0_n1_b)
+            .expect("Edge n0->n1 (getCount) should exist");
+        let edge_n0_n1_c_idx = find_edge_idx_by_original_id(&acyclic_graph, &edge_id_n0_n1_c)
+            .expect("Edge n0->n1 (increment) should exist");
+
+        // Find the intermediate nodes created by the transformation
+        let intermediate_nodes: Vec<_> = acyclic_graph
+            .vertices()
+            .filter(|v| {
+                v.id().components.len() > n0_id.components.len()
+                    && v.id().components.contains(&INTERMEDIATE_NODE_COMPONENT)
+                    && v.id().is_descendant_of(&n0_id)
+            })
+            .collect();
+        assert_eq!(
+            intermediate_nodes.len(),
+            2,
+            "Expected two intermediate nodes"
+        );
+
+        // Find the edges pointing to the intermediate nodes, using the original back-edge IDs
+        let edge_n1_int_a_idx = acyclic_graph
+            .edges()
+            .enumerate()
+            .find(|(_, e)| e.id() == Some(&edge_id_n1_n0_a))
+            .map(|(idx, _)| idx)
+            .expect("Edge n1->intermediate (return count 1) should exist");
+        let edge_n1_int_b_idx = acyclic_graph
+            .edges()
+            .enumerate()
+            .find(|(_, e)| e.id() == Some(&edge_id_n1_n0_b))
+            .map(|(idx, _)| idx)
+            .expect("Edge n1->intermediate (return count 2) should exist");
+
+        // Find positions in the sorted list
+        let pos_n0_n1_a = sorted_edge_indices
+            .iter()
+            .position(|&idx| idx == edge_n0_n1_a_idx)
+            .unwrap();
+        let pos_n0_n1_b = sorted_edge_indices
+            .iter()
+            .position(|&idx| idx == edge_n0_n1_b_idx)
+            .unwrap();
+        let pos_n0_n1_c = sorted_edge_indices
+            .iter()
+            .position(|&idx| idx == edge_n0_n1_c_idx)
+            .unwrap();
+        let pos_n1_int_a = sorted_edge_indices
+            .iter()
+            .position(|&idx| idx == edge_n1_int_a_idx)
+            .unwrap();
+        let pos_n1_int_b = sorted_edge_indices
+            .iter()
+            .position(|&idx| idx == edge_n1_int_b_idx)
+            .unwrap();
+
+        // --- Assert specific order based on DFS traversal and ID sorting ---
+        // Expected order: [2, 3, 4, 1, 0]
+        // Edge 2: n0->n1 (c - increment) - ID ...99
+        // Edge 3: n1->int (a - return 1) - ID ...32
+        // Edge 4: n1->int (b - return 2) - ID ...45
+        // Edge 1: n0->n1 (b - getCount)  - ID ...107
+        // Edge 0: n0->n1 (a - resetCount)- ID ...119
+
+        assert_eq!(
+            sorted_edge_indices[0], edge_n0_n1_c_idx,
+            "Pos 0 should be n0->n1 (c)"
+        );
+        assert_eq!(
+            sorted_edge_indices[1], edge_n1_int_a_idx,
+            "Pos 1 should be n1->int (a)"
+        );
+        assert_eq!(
+            sorted_edge_indices[2], edge_n1_int_b_idx,
+            "Pos 2 should be n1->int (b)"
+        );
+        assert_eq!(
+            sorted_edge_indices[3], edge_n0_n1_b_idx,
+            "Pos 3 should be n0->n1 (b)"
+        );
+        assert_eq!(
+            sorted_edge_indices[4], edge_n0_n1_a_idx,
+            "Pos 4 should be n0->n1 (a)"
+        );
+
+        // --- Verify relative orders implied by the main assertion ---
+
+        // Dependencies: The edge chosen first (n0->n1 c) must come before the edges
+        // reachable from its target (n1->int a, n1->int b).
+        assert!(
+            pos_n0_n1_c < pos_n1_int_a,
+            "DFS implies n0->n1(c) visited before n1->int(a)"
+        );
+        assert!(
+            pos_n0_n1_c < pos_n1_int_b,
+            "DFS implies n0->n1(c) visited before n1->int(b)"
+        );
+
+        // Relative order within n1->intermediate based on edge IDs (ascending)
+        // edge_id_n1_n0_a (...32) < edge_id_n1_n0_b (...45)
+        assert!(
+            pos_n1_int_a < pos_n1_int_b,
+            "Edge n1->intermediate (a) must come before n1->intermediate (b) due to ID sort"
+        );
+
+        // Relative order of the remaining n0->n1 edges processed after backtracking, based on IDs
+        // edge_id_n0_n1_b (...107) < edge_id_n0_n1_a (...119)
+        assert!(
+            pos_n0_n1_b < pos_n0_n1_a,
+            "Edge n0->n1 (b) must come before n0->n1 (a) due to ID sort during backtracking"
+        );
+    }
+
+    #[test]
+    fn test_add_hierarchical_adjacency_edges_simplified() {
+        // Define a minimal struct for edge values
+        #[derive(Debug, Clone, PartialEq)]
+        struct TestEdgeData {
+            path_id: Option<HierarchicalId>,
+            dep_id: Option<HierarchicalId>,
+        }
+
+        let mut graph = HierarchicalIntervalGraph::<(), TestEdgeData>::new(); // Use () for vertex value
+
+        // --- Vertices (IDs created inline) ---
+        let v1_idx = graph.add_vertex(HierarchicalId::new("1"), None).unwrap();
+        let v2_idx = graph.add_vertex(HierarchicalId::new("2"), None).unwrap();
+        let v3_idx = graph.add_vertex(HierarchicalId::new("3"), None).unwrap();
+
+        // --- Edges (IDs created inline) ---
+        // Edge with a path_id: V1 -> V2
+        let _path_edge_idx = graph
+            .add_edge_with_value(
+                &HierarchicalId::new("1"),
+                &HierarchicalId::new("2"),
+                Some(TestEdgeData {
+                    path_id: Some(HierarchicalId::new("1")), // Path ID
+                    dep_id: None,
+                }),
+                None, // No metadata for original edges
+            )
+            .unwrap();
+
+        // Edge with a dependency ID: V1 -> V3
+        let _dep_edge_idx = graph
+            .add_edge_with_value(
+                &HierarchicalId::new("1"),
+                &HierarchicalId::new("3"),
+                Some(TestEdgeData {
+                    path_id: None,
+                    dep_id: Some(HierarchicalId::new("1.1")), // Descendant of "1"
+                }),
+                None, // No metadata for original edges
+            )
+            .unwrap();
+
+        let initial_edge_count = graph.edges().count();
+        assert_eq!(initial_edge_count, 2);
+
+        // --- Define Synthetic Metadata ---
+        let synthetic_metadata = Some(TestEdgeData {
+            path_id: None,
+            dep_id: None,
+        });
+
+        // --- Call the Function (using lambdas for extractors) ---
+        let result = graph.add_hierarchical_adjacency_edges(
+            |data: &TestEdgeData| data.path_id.as_ref(), // Lambda for get_path_id
+            |data: &TestEdgeData| data.dep_id.as_ref(),  // Lambda for get_dependency_id
+            synthetic_metadata.clone(),
+        );
+        assert!(result.is_ok(), "Function call failed: {:?}", result.err());
+
+        // --- Assertions ---
+        let final_edge_count = graph.edges().count();
+        assert_eq!(
+            final_edge_count,
+            initial_edge_count + 1,
+            "Expected 1 synthetic edge to be added"
+        );
+
+        // Find the synthetic edge (identified by having metadata and no value/id)
+        let synthetic_edge = graph
+            .edges()
+            .find(|e| e.id().is_none() && e.value().is_none() && e.metadata().is_some())
+            .expect("Synthetic edge not found");
+
+        // Check the specific synthetic edge: From V2 (target of path edge) to V1 (source of dep edge)
+        assert_eq!(
+            synthetic_edge.source(),
+            v2_idx,
+            "Synthetic edge source should be V2 index"
+        );
+        assert_eq!(
+            synthetic_edge.target(),
+            v1_idx,
+            "Synthetic edge target should be V1 index"
+        );
+        assert_eq!(
+            synthetic_edge.source(),
+            v2_idx,
+            "Synthetic edge source should be V2 index"
+        );
+        assert_eq!(
+            synthetic_edge.target(),
+            v1_idx,
+            "Synthetic edge target should be V1 index"
+        );
+        assert_eq!(
+            synthetic_edge.metadata(),
+            synthetic_metadata.as_ref(),
+            "Synthetic edge metadata mismatch"
+        );
+    }
+
+    #[test]
+    fn test_add_adjacency_edges_mermaid_types() {
+        // --- Placeholder Structs based on Mermaid Line types ---
+        #[derive(Debug, Clone, PartialEq)]
+        struct EmitMermaidLineSignalLine {
+            // Using callee_func_path as the 'path' identifier
+            callee_func_path: HierarchicalId,
+            // Other fields would go here...
+            _marker: (), // To make it distinct
+        }
+
+        #[derive(Debug, Clone, PartialEq)]
+        struct EmitMermaidLineReturnSignalLine {
+            // Using return_stmt_id_dependency as the 'dependency' identifier
+            return_stmt_id_dependency: HierarchicalId,
+            // Other fields would go here...
+            _marker: (), // To make it distinct
+        }
+
+        // Enum to hold different edge data types and synthetic marker
+        #[derive(Debug, Clone, PartialEq)]
+        enum MermaidEdgeData {
+            Signal(EmitMermaidLineSignalLine),
+            ReturnSignal(EmitMermaidLineReturnSignalLine),
+            Synthetic, // Used for metadata of synthetic edges
+        }
+
+        // --- Graph Setup ---
+        let mut graph = HierarchicalIntervalGraph::<&str, MermaidEdgeData>::new();
+
+        // Vertices (Using 8 vertices to create disconnected components initially)
+        let v1_id = HierarchicalId::new("1");
+        let v2_id = HierarchicalId::new("2");
+        let v3_id = HierarchicalId::new("3");
+        let v4_id = HierarchicalId::new("4");
+        let v5_id = HierarchicalId::new("5");
+        let v6_id = HierarchicalId::new("6");
+        let v7_id = HierarchicalId::new("7");
+        let v8_id = HierarchicalId::new("8");
+
+        let v1_idx = graph.add_vertex(v1_id.clone(), Some("V1")).unwrap();
+        let v2_idx = graph.add_vertex(v2_id.clone(), Some("V2")).unwrap();
+        let v3_idx = graph.add_vertex(v3_id.clone(), Some("V3")).unwrap();
+        let v4_idx = graph.add_vertex(v4_id.clone(), Some("V4")).unwrap();
+        let v5_idx = graph.add_vertex(v5_id.clone(), Some("V5")).unwrap();
+        let v6_idx = graph.add_vertex(v6_id.clone(), Some("V6")).unwrap();
+        let v7_idx = graph.add_vertex(v7_id.clone(), Some("V7")).unwrap();
+        let _v8_idx = graph.add_vertex(v8_id.clone(), Some("V8")).unwrap(); // Prefixed unused variable
+
+        // Edges
+        // Signal Edge 1 (Path): V1 -> V2, path_id = "10.1"
+        let signal_edge1_val = MermaidEdgeData::Signal(EmitMermaidLineSignalLine {
+            callee_func_path: HierarchicalId::new("10.1"),
+            _marker: (),
+        });
+        let _signal_edge1_idx = graph
+            .add_edge_with_value(&v1_id, &v2_id, Some(signal_edge1_val), None)
+            .unwrap();
+
+        // Signal Edge 2 (Path): V3 -> V4, path_id = "20.1"
+        let signal_edge2_val = MermaidEdgeData::Signal(EmitMermaidLineSignalLine {
+            callee_func_path: HierarchicalId::new("20.1"),
+            _marker: (),
+        });
+        let _signal_edge2_idx = graph
+            .add_edge_with_value(&v3_id, &v4_id, Some(signal_edge2_val), None)
+            .unwrap();
+
+        // Return Signal Edge 1 (Dependency): V5 -> V6, dep_id = "10.1.1" (descendant of "10.1")
+        let return_edge1_val = MermaidEdgeData::ReturnSignal(EmitMermaidLineReturnSignalLine {
+            return_stmt_id_dependency: HierarchicalId::new("10.1.1"),
+            _marker: (),
+        });
+        let _return_edge1_idx = graph
+            .add_edge_with_value(&v5_id, &v6_id, Some(return_edge1_val), None)
+            .unwrap();
+
+        // Return Signal Edge 2 (Dependency): V7 -> V8, dep_id = "20.1.1" (descendant of "20.1")
+        let return_edge2_val = MermaidEdgeData::ReturnSignal(EmitMermaidLineReturnSignalLine {
+            return_stmt_id_dependency: HierarchicalId::new("20.1.1"),
+            _marker: (),
+        });
+        let _return_edge2_idx = graph
+            .add_edge_with_value(&v7_id, &v8_id, Some(return_edge2_val), None)
+            .unwrap();
+
+        let initial_edge_count = graph.edges().count();
+        assert_eq!(initial_edge_count, 4);
+
+        // --- Print graph BEFORE adding synthetic edges ---
+        println!("\n--- Graph State BEFORE Adding Adjacency Edges ---");
+        println!("Vertices:");
+        for (idx, vertex) in graph.vertices().enumerate() {
+            println!(
+                "  Index {}: ID={}, Value={:?}, Outgoing={:?}, Incoming={:?}",
+                idx,
+                vertex.id(),
+                vertex.value(),
+                vertex.outgoing(),
+                vertex.incoming()
+            );
+        }
+        println!("Edges:");
+        for (idx, edge) in graph.edges().enumerate() {
+            println!(
+                "  Index {}: Source={}, Target={}, ID={:?}, Value={:?}, Metadata={:?}",
+                idx,
+                edge.source(),
+                edge.target(),
+                edge.id(),
+                edge.value(),
+                edge.metadata()
+            );
+        }
+        println!("-------------------------------------------------");
+
+        // --- Extractor Functions ---
+        fn get_path_id_mermaid(data: &MermaidEdgeData) -> Option<&HierarchicalId> {
+            match data {
+                MermaidEdgeData::Signal(s) => Some(&s.callee_func_path),
+                _ => None,
+            }
+        }
+        fn get_dependency_id_mermaid(data: &MermaidEdgeData) -> Option<&HierarchicalId> {
+            match data {
+                MermaidEdgeData::ReturnSignal(rs) => Some(&rs.return_stmt_id_dependency),
+                _ => None,
+            }
+        }
+
+        // --- Synthetic Metadata ---
+        let synthetic_metadata = Some(MermaidEdgeData::Synthetic);
+
+        // --- Call the Function ---
+        let result = graph.add_hierarchical_adjacency_edges(
+            get_path_id_mermaid,
+            get_dependency_id_mermaid,
+            synthetic_metadata.clone(),
+        );
+        assert!(result.is_ok(), "Function call failed: {:?}", result.err());
+        //
+        //
+        // --- Print graph AFTER adding synthetic edges ---
+        println!("\n--- Graph State AFTER Adding Adjacency Edges ---");
+        println!("Vertices:");
+        for (idx, vertex) in graph.vertices().enumerate() {
+            println!(
+                "  Index {}: ID={}, Value={:?}, Outgoing={:?}, Incoming={:?}",
+                idx,
+                vertex.id(),
+                vertex.value(),
+                vertex.outgoing(),
+                vertex.incoming()
+            );
+        }
+        println!("Edges:");
+        for (idx, edge) in graph.edges().enumerate() {
+            println!(
+                "  Index {}: Source={}, Target={}, ID={:?}, Value={:?}, Metadata={:?}",
+                idx,
+                edge.source(),
+                edge.target(),
+                edge.id(),
+                edge.value(),
+                edge.metadata()
+            );
+        }
+        println!("------------------------------------------------");
+
+        // --- Assertions ---
+        let final_edge_count = graph.edges().count();
+        assert_eq!(
+            final_edge_count,
+            initial_edge_count + 2, // Expecting 2 synthetic edges
+            "Expected 2 synthetic edges to be added"
+        );
+
+        // Find the synthetic edges
+        let synthetic_edges: Vec<&Edge<MermaidEdgeData>> = graph
+            .edges()
+            .filter(|e| e.metadata() == synthetic_metadata.as_ref())
+            .collect();
+
+        assert_eq!(
+            synthetic_edges.len(),
+            2,
+            "Incorrect number of synthetic edges found"
+        );
+
+        // Check Synthetic Edge 1: SignalEdge1.target (V2) -> ReturnEdge1.source (V5)
+        let syn_edge1_exists = synthetic_edges
+            .iter()
+            .any(|&e| e.source() == v2_idx && e.target() == v5_idx);
+        assert!(
+            syn_edge1_exists,
+            "Expected synthetic edge from V2 (target of signal 1) to V5 (source of return 1)"
+        );
+
+        // Check Synthetic Edge 2: SignalEdge2.target (V4) -> ReturnEdge2.source (V7)
+        let syn_edge2_exists = synthetic_edges
+            .iter()
+            .any(|&e| e.source() == v4_idx && e.target() == v7_idx);
+        assert!(
+            syn_edge2_exists,
+            "Expected synthetic edge from V4 (target of signal 2) to V7 (source of return 2)"
+        );
+
+        // --- Final Acyclicity Check (using edge sort) ---
+        // Perform an edge topological sort on the final graph to ensure it's acyclic
+        let final_edge_sort_result = graph.topological_sort_edges();
+        assert!(
+            final_edge_sort_result.is_ok(),
+            "Final graph should be acyclic after adding synthetic edges, but topological edge sort failed: {:?}",
+            final_edge_sort_result.err()
+        );
+
+        // --- Dump Sorted Edges ---
+        let sorted_edge_indices = final_edge_sort_result.unwrap();
+        println!("Final topological edge sort successful ({} edges):", sorted_edge_indices.len());
+        for (pos, &edge_idx) in sorted_edge_indices.iter().enumerate() {
+            if let Some(edge) = graph.get_edge(edge_idx) {
+                let source_id = graph.get_vertex(edge.source()).map(|v| v.id().to_string()).unwrap_or("?".to_string());
+                let target_id = graph.get_vertex(edge.target()).map(|v| v.id().to_string()).unwrap_or("?".to_string());
+                println!(
+                    "  Pos {}: Index={}, {} -> {} (ID: {:?}, Value: {:?}, Meta: {:?})",
+                    pos,
+                    edge_idx,
+                    source_id,
+                    target_id,
+                    edge.id(),
+                    edge.value(),
+                    edge.metadata()
+                );
+            } else {
+                println!("  Pos {}: Index={} (Edge not found!)", pos, edge_idx);
+            }
+        }
+    }
+
+
+    #[test]
+    fn test_add_adjacency_edges_four_pairs() {
+        // --- Test Setup (Similar to mermaid_types test) ---
+        #[derive(Debug, Clone, PartialEq)]
+        struct EmitMermaidLineSignalLine {
+            callee_func_path: HierarchicalId,
+            _marker: (),
+        }
+
+        #[derive(Debug, Clone, PartialEq)]
+        struct EmitMermaidLineReturnSignalLine {
+            return_stmt_id_dependency: HierarchicalId,
+            _marker: (),
+        }
+
+        #[derive(Debug, Clone, PartialEq)]
+        enum MermaidEdgeData {
+            Signal(EmitMermaidLineSignalLine),
+            ReturnSignal(EmitMermaidLineReturnSignalLine),
+            Synthetic,
+        }
+
+        // Change vertex type from &str to String to own the vertex values
+        let mut graph = HierarchicalIntervalGraph::<String, MermaidEdgeData>::new();
+
+        // --- Vertices (Need 16 vertices for 8 edges) ---
+        let v_indices: Vec<VertexIndex> = (1..=16)
+            .map(|i| {
+                graph
+                    // Pass the owned String directly
+                    .add_vertex(HierarchicalId::new(&i.to_string()), Some(format!("V{}", i)))
+                    .unwrap()
+            })
+            .collect();
+
+        // --- Edges (4 Signal/Return Pairs) ---
+
+        // Pair 1: Signal "10", Return "10.1"
+        let signal_1_val = MermaidEdgeData::Signal(EmitMermaidLineSignalLine {
+            callee_func_path: HierarchicalId::new("10"),
+            _marker: (),
+        });
+        let _signal_1_idx = graph
+            .add_edge_with_value(
+                &HierarchicalId::new("1"), // V1
+                &HierarchicalId::new("2"), // V2
+                Some(signal_1_val),
+                None,
+            )
+            .unwrap();
+        let return_1_val = MermaidEdgeData::ReturnSignal(EmitMermaidLineReturnSignalLine {
+            return_stmt_id_dependency: HierarchicalId::new("10.1"),
+            _marker: (),
+        });
+        let _return_1_idx = graph
+            .add_edge_with_value(
+                &HierarchicalId::new("3"), // V3
+                &HierarchicalId::new("4"), // V4
+                Some(return_1_val),
+                None,
+            )
+            .unwrap();
+
+        // Pair 2: Signal "20", Return "20.1"
+        let signal_2_val = MermaidEdgeData::Signal(EmitMermaidLineSignalLine {
+            callee_func_path: HierarchicalId::new("20"),
+            _marker: (),
+        });
+        let _signal_2_idx = graph
+            .add_edge_with_value(
+                &HierarchicalId::new("5"), // V5
+                &HierarchicalId::new("6"), // V6
+                Some(signal_2_val),
+                None,
+            )
+            .unwrap();
+        let return_2_val = MermaidEdgeData::ReturnSignal(EmitMermaidLineReturnSignalLine {
+            return_stmt_id_dependency: HierarchicalId::new("20.1"),
+            _marker: (),
+        });
+        let _return_2_idx = graph
+            .add_edge_with_value(
+                &HierarchicalId::new("7"), // V7
+                &HierarchicalId::new("8"), // V8
+                Some(return_2_val),
+                None,
+            )
+            .unwrap();
+
+        // Pair 3: Signal "30", Return "30.1"
+        let signal_3_val = MermaidEdgeData::Signal(EmitMermaidLineSignalLine {
+            callee_func_path: HierarchicalId::new("30"),
+            _marker: (),
+        });
+        let _signal_3_idx = graph
+            .add_edge_with_value(
+                &HierarchicalId::new("9"),  // V9
+                &HierarchicalId::new("10"), // V10
+                Some(signal_3_val),
+                None,
+            )
+            .unwrap();
+        let return_3_val = MermaidEdgeData::ReturnSignal(EmitMermaidLineReturnSignalLine {
+            return_stmt_id_dependency: HierarchicalId::new("30.1"),
+            _marker: (),
+        });
+        let _return_3_idx = graph
+            .add_edge_with_value(
+                &HierarchicalId::new("11"), // V11
+                &HierarchicalId::new("12"), // V12
+                Some(return_3_val),
+                None,
+            )
+            .unwrap();
+
+        // Pair 4: Signal "40", Return "40.1"
+        let signal_4_val = MermaidEdgeData::Signal(EmitMermaidLineSignalLine {
+            callee_func_path: HierarchicalId::new("40"),
+            _marker: (),
+        });
+        let _signal_4_idx = graph
+            .add_edge_with_value(
+                &HierarchicalId::new("13"), // V13
+                &HierarchicalId::new("14"), // V14
+                Some(signal_4_val),
+                None,
+            )
+            .unwrap();
+        let return_4_val = MermaidEdgeData::ReturnSignal(EmitMermaidLineReturnSignalLine {
+            return_stmt_id_dependency: HierarchicalId::new("40.1"),
+            _marker: (),
+        });
+        let _return_4_idx = graph
+            .add_edge_with_value(
+                &HierarchicalId::new("15"), // V15
+                &HierarchicalId::new("16"), // V16
+                Some(return_4_val),
+                None,
+            )
+            .unwrap();
+
+        let initial_edge_count = graph.edges().count();
+        assert_eq!(initial_edge_count, 8); // 4 signals + 4 returns
+
+        // --- Extractor Functions (copied) ---
+        fn get_path_id_mermaid(data: &MermaidEdgeData) -> Option<&HierarchicalId> {
+            match data {
+                MermaidEdgeData::Signal(s) => Some(&s.callee_func_path),
+                _ => None,
+            }
+        }
+        fn get_dependency_id_mermaid(data: &MermaidEdgeData) -> Option<&HierarchicalId> {
+            match data {
+                MermaidEdgeData::ReturnSignal(rs) => Some(&rs.return_stmt_id_dependency),
+                _ => None,
+            }
+        }
+
+        // --- Synthetic Metadata ---
+        let synthetic_metadata = Some(MermaidEdgeData::Synthetic);
+
+        // --- Call the Function ---
+        let result = graph.add_hierarchical_adjacency_edges(
+            get_path_id_mermaid,
+            get_dependency_id_mermaid,
+            synthetic_metadata.clone(),
+        );
+        assert!(result.is_ok(), "Function call failed: {:?}", result.err());
+
+        // --- Assertions ---
+        let final_edge_count = graph.edges().count();
+        assert_eq!(
+            final_edge_count,
+            initial_edge_count + 4, // Expecting 4 synthetic edges
+            "Expected exactly 4 synthetic edges to be added"
+        );
+
+        // Find the synthetic edges
+        let synthetic_edges: Vec<&Edge<MermaidEdgeData>> = graph
+            .edges()
+            .filter(|e| e.metadata() == synthetic_metadata.as_ref())
+            .collect();
+
+        assert_eq!(
+            synthetic_edges.len(),
+            4,
+            "Incorrect number of synthetic edges found"
+        );
+
+        // Verify each expected synthetic edge exists
+        // Pair 1: V2 -> V3
+        let v2_idx = v_indices[1];
+        let v3_idx = v_indices[2];
+        assert!(
+            synthetic_edges
+                .iter()
+                .any(|&e| e.source() == v2_idx && e.target() == v3_idx),
+            "Expected synthetic edge from V2 to V3 (Pair 1)"
+        );
+
+        // Pair 2: V6 -> V7
+        let v6_idx = v_indices[5];
+        let v7_idx = v_indices[6];
+        assert!(
+            synthetic_edges
+                .iter()
+                .any(|&e| e.source() == v6_idx && e.target() == v7_idx),
+            "Expected synthetic edge from V6 to V7 (Pair 2)"
+        );
+
+        // Pair 3: V10 -> V11
+        let v10_idx = v_indices[9];
+        let v11_idx = v_indices[10];
+        assert!(
+            synthetic_edges
+                .iter()
+                .any(|&e| e.source() == v10_idx && e.target() == v11_idx),
+            "Expected synthetic edge from V10 to V11 (Pair 3)"
+        );
+
+        // Pair 4: V14 -> V15
+        let v14_idx = v_indices[13];
+        let v15_idx = v_indices[14];
+        assert!(
+            synthetic_edges
+                .iter()
+                .any(|&e| e.source() == v14_idx && e.target() == v15_idx),
+            "Expected synthetic edge from V14 to V15 (Pair 4)"
+        );
+
+        // --- Final Acyclicity Check ---
+        let final_edge_sort_result = graph.topological_sort_edges();
+        assert!(
+            final_edge_sort_result.is_ok(),
+            "Final graph should be acyclic, but topological edge sort failed: {:?}",
+            final_edge_sort_result.err()
+        );
+
+        // --- Dump Sorted Edges (Optional: for debugging) ---
+        let sorted_edge_indices = final_edge_sort_result.unwrap();
+        println!(
+            "\n--- Sorted Edges for test_add_adjacency_edges_four_pairs ({} edges) ---",
+            sorted_edge_indices.len()
+        );
+        for (pos, &edge_idx) in sorted_edge_indices.iter().enumerate() {
+            if let Some(edge) = graph.get_edge(edge_idx) {
+                let source_id = graph
+                    .get_vertex(edge.source())
+                    .map(|v| v.id().to_string())
+                    .unwrap_or("?".to_string());
+                let target_id = graph
+                    .get_vertex(edge.target())
+                    .map(|v| v.id().to_string())
+                    .unwrap_or("?".to_string());
+                println!(
+                    "  Pos {}: Index={}, {} -> {} (ID: {:?}, Value: {:?}, Meta: {:?})",
+                    pos,
+                    edge_idx,
+                    source_id,
+                    target_id,
+                    edge.id(),
+                    edge.value(),
+                    edge.metadata()
+                );
+            } else {
+                println!("  Pos {}: Index={} (Edge not found!)", pos, edge_idx);
+            }
+        }
+        println!("-----------------------------------------------------------------------");
+    }
 }

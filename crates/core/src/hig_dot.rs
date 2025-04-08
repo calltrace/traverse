@@ -159,12 +159,17 @@ where
                     // Get the sorted edges from the transformed graph
                     match transformed_graph.topological_sort_edges() {
                         Ok(sorted_edge_indices) => {
-                            dot_output.push_str("    // Edges (from transformed graph, topologically sorted)\n");
+                            dot_output.push_str("    // Edges (from transformed graph, topologically sorted by hierarchical ID)\n");
                             // Iterate over the sorted edge indices
                             for edge_index in sorted_edge_indices {
                                 // Get the edge from the TRANSFORMED graph
                                 if let Some(transformed_edge) = transformed_graph.get_edge(edge_index) {
                                     let mut attrs = Vec::new();
+
+                                    // Add edge ID as a comment if available
+                                    if let Some(edge_id) = transformed_edge.id() {
+                                        dot_output.push_str(&format!("    // Edge ID: {}\n", edge_id));
+                                    }
 
                                     // Use value from transformed_edge for label
                                     if let Some(value) = transformed_edge.value() {
@@ -177,8 +182,7 @@ where
                                         if transformed_edge.value().is_none() {
                                              attrs.push(("tooltip".to_string(), format!("\"{}\"", metadata.to_dot_label())));
                                         } else {
-                                            // If value set the label, maybe add metadata to tooltip? Or skip?
-                                            // Adding metadata to tooltip for now, even if value exists.
+                                            // If value set the label, maybe add metadata to tooltip
                                              attrs.push(("tooltip".to_string(), format!("\"Value: {}\\nMeta: {}\"",
                                                 transformed_edge.value().map(|v| v.to_dot_label()).unwrap_or_default(),
                                                 metadata.to_dot_label()
@@ -186,6 +190,11 @@ where
                                         }
                                         // Add other attributes from metadata
                                         attrs.extend(metadata.to_dot_attributes());
+                                    }
+
+                                    // Add edge ID as an attribute if available
+                                    if let Some(edge_id) = transformed_edge.id() {
+                                        attrs.push(("edgetooltip".to_string(), format!("\"ID: {}\"", edge_id)));
                                     }
 
                                     let attrs_str = attrs

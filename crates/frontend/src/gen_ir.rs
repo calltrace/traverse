@@ -643,9 +643,36 @@ impl IrGenerator {
                     attr_type: AttributeType::String,
                 });
 
-                // Add provenance attributes to the relation definition
+                // Add attributes for all captures (base + provenance) to the relation definition
                 for capture_ref in captures {
                     if let Lval::Capture(capture_name, provenance_type) = &**capture_ref {
+                        // Add the base attribute for the capture itself
+                        if let Some(capture_symbol) = self.symbol_table.lookup_capture(capture_name)
+                        {
+                            if let Some(original_relation) = Self::lookup_relation(
+                                ir_program,
+                                &capture_symbol.relationref.name,
+                                None,
+                            ) {
+                                // Find the specific attribute mapping in SSA context
+                                if let Some(mappings) = context.get_capture_mappings(capture_name) {
+                                    if let Some(mapping) = mappings.first() { // Use the first mapping
+                                        if let Some(original_attr) = original_relation
+                                            .attributes
+                                            .iter()
+                                            .find(|a| a.name == mapping.symbol)
+                                        {
+                                            relation_attributes.insert(Attribute {
+                                                name: normalize_string(capture_name), // Use capture name for the attribute
+                                                attr_type: original_attr.attr_type.clone(),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Add provenance attributes if specified
                         if let Some(mappings) = context.get_capture_mappings(capture_name) {
                             for mapping in mappings {
                                 match provenance_type {
@@ -769,14 +796,17 @@ impl IrGenerator {
                 let mut lhs_attributes = IndexSet::new();
                 lhs_attributes.insert("val".to_string());
 
-                // For each capture, add only the specific mapped attribute and its provenance
+                // For each capture, add its base attribute and any specified provenance attributes
                 for capture_ref in captures {
                     if let Lval::Capture(capture_name, provenance_type) = &**capture_ref {
-                        // Look up the specific attribute mapping for this capture
+                        // Add the base attribute for the capture
+                        lhs_attributes.insert(format!("lhs_{}", normalize_string(capture_name)));
+
+                        // Look up the specific attribute mapping for this capture for provenance
                         if let Some(mappings) = context.get_capture_mappings(capture_name) {
-                            // Use only the first mapping for each capture to avoid duplicates
+                            // Use only the first mapping for each capture to avoid duplicates in provenance
                             if let Some(mapping) = mappings.first() {
-                                // Only add provenance for the specific mapped attribute
+                                // Add provenance attributes if specified
                                 match provenance_type {
                                     Some(ProvenanceType::Path) => {
                                         lhs_attributes.insert(format!(

@@ -143,9 +143,18 @@ where
 
             match parse_fact_line(trimmed) {
                 Ok((_rest, fact)) => {
+                    // Check if the parsed fact has neither attributes nor a diff.
+                    // If so, it's likely just a relation header line, so skip it.
+                    if fact.attributes.is_empty() && fact.diff.is_none() {
+                        continue; // Skip this line and try the next one
+                    }
+                    // Otherwise, it's a valid fact, return it.
                     return Some(Ok(fact));
                 }
                 Err(e) => {
+                    // If parsing fails, report the error but continue trying subsequent lines.
+                    // Consider whether failure on one line should halt the entire process.
+                    // For now, we report and continue.
                     let msg = format!("Failed to parse line {:?}: {:?}", trimmed, e);
                     return Some(Err(DdlogDrainError::ParseError(msg)));
                 }

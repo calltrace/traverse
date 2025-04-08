@@ -306,29 +306,59 @@ impl FactOrderingStrategy for DependencyDrivenDumpAlgorithm {
             Err(e) => eprintln!("Error creating acyclic DOT file: {}", e),
         }
 
-        println!("Attempting topological sort for fact ordering...");
+        println!("Attempting topological sort for fact ordering based on hierarchical identifiers...");
         let topologically_ordered_facts = match graph.transform_to_acyclic() {
-            Ok(acyclic_graph) => match acyclic_graph.topological_sort_edges() {
-                Ok(graph_edges_idx) => graph_edges_idx
-                    .into_iter()
-                    .filter_map(|edge_idx| acyclic_graph.get_edge(edge_idx))
-                    .filter_map(|edge| edge.value().cloned())
-                    .map(OrderedFact::new)
-                    .collect(),
+            Ok(acyclic_graph) => {
+                match acyclic_graph.topological_sort_edges() {
+                 Ok(graph_edges_idx) =>  {
+                     // Log the sorted edges for debugging
+                     println!("Successfully sorted {} edges by hierarchical ID", graph_edges_idx.len());
+                     
+                     // Extract facts from the sorted edges
+                     let ordered_facts: Vec<OrderedFact> = graph_edges_idx
+                        .into_iter()
+                        .filter_map(|edge_idx| acyclic_graph.get_edge(edge_idx))
+                        .enumerate()
+                        .filter_map(|(pos, edge)| {
+                            // Get the edge value (which contains our fact)
+                            let fact_opt = edge.value().cloned();
+                            
+                            // Create an OrderedFact with position metadata
+                            fact_opt.map(|fact| {
+                                let mut ordered_fact = OrderedFact::new(fact);
+                                
+                                // Add metadata about the edge's position in the sort
+                                ordered_fact.metadata.insert("sort_position".to_string(), pos.to_string());
+                                
+                                // Add edge ID if available
+                                if let Some(edge_id) = edge.id() {
+                                    ordered_fact.metadata.insert("edge_id".to_string(), edge_id.to_string());
+                                }
+                                
+                                ordered_fact
+                            })
+                        })
+                        .collect();
+                     
+                     ordered_facts
+                }
                 Err(e) => {
                     eprintln!("Failed to get topological sort edges: {:?}", e);
                     Vec::new()
                 }
-            },
+            }
+            }
             Err(e) => {
-                eprintln!("Failed to get sorted edges: {:?}", e);
-                Vec::new()
+                eprintln!("Failed to transform graph to acyclic: {:?}", e);
+                Vec::new() // Return empty vec on error
             }
         };
-        println!(
-            "Topologically ordered facts: {:?}",
-            topologically_ordered_facts
-        );
+
+        // Pretty-print the topologically ordered facts using the standard library's debug formatter
+        println!("\n--- Final Topologically Ordered Facts ({}): ---", topologically_ordered_facts.len());
+        println!("{:#?}", topologically_ordered_facts);
+        println!("--- End of Topologically Ordered Facts ---");
+
 
         let sorted_dot = graph.to_dot("trace_dependency_diagram_sorted", true);
         std::fs::remove_file("trace_dependency_diagram_sorted.dot").unwrap_or_default();
@@ -1002,7 +1032,7 @@ impl Stream {
             .collect::<Vec<DdlogFact>>();
 
         println!(
-            "Collected {} ({:?}) facts for stream: {}",
+            "Collected {} ({:#?}) facts for stream: {}",
             all_facts.len(),
             all_facts,
             self.name
