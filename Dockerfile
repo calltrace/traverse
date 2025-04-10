@@ -1,6 +1,6 @@
 # Stage 1: Build the application
 # Use a specific slim Rust version for smaller image size and reproducibility
-FROM rust:1.77-slim-bullseye as builder
+FROM rust:1.83-slim-bullseye as builder
 
 # Set the working directory within the container
 WORKDIR /usr/src/app
@@ -14,21 +14,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
 COPY Cargo.toml Cargo.toml
 COPY Cargo.lock Cargo.lock
 
-# Copy workspace member manifests (adjust paths if your structure differs)
-# Assuming a standard workspace layout in the 'crates' directory
+# Copy workspace member manifests
+COPY crates/backend/Cargo.toml ./crates/backend/Cargo.toml
+COPY crates/compiler/Cargo.toml ./crates/compiler/Cargo.toml
+COPY crates/core/Cargo.toml ./crates/core/Cargo.toml
+COPY crates/frontend/Cargo.toml ./crates/frontend/Cargo.toml
 COPY crates/graph/Cargo.toml ./crates/graph/Cargo.toml
-COPY crates/mermaid/Cargo.toml ./crates/mermaid/Cargo.toml
+COPY crates/ir/Cargo.toml ./crates/ir/Cargo.toml
 COPY crates/language/Cargo.toml ./crates/language/Cargo.toml
-# Add other crates if they exist, e.g.:
-# COPY crates/traverse-cli/Cargo.toml ./crates/traverse-cli/Cargo.toml
-
+COPY crates/mermaid/Cargo.toml ./crates/mermaid/Cargo.toml
+COPY crates/sol2seq/Cargo.toml ./crates/sol2seq/Cargo.toml
+COPY crates/traverse-cli/Cargo.toml ./crates/traverse-cli/Cargo.toml
+COPY crates/tree-sitter-traverse/Cargo.toml ./crates/tree-sitter-traverse/Cargo.toml
+COPY crates/mermaid/Cargo.toml ./crates/mermaid/Cargo.toml
 # Create dummy source files needed to build dependencies only
 # This prevents needing the full source code just for dependency resolution/caching
 RUN mkdir -p src/bin && echo "fn main() {}" > src/bin/sol2cg.rs
-# If you have library crates defined in the workspace, create dummy lib.rs too
-RUN mkdir crates/graph/src && echo "// dummy" > crates/graph/src/lib.rs
-RUN mkdir crates/mermaid/src && echo "// dummy" > crates/mermaid/src/lib.rs
-RUN mkdir crates/language/src && echo "// dummy" > crates/language/src/lib.rs
+# Create dummy lib.rs files for all workspace crates
+RUN mkdir -p crates/backend/src && echo "// dummy" > crates/backend/src/lib.rs
+RUN mkdir -p crates/compiler/src && echo "// dummy" > crates/compiler/src/lib.rs
+RUN mkdir -p crates/core/src && echo "// dummy" > crates/core/src/lib.rs
+RUN mkdir -p crates/frontend/src && echo "// dummy" > crates/frontend/src/lib.rs
+RUN mkdir -p crates/graph/src && echo "// dummy" > crates/graph/src/lib.rs
+RUN mkdir -p crates/ir/src && echo "// dummy" > crates/ir/src/lib.rs
+RUN mkdir -p crates/language/src && echo "// dummy" > crates/language/src/lib.rs
+RUN mkdir -p crates/mermaid/src && echo "// dummy" > crates/mermaid/src/lib.rs
+RUN mkdir -p crates/sol2seq/src && echo "// dummy" > crates/sol2seq/src/lib.rs
+RUN mkdir -p crates/traverse-cli/src/bin && echo "fn main() {}" > crates/traverse-cli/src/bin/sol2cg.rs
+RUN mkdir -p crates/tree-sitter-traverse/bindings/rust && echo "// dummy" > crates/tree-sitter-traverse/bindings/rust/lib.rs
 # Add for other crates as needed
 
 # Build *only* the dependencies to cache them
