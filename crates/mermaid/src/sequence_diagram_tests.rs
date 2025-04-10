@@ -1,6 +1,7 @@
 //
 // Test suite based on the Mermaid official one: https://github.com/mermaid-js/mermaid/blob/master/packages/mermaid/src/diagrams/sequence/sequenceDiagram.spec.js
 //
+use crate::sequence_diagram_builder::SequenceDiagramBuilder; // Import builder for serialization tests
 use crate::sequence_diagram_parser::{Rule, SequenceDiagramParser};
 use pest::Parser;
 
@@ -836,4 +837,114 @@ fn test_complex_diagram() {
     "#;
 
     assert!(test_parse(complex_diagram));
+}
+
+// --- Serialization Tests ---
+
+// Helper to parse and then serialize
+fn parse_and_serialize(input: &str) -> Result<String, String> {
+    // Trim leading and trailing whitespace to avoid parser issues
+    let input = input.trim();
+    
+    let pairs = SequenceDiagramParser::parse(Rule::sequence_diagram, input)
+        .map_err(|e| format!("Parse error: {}", e))?;
+    let mut builder = SequenceDiagramBuilder::new();
+    for pair in pairs {
+        builder
+            .process_pair(pair)
+            .map_err(|e| format!("Build error: {}", e))?;
+    }
+    let diagram = builder.build();
+    Ok(diagram.to_mermaid_string())
+}
+
+// Helper to normalize Mermaid strings for comparison (basic version)
+fn normalize_mermaid(s: &str) -> String {
+    s.lines()
+        .map(|line| line.trim()) // Trim whitespace from each line
+        .filter(|line| !line.is_empty()) // Remove empty lines
+        .collect::<Vec<_>>()
+        .join("\n") // Join back with single newline
+}
+
+#[test]
+fn test_serialization_basic() {
+    let input = r#"sequenceDiagram
+    participant Alice
+    actor Bob
+    Alice->>+Bob: Hello Bob!
+    Note right of Bob: Bob is thinking...
+    Bob-->>-Alice: Hi Alice!"#;
+    let expected_output = r#"sequenceDiagram
+participant Alice
+actor Bob
+Alice->>+Bob: Hello Bob!
+Note right of Bob: Bob is thinking...
+Bob-->>-Alice: Hi Alice!"#;
+
+    match parse_and_serialize(input) {
+        Ok(output) => {
+            assert_eq!(normalize_mermaid(&output), normalize_mermaid(expected_output));
+        }
+        Err(e) => panic!("Serialization test failed: {}", e),
+    }
+}
+
+#[test]
+fn test_serialization_loop_opt_rect() {
+    let input = r#"sequenceDiagram
+    autonumber 10 2
+    Alice->Bob: Request processing
+    loop Check Status
+        Bob->>Alice: Status update
+    end
+    opt If Successful
+        rect rgb(200, 255, 200)
+            Bob->Alice: Final result
+        end
+    end
+    autonumber off
+    Bob->Alice: Done"#;
+    let expected_output = r#"sequenceDiagram
+autonumber 10 2
+Alice->Bob: Request processing
+loop Check Status
+  Bob->>Alice: Status update
+end
+opt If Successful
+  rect rgb(200, 255, 200)
+    Bob->Alice: Final result
+  end
+end
+autonumber off
+Bob->Alice: Done"#;
+
+    match parse_and_serialize(input) {
+        Ok(output) => {
+            assert_eq!(normalize_mermaid(&output), normalize_mermaid(expected_output));
+        }
+        Err(e) => panic!("Serialization test failed: {}", e),
+    }
+}
+
+#[test]
+fn test_serialization_create_destroy() {
+     let input = r#"sequenceDiagram
+    participant A
+    create participant B
+    A->>B: Initialize
+    destroy B
+    A->>A: B is gone"#;
+    let expected_output = r#"sequenceDiagram
+participant A
+create participant B
+A->>B: Initialize
+destroy B
+A->>A: B is gone"#;
+     match parse_and_serialize(input) {
+        Ok(output) => {
+            assert_eq!(normalize_mermaid(&output), normalize_mermaid(expected_output));
+        }
+        Err(e) => panic!("Serialization test failed: {}", e),
+    }
 }

@@ -6,6 +6,15 @@ pub struct SequenceDiagram {
     pub statements: Vec<Statement>,
 }
 
+impl SequenceDiagram {
+    /// Serializes the diagram into a MermaidJS plain text string.
+    pub fn to_mermaid_string(&self) -> String {
+        // Assuming mermaid_writer::write_diagram is accessible
+        // This might require adjusting visibility or imports based on lib.rs structure
+        crate::sequence_diagram_writer::write_diagram(self)
+    }
+}
+
 /// All possible statement types in a sequence diagram
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {

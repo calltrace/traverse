@@ -15,7 +15,7 @@ impl From<Pair<'_, Rule>> for SequenceDiagram {
                 let statements = pair
                     .into_inner()
                     .find(|p| p.as_rule() == Rule::diagram_content)
-                    .map(|p| p.into_inner().filter_map(Statement::from_pair).collect())
+                    .map(|p| p.into_inner().filter_map(|p| Statement::from_pair(p)).collect())
                     .unwrap_or_default();
                 
                 SequenceDiagram { statements }
@@ -744,7 +744,7 @@ impl From<pest::error::Error<Rule>> for MermaidParseError {
 ///
 /// # Examples
 ///
-/// ```
+/// ```rust
 /// use mermaid::sequence_diagram_parser::parse_mermaid;
 ///
 /// let source = r#"sequenceDiagram
@@ -759,7 +759,7 @@ impl From<pest::error::Error<Rule>> for MermaidParseError {
 ///
 /// Parsing a complex diagram with multiple features:
 ///
-/// ```
+/// ```rust
 /// use mermaid::sequence_diagram_parser::parse_mermaid;
 /// use mermaid::sequence_diagram_ast::{Statement, ParticipantStatement, SignalStatement};
 ///

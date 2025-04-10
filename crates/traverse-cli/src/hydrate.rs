@@ -113,6 +113,8 @@ fn create_default_hydrator_config() -> BucketConfig {
             100,
             "path",
             "val",
+            "dependency",
+            ("source", "target"),
             vec![
                 InputSource::new("EmitMermaidLineMockActorLine", 100),
                 InputSource::new("EmitMermaidLineMockActorParticipantLine", 99),
@@ -126,6 +128,8 @@ fn create_default_hydrator_config() -> BucketConfig {
             95,
             "mock_actor_func_id_path",
             "val",
+            "dependency",
+            ("source", "target"),
             vec![InputSource::new("EmitMermaidLineMockActorSignalLine", 100)],
         )
         .with_bucket(
@@ -133,6 +137,8 @@ fn create_default_hydrator_config() -> BucketConfig {
             90,
             "intra_ce_no_return_id_path",
             "val",
+            "dependency",
+            ("source", "target"),
             vec![
                 InputSource::new("EmitMermaidLineIntraSignalLine", 100),
                 InputSource::new("EmitMermaidLineIntraSignalLineNoReturn", 100),
@@ -148,6 +154,8 @@ fn create_default_hydrator_config() -> BucketConfig {
             90,
             "ce_id_path",
             "val",
+            "dependency",
+            ("source", "target"),
             vec![
                 InputSource::new("EmitMermaidLineSignalLine", 100),
                 InputSource::new("EmitMermaidLineActivateLine", 90),

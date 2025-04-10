@@ -8,7 +8,8 @@ members = [
     "crates/traverse-cli",
     "crates/compiler",
     "crates/tree-sitter-traverse",
-    "crates/sol2seq"
+    "crates/sol2seq",
+    "crates/graph"
 ]
 
 # exclude workspae members 
