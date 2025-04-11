@@ -35,11 +35,11 @@ The tool follows a clear pipeline:
 
 ```mermaid
 graph LR
-    A[Solidity Files/Project] --> B{Parse "(Tree-sitter)";
+    A["Solidity Files/Project] --> B{Parse (Tree-sitter);
     B --> C[Generate Call Graph];
     C --> D{Serialize};
-    D -- DOT --> E[DOT Output "(dot)"];
-    D -- Mermaid --> F[Mermaid Sequence Diagram "(mmd)"];
+    D -- DOT --> E[DOT Output (dot)];
+    D -- Mermaid --> F[Mermaid Sequence Diagram (mmd)"];
 ```
 
 ## Usage
