@@ -81,7 +81,7 @@ sol2cg [OPTIONS] <INPUT_PATHS>...
 
 3.  **Generate DOT graph from all `.sol` files in a directory:**
     ```bash
-    sol2cg -f dot -o output/full_graph.gv ./contracts/
+    sol2cg -f dot -o output/full_graph.dot ./contracts/
     ```
 
 ### Running with Docker
