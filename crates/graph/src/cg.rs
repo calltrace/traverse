@@ -4,19 +4,16 @@ use anyhow::{Context, Result};
 use language::{Language, Solidity};
 use std::collections::{HashMap, HashSet}; // Import HashSet
 use std::iter;
+use std::marker::PhantomData;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node as TsNode, Query, QueryCursor, Tree};
 
-// --- Graph Primitives ---
-
-/// Type of edge in the call graph.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum EdgeType {
     Call,
     Return,
 }
 
-/// Type of node in the call graph.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum NodeType {
     Function,
@@ -24,7 +21,6 @@ pub enum NodeType {
     Modifier,
 }
 
-/// Visibility of a function, constructor, or modifier.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum Visibility {
     Public,
@@ -34,20 +30,13 @@ pub enum Visibility {
     Default,
 }
 
-/// Represents a node in the call graph (function, constructor, modifier).
 #[derive(Debug, Clone)]
 pub struct Node {
-    /// Unique identifier (index in the `CallGraph::nodes` vector).
     pub id: usize,
-    /// Name of the function, modifier, or contract (for constructor).
     pub name: String,
-    /// Type of the node.
     pub node_type: NodeType,
-    /// Name of the contract containing this node, if any.
     pub contract_name: Option<String>,
-    /// Visibility of the node.
     pub visibility: Visibility,
-    /// Byte range span in the original source code.
     pub span: (usize, usize),
 }
 
@@ -55,7 +44,6 @@ pub struct Node {
 
 impl crate::cg_dot::ToDotLabel for Node {
     fn to_dot_label(&self) -> String {
-        // Ensure a literal newline is used here, which will be escaped by escape_dot_string later
         format!(
             "{}{}\n({})", // Use a literal newline character here
             self.contract_name
@@ -68,24 +56,14 @@ impl crate::cg_dot::ToDotLabel for Node {
     }
 }
 
-/// Represents a directed edge in the call graph.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Edge {
-    /// ID of the node where the edge originates.
     pub source_node_id: usize,
-    /// ID of the node where the edge terminates.
     pub target_node_id: usize,
-    /// Type of the edge (call or return).
     pub edge_type: EdgeType,
-    /// Byte range span of the call expression (for Call edges),
-    /// or the function definition (for Return edges).
     pub call_site_span: (usize, usize),
-    /// Byte range span of the return statement (for Return edges).
     pub return_site_span: Option<(usize, usize)>,
-    /// The sequence number of this call within its source node (1-based, for Call edges).
-    /// Sequence number is less relevant for Return edges, typically set to 0.
     pub sequence_number: usize,
-    /// Optional text representation of the value/expression being returned.
     pub returned_value: Option<String>,
 }
 
@@ -101,27 +79,18 @@ impl crate::cg_dot::ToDotLabel for Edge {
 
 // --- Call Graph ---
 
-/// Represents the Solidity call graph with ordering semantics.
 #[derive(Debug, Default)]
 pub struct CallGraph {
-    /// Nodes (definitions) stored in the order they appear in the source.
     pub nodes: Vec<Node>,
-    /// Edges (calls) stored in the order they are discovered
-    /// (traversing functions in definition order, then calls within functions).
     pub edges: Vec<Edge>,
-    /// Internal mapping for quick node lookup.
-    /// Key: (Option<ContractName>, FunctionOrModifierName) -> Value: Node ID (index in `nodes` Vec)
     pub(crate) node_lookup: HashMap<(Option<String>, String), usize>,
 }
 
 impl CallGraph {
-    /// Creates a new, empty call graph.
     pub fn new() -> Self {
         Default::default()
     }
 
-    /// Adds a node to the graph and the lookup table.
-    /// Returns the ID (index) of the newly added node.
     pub(crate) fn add_node(
         &mut self,
         name: String,
@@ -145,7 +114,6 @@ impl CallGraph {
         id
     }
 
-    /// Adds an edge to the graph.
     pub(crate) fn add_edge(
         &mut self,
         source_node_id: usize,
@@ -176,21 +144,14 @@ impl CallGraph {
     /// TODO: Enhance resolution with proper type analysis for member access, inheritance, imports, etc.
     ///       This current fallback is a simplification and may be ambiguous if multiple
 
-    // --- Iterators ---
-
-    /// Returns an iterator over the nodes in definition order.
     pub fn iter_nodes(&self) -> impl Iterator<Item = &Node> {
         self.nodes.iter()
     }
 
-    /// Returns an iterator over the edges in the order they were found
-    /// (reflecting call order within functions, processed function-by-function).
     pub fn iter_edges(&self) -> impl Iterator<Item = &Edge> {
         self.edges.iter()
     }
 
-    /// Adds explicit return edges based on return statements found in the AST.
-    /// This should be called *after* the initial graph generation.
     pub fn add_explicit_return_edges(
         &mut self,
         source: &str,
@@ -298,34 +259,57 @@ impl CallGraph {
     }
 }
 
-// --- Generator ---
-
-/// Generates a `CallGraph` from a `SolidityAST`.
-pub struct CallGraphGenerator<'a> {
-    source: &'a str,
-    tree: &'a Tree,
-    solidity_lang: tree_sitter::Language,
-    /// Tracks types of state variables for resolving member calls.
-    /// Key: (ContractName, VariableName) -> Value: TypeName
-    state_var_types: HashMap<(String, String), String>,
+pub struct CallGraphGeneratorInput<'a> {
+    pub source: &'a str,
+    pub tree: &'a Tree,
+    pub solidity_lang: &'a tree_sitter::Language,
 }
 
-impl<'a> CallGraphGenerator<'a> {
-    /// Creates a new generator for the given AST.
-    pub fn new(ast: &'a SolidityAST) -> Result<Self> {
-        let solidity = Solidity; // Assuming Language trait impl
-        Ok(Self {
-            source: &ast.source,
-            tree: &ast.tree,
-            solidity_lang: solidity.get_tree_sitter_language(),
-            state_var_types: HashMap::new(),
-        })
+pub struct CallGraphGeneratorContext<'a> {
+    pub state_var_types: HashMap<(String, String), String>,
+    pub definition_nodes_info: Vec<(usize, TsNode<'a>, Option<String>)>,
+    pub all_contracts: HashMap<String, TsNode<'a>>,
+    pub contracts_with_explicit_constructors: HashSet<String>,
+}
+
+pub trait CallGraphGeneratorStep<'a> {
+    fn name(&self) -> &'static str;
+    /// Configure the step with settings.
+    fn config(&mut self, config: &HashMap<String, String>);
+    /// Generate part of the call graph.
+    fn generate(
+        &self,
+        input: &'a CallGraphGeneratorInput<'a>,
+        ctx: &mut CallGraphGeneratorContext<'a>,
+        graph: &mut CallGraph,
+    ) -> Result<()>;
+}
+
+#[derive(Default)] // Add Default derive
+pub struct ContractHandling {
+    // Add field to store config
+    config: HashMap<String, String>,
+}
+
+impl<'a> CallGraphGeneratorStep<'a> for ContractHandling {
+    fn name(&self) -> &'static str {
+        "Contract-Handling"
     }
 
-    /// Performs the call graph generation.
-    pub fn generate(mut self) -> Result<CallGraph> {
-        // Note: Takes ownership via `mut self`
-        let mut graph = CallGraph::new();
+    fn config(&mut self, config: &HashMap<String, String>) {
+        self.config = config.clone(); // Store the configuration
+    }
+
+    fn generate(
+        &self,
+        input: &'a CallGraphGeneratorInput<'a>,
+        ctx: &mut CallGraphGeneratorContext<'a>,
+        graph: &mut CallGraph,
+        // Config parameter removed from generate
+    ) -> Result<()> {
+        // Access stored config via self.config if needed later
+        let _config = &self.config; // Example access (currently unused)
+
         let mut definition_cursor = QueryCursor::new();
 
         // --- Pass 1: Find Definitions (Functions, Constructors, Modifiers, State Vars) ---
@@ -398,17 +382,11 @@ impl<'a> CallGraphGenerator<'a> {
                 )
             )
         "#;
-        let definition_query = Query::new(&self.solidity_lang, definition_query_str)
+        let definition_query = Query::new(&input.solidity_lang, definition_query_str)
             .context("Failed to create definition query")?;
 
-        // Store info needed for Pass 2: (Node ID, Definition Node, Contract Name Option)
-        let mut definition_nodes_info: Vec<(usize, TsNode<'a>, Option<String>)> = Vec::new();
-        // Track contracts to handle default constructors
-        let mut all_contracts: HashMap<String, TsNode<'a>> = HashMap::new(); // Map name to identifier node
-        let mut contracts_with_explicit_constructors: HashSet<String> = HashSet::new();
-
-        let root_node = self.tree.root_node();
-        let source_bytes = self.source.as_bytes();
+        let root_node = input.tree.root_node();
+        let source_bytes = input.source.as_bytes();
 
         let mut matches =
             definition_cursor.matches(&definition_query, root_node, |node: TsNode| {
@@ -434,7 +412,7 @@ impl<'a> CallGraphGenerator<'a> {
             for capture in match_.captures {
                 let capture_name = &definition_query.capture_names()[capture.index as usize];
                 let captured_ts_node = capture.node;
-                let text = get_node_text(&captured_ts_node, self.source);
+                let text = get_node_text(&captured_ts_node, input.source);
 
                 match capture_name.as_ref() {
                     // Captures specifically for populating the all_contracts map
@@ -471,7 +449,8 @@ impl<'a> CallGraphGenerator<'a> {
                         definition_ts_node_opt = Some(captured_ts_node);
                         // Mark this contract as having an explicit constructor
                         if let Some(c_name) = &contract_name_opt {
-                            contracts_with_explicit_constructors.insert(c_name.clone());
+                            ctx.contracts_with_explicit_constructors
+                                .insert(c_name.clone());
                         }
                     }
                     "var_name" => var_name_opt = Some(text.to_string()),
@@ -487,8 +466,9 @@ impl<'a> CallGraphGenerator<'a> {
             if let (Some(name_for_map), Some(identifier_node)) =
                 (contract_name_for_map_opt, contract_identifier_node_opt)
             {
-                if !all_contracts.contains_key(&name_for_map) {
-                    all_contracts.insert(name_for_map.clone(), identifier_node);
+                if !ctx.all_contracts.contains_key(&name_for_map) {
+                    ctx.all_contracts
+                        .insert(name_for_map.clone(), identifier_node);
                 }
             }
 
@@ -500,7 +480,7 @@ impl<'a> CallGraphGenerator<'a> {
                     (contract_name_opt.clone(), var_name_opt, var_type_opt)
                 {
                     // Store the type information for later use in call resolution
-                    self.state_var_types
+                    ctx.state_var_types
                         .insert((contract_name, var_name), var_type);
                 } else {
                     eprintln!(
@@ -510,7 +490,7 @@ impl<'a> CallGraphGenerator<'a> {
                             .iter()
                             .map(|c| (
                                 &*definition_query.capture_names()[c.index as usize],
-                                get_node_text(&c.node, self.source)
+                                get_node_text(&c.node, input.source)
                             ))
                             .collect::<Vec<_>>()
                     );
@@ -534,7 +514,8 @@ impl<'a> CallGraphGenerator<'a> {
                 let span = (def_node.start_byte(), def_node.end_byte());
                 let node_id =
                     graph.add_node(name, type_, contract_name_opt.clone(), visibility, span);
-                definition_nodes_info.push((node_id, def_node, contract_name_opt));
+                ctx.definition_nodes_info
+                    .push((node_id, def_node, contract_name_opt));
             } else {
                 eprintln!(
                     "Warning: Incomplete capture for definition match: {:?}",
@@ -543,7 +524,7 @@ impl<'a> CallGraphGenerator<'a> {
                         .iter()
                         .map(|c| (
                             &*definition_query.capture_names()[c.index as usize],
-                            get_node_text(&c.node, self.source)
+                            get_node_text(&c.node, input.source)
                         ))
                         .collect::<Vec<_>>()
                 );
@@ -553,9 +534,12 @@ impl<'a> CallGraphGenerator<'a> {
 
         // --- Add Default Constructor Nodes ---
         // Iterate through all identified contracts
-        for (contract_name, identifier_node) in &all_contracts {
+        for (contract_name, identifier_node) in &ctx.all_contracts {
             // Check if this contract already has an explicit constructor recorded
-            if !contracts_with_explicit_constructors.contains(contract_name) {
+            if !ctx
+                .contracts_with_explicit_constructors
+                .contains(contract_name)
+            {
                 // If not, add a default public constructor node
                 let span = (identifier_node.start_byte(), identifier_node.end_byte()); // Use contract identifier span
                 let constructor_name = contract_name.clone(); // Explicitly define constructor name for clarity
@@ -571,7 +555,36 @@ impl<'a> CallGraphGenerator<'a> {
             }
         }
 
-        // --- Pass 2: Find Calls within each Definition ---
+        Ok(())
+    }
+}
+
+#[derive(Default)] // Add Default derive
+pub struct CallsHandling {
+    // Add field to store config
+    config: HashMap<String, String>,
+}
+
+impl CallGraphGeneratorStep<'_> for CallsHandling {
+    fn name(&self) -> &'static str {
+        "Calls-Handling"
+    }
+
+    fn config(&mut self, config: &HashMap<String, String>) {
+        self.config = config.clone(); // Store the configuration
+    }
+
+    fn generate(
+        &self,
+        input: &CallGraphGeneratorInput,
+        ctx: &mut CallGraphGeneratorContext,
+        graph: &mut CallGraph,
+        // Config parameter removed from generate
+    ) -> Result<()> {
+        // Access stored config via self.config if needed later
+        let _config = &self.config; // Example access (currently unused)
+
+        let source_bytes = input.source.as_bytes();
         let call_query_str = r#"
             ; Simple identifier call: foo()
             ; Matches foo(...) - might also match type casts like Type(...)
@@ -590,12 +603,13 @@ impl<'a> CallGraphGenerator<'a> {
 
             ; TODO: Add specific patterns for `new Contract()` if needed
         "#;
-        let call_query = Query::new(&self.solidity_lang, call_query_str)
+        let call_query = Query::new(&input.solidity_lang, call_query_str)
             .context("Failed to create call query")?;
 
         let mut call_sequence_counter: usize = 0; // Initialize GLOBAL sequence counter
 
-        for (caller_node_id, definition_ts_node, caller_contract_name_opt) in &definition_nodes_info
+        for (caller_node_id, definition_ts_node, caller_contract_name_opt) in
+            &ctx.definition_nodes_info
         // Borrow here
         {
             let mut call_cursor = QueryCursor::new();
@@ -616,7 +630,7 @@ impl<'a> CallGraphGenerator<'a> {
                 for capture in call_match.captures {
                     let capture_name = &call_query.capture_names()[capture.index as usize];
                     let captured_ts_node = capture.node;
-                    let text = get_node_text(&captured_ts_node, self.source);
+                    let text = get_node_text(&captured_ts_node, input.source);
 
                     match capture_name.as_ref() {
                         "call_name" => simple_call_name_opt = Some(text.to_string()),
@@ -637,7 +651,7 @@ impl<'a> CallGraphGenerator<'a> {
                         // --- Member Access Call ---
                         if let Some(contract_name) = caller_contract_name_opt {
                             // Look up the type of the object variable in the current contract's state variables
-                            if let Some(object_type_name) = self
+                            if let Some(object_type_name) = ctx
                                 .state_var_types
                                 .get(&(contract_name.clone(), object_name.clone()))
                             {
@@ -687,7 +701,7 @@ impl<'a> CallGraphGenerator<'a> {
                         // it's likely a constructor call (either explicit or default).
                         if target_node_id_opt.is_none() {
                             // First, check if the call name matches a known contract from Pass 1
-                            if all_contracts.contains_key(&simple_call_name) {
+                            if ctx.all_contracts.contains_key(&simple_call_name) {
                                 // If it's a known contract, try to look up its constructor node
                                 // Key: (Some(ContractName), ContractName)
                                 let constructor_key =
@@ -710,17 +724,71 @@ impl<'a> CallGraphGenerator<'a> {
                             call_sequence_counter, // Pass sequence number
                             None,                  // No returned value for call edges
                         );
-                   }
+                    }
                 }
                 call_matches.advance();
             }
         }
 
-        Ok(graph)
+        Ok(())
     }
 }
 
-// --- Tests ---
+pub struct CallGraphGeneratorPipeline<'a> {
+    steps: Vec<Box<dyn CallGraphGeneratorStep<'a>>>,
+    enabled_steps: HashSet<String>, // Track enabled step names
+    _marker: PhantomData<&'a ()>,
+}
+
+impl<'a> CallGraphGeneratorPipeline<'a> {
+    pub fn new() -> Self {
+        Self {
+            steps: Vec::new(),
+            enabled_steps: HashSet::new(), // Initialize the set
+            _marker: PhantomData,
+        }
+    }
+
+    /// Adds a step to the pipeline. Steps are enabled by default.
+    pub fn add_step(&mut self, step: Box<dyn CallGraphGeneratorStep<'a>>) {
+        self.enabled_steps.insert(step.name().to_string()); // Enable by default
+        self.steps.push(step);
+    }
+
+    /// Enables a step by its name.
+    pub fn enable_step(&mut self, name: &str) {
+        self.enabled_steps.insert(name.to_string());
+    }
+
+    /// Disables a step by its name.
+    pub fn disable_step(&mut self, name: &str) {
+        self.enabled_steps.remove(name);
+    }
+
+    pub fn run(
+        &mut self,
+        input: &'a CallGraphGeneratorInput<'a>,
+        ctx: &mut CallGraphGeneratorContext<'a>,
+        graph: &mut CallGraph,
+        config: &HashMap<String, String>, // Keep config map parameter for run
+    ) -> Result<()> {
+        // First pass: configure enabled steps
+        for step in self.steps.iter_mut() {
+            if self.enabled_steps.contains(step.name()) {
+                step.config(config);
+            }
+        }
+        // Second pass: generate using enabled steps
+        for step in &self.steps {
+            if self.enabled_steps.contains(step.name()) {
+                // Call generate only if the step is enabled
+                step.generate(input, ctx, graph)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -756,8 +824,26 @@ mod tests {
         }
         "#;
         let ast = parse_solidity(source)?;
-        let generator = CallGraphGenerator::new(&ast)?;
-        let graph = generator.generate()?;
+        let solidity_lang = Solidity.get_tree_sitter_language();
+
+        let input = CallGraphGeneratorInput {
+            source,
+            tree: &ast.tree,
+            solidity_lang: &solidity_lang,
+        };
+        let mut ctx = CallGraphGeneratorContext {
+            state_var_types: HashMap::new(),
+            definition_nodes_info: Vec::new(),
+            all_contracts: HashMap::new(),
+            contracts_with_explicit_constructors: HashSet::new(),
+        };
+        let mut graph = CallGraph::new();
+        let config: HashMap<String, String> = HashMap::new(); // Create empty config
+
+        let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
+        pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
+        pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
+        pipeline.run(&input, &mut ctx, &mut graph, &config)?; // Pass config to run
 
         // Nodes: foo, bar, constructor (explicit)
         assert_eq!(graph.nodes.len(), 3, "Should find 3 nodes");
@@ -814,8 +900,26 @@ mod tests {
         }
         "#;
         let ast = parse_solidity(source)?;
-        let generator = CallGraphGenerator::new(&ast)?;
-        let graph = generator.generate()?;
+        let solidity_lang = Solidity.get_tree_sitter_language();
+
+        let input = CallGraphGeneratorInput {
+            source,
+            tree: &ast.tree,
+            solidity_lang: &solidity_lang,
+        };
+        let mut ctx = CallGraphGeneratorContext {
+            state_var_types: HashMap::new(),
+            definition_nodes_info: Vec::new(),
+            all_contracts: HashMap::new(),
+            contracts_with_explicit_constructors: HashSet::new(),
+        };
+        let mut graph = CallGraph::new();
+        let config: HashMap<String, String> = HashMap::new(); // Create empty config
+
+        let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
+        pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
+        pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
+        pipeline.run(&input, &mut ctx, &mut graph, &config)?; // Pass config to run
 
         // Nodes: onlyAdmin, checkAdmin, restricted, + default constructor
         assert_eq!(graph.nodes.len(), 4, "Should find 4 nodes");
@@ -862,8 +966,26 @@ mod tests {
         }
         "#;
         let ast = parse_solidity(source)?;
-        let generator = CallGraphGenerator::new(&ast)?;
-        let graph = generator.generate()?;
+        let solidity_lang = Solidity.get_tree_sitter_language();
+
+        let input = CallGraphGeneratorInput {
+            source,
+            tree: &ast.tree,
+            solidity_lang: &solidity_lang,
+        };
+        let mut ctx = CallGraphGeneratorContext {
+            state_var_types: HashMap::new(),
+            definition_nodes_info: Vec::new(),
+            all_contracts: HashMap::new(),
+            contracts_with_explicit_constructors: HashSet::new(),
+        };
+        let mut graph = CallGraph::new();
+        let config: HashMap<String, String> = HashMap::new(); // Create empty config
+
+        let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
+        pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
+        pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
+        pipeline.run(&input, &mut ctx, &mut graph, &config)?; // Pass config to run
 
         // Nodes: helper, callHelper, + default constructor for Caller
         assert_eq!(graph.nodes.len(), 3, "Should find 3 nodes");
@@ -900,10 +1022,27 @@ mod tests {
         }
         "#;
         let ast = parse_solidity(source)?;
-        let generator = CallGraphGenerator::new(&ast)?;
-        let graph = generator.generate()?;
+        let solidity_lang = Solidity.get_tree_sitter_language();
 
-        // Nodes: a, b, + default constructor for NoCalls
+        let input = CallGraphGeneratorInput {
+            source,
+            tree: &ast.tree,
+            solidity_lang: &solidity_lang,
+        };
+        let mut ctx = CallGraphGeneratorContext {
+            state_var_types: HashMap::new(),
+            definition_nodes_info: Vec::new(),
+            all_contracts: HashMap::new(),
+            contracts_with_explicit_constructors: HashSet::new(),
+        };
+        let mut graph = CallGraph::new();
+        let config: HashMap<String, String> = HashMap::new(); // Create empty config
+
+        let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
+        pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
+        pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
+        pipeline.run(&input, &mut ctx, &mut graph, &config)?; // Pass config to run
+
         assert_eq!(graph.nodes.len(), 3, "Should find 3 nodes");
         assert_eq!(graph.edges.len(), 0, "Should find 0 edges");
         Ok(())
@@ -923,8 +1062,26 @@ mod tests {
         }
         "#;
         let ast = parse_solidity(source)?;
-        let generator = CallGraphGenerator::new(&ast)?;
-        let graph = generator.generate()?;
+        let solidity_lang = Solidity.get_tree_sitter_language();
+
+        let input = CallGraphGeneratorInput {
+            source,
+            tree: &ast.tree,
+            solidity_lang: &solidity_lang,
+        };
+        let mut ctx = CallGraphGeneratorContext {
+            state_var_types: HashMap::new(),
+            definition_nodes_info: Vec::new(),
+            all_contracts: HashMap::new(),
+            contracts_with_explicit_constructors: HashSet::new(),
+        };
+        let mut graph = CallGraph::new();
+        let config: HashMap<String, String> = HashMap::new(); // Create empty config
+
+        let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
+        pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
+        pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
+        pipeline.run(&input, &mut ctx, &mut graph, &config)?; // Pass config to run
 
         // Nodes: callee1, callee2, caller, + default constructor for CallOrder
         assert_eq!(graph.nodes.len(), 4, "Should find 4 nodes");
@@ -965,8 +1122,26 @@ mod tests {
     fn test_empty_source() -> Result<()> {
         let source = "pragma solidity ^0.8.0;";
         let ast = parse_solidity(source)?;
-        let generator = CallGraphGenerator::new(&ast)?;
-        let graph = generator.generate()?;
+        let solidity_lang = Solidity.get_tree_sitter_language();
+
+        let input = CallGraphGeneratorInput {
+            source,
+            tree: &ast.tree,
+            solidity_lang: &solidity_lang,
+        };
+        let mut ctx = CallGraphGeneratorContext {
+            state_var_types: HashMap::new(),
+            definition_nodes_info: Vec::new(),
+            all_contracts: HashMap::new(),
+            contracts_with_explicit_constructors: HashSet::new(),
+        };
+        let mut graph = CallGraph::new();
+        let config: HashMap<String, String> = HashMap::new(); // Create empty config
+
+        let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
+        pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
+        pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
+        pipeline.run(&input, &mut ctx, &mut graph, &config)?; // Pass config to run
 
         assert_eq!(graph.nodes.len(), 0, "Should find 0 nodes");
         assert_eq!(graph.edges.len(), 0, "Should find 0 edges");
@@ -984,10 +1159,27 @@ mod tests {
         }
         "#;
         let ast = parse_solidity(source)?;
-        let generator = CallGraphGenerator::new(&ast)?;
-        let graph = generator.generate()?;
+        let solidity_lang = Solidity.get_tree_sitter_language();
 
-        // Nodes: callNonExistent, + default constructor for Unresolved
+        let input = CallGraphGeneratorInput {
+            source,
+            tree: &ast.tree,
+            solidity_lang: &solidity_lang,
+        };
+        let mut ctx = CallGraphGeneratorContext {
+            state_var_types: HashMap::new(),
+            definition_nodes_info: Vec::new(),
+            all_contracts: HashMap::new(),
+            contracts_with_explicit_constructors: HashSet::new(),
+        };
+        let mut graph = CallGraph::new();
+        let config: HashMap<String, String> = HashMap::new(); // Create empty config
+
+        let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
+        pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
+        pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
+        pipeline.run(&input, &mut ctx, &mut graph, &config)?; // Pass config to run
+
         assert_eq!(
             graph.nodes.len(),
             2,
@@ -1026,8 +1218,26 @@ mod tests {
         }
         "#;
         let ast = parse_solidity(source)?;
-        let generator = CallGraphGenerator::new(&ast)?;
-        let graph = generator.generate()?;
+        let solidity_lang = Solidity.get_tree_sitter_language();
+
+        let input = CallGraphGeneratorInput {
+            source,
+            tree: &ast.tree,
+            solidity_lang: &solidity_lang,
+        };
+        let mut ctx = CallGraphGeneratorContext {
+            state_var_types: HashMap::new(),
+            definition_nodes_info: Vec::new(),
+            all_contracts: HashMap::new(),
+            contracts_with_explicit_constructors: HashSet::new(),
+        };
+        let mut graph = CallGraph::new();
+        let config: HashMap<String, String> = HashMap::new(); // Create empty config
+
+        let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
+        pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
+        pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
+        pipeline.run(&input, &mut ctx, &mut graph, &config)?; // Pass config to run
 
         // Nodes: Counter.increment, CounterCaller.constructor, CounterCaller.callIncrement, + default constructor for Counter
         assert_eq!(graph.nodes.len(), 4, "Should find 4 nodes");
@@ -1114,10 +1324,28 @@ mod tests {
         }
         "#;
         let ast = parse_solidity(source)?;
-        let generator = CallGraphGenerator::new(&ast)?;
-        let mut graph = generator.generate()?; // Generate initial graph (calls only)
+        let solidity_lang = Solidity.get_tree_sitter_language();
 
-        // Explicitly add return edges
+        let input = CallGraphGeneratorInput {
+            source,
+            tree: &ast.tree,
+            solidity_lang: &solidity_lang,
+        };
+        let mut ctx = CallGraphGeneratorContext {
+            state_var_types: HashMap::new(),
+            definition_nodes_info: Vec::new(),
+            all_contracts: HashMap::new(),
+            contracts_with_explicit_constructors: HashSet::new(),
+        };
+        let mut graph = CallGraph::new();
+        let config: HashMap<String, String> = HashMap::new(); // Create empty config
+
+        let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
+        pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
+        pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
+        pipeline.run(&input, &mut ctx, &mut graph, &config)?; // Pass config to run
+
+        // Explicitly add return edges AFTER the pipeline run
         graph.add_explicit_return_edges(source, &ast.tree, &Solidity.get_tree_sitter_language())?;
 
         // Nodes: returnsTrue, callsReturnTrue, + default constructor
@@ -1150,6 +1378,145 @@ mod tests {
             Some("true".to_string()),
             "Return edge should capture 'true'"
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pipeline_execution() -> Result<()> {
+        let source = r#"
+        pragma solidity ^0.8.0;
+
+        contract SimplePipeline {
+            function foo() public pure {}
+            function bar() private pure {
+                foo(); // Call within the contract
+            }
+            constructor() {
+                // No call in constructor for simplicity in this test
+            }
+        }
+        "#;
+        let ast = parse_solidity(source)?;
+        let solidity_lang = Solidity.get_tree_sitter_language();
+
+        let input = CallGraphGeneratorInput {
+            source,
+            tree: &ast.tree,
+            solidity_lang: &solidity_lang,
+        };
+        let mut ctx = CallGraphGeneratorContext {
+            state_var_types: HashMap::new(),
+            definition_nodes_info: Vec::new(),
+            all_contracts: HashMap::new(),
+            contracts_with_explicit_constructors: HashSet::new(),
+        };
+        let mut graph = CallGraph::new();
+        let config: HashMap<String, String> = HashMap::new(); // Create empty config
+
+        let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
+        pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
+        pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
+        pipeline.run(&input, &mut ctx, &mut graph, &config)?; // Pass config to run
+
+        assert_eq!(graph.nodes.len(), 3, "Pipeline: Should find 3 nodes");
+        assert_eq!(graph.edges.len(), 1, "Pipeline: Should find 1 edge");
+
+        let foo_node = find_node(&graph, "foo", Some("SimplePipeline")).expect("Pipeline: foo node not found");
+        let bar_node = find_node(&graph, "bar", Some("SimplePipeline")).expect("Pipeline: bar node not found");
+        let constructor_node = find_node(&graph, "SimplePipeline", Some("SimplePipeline")).expect("Pipeline: constructor node not found");
+
+        assert_eq!(foo_node.node_type, NodeType::Function);
+        assert_eq!(bar_node.node_type, NodeType::Function);
+        assert_eq!(constructor_node.node_type, NodeType::Constructor);
+
+        assert_visibility(&foo_node, Visibility::Public);
+        assert_visibility(&bar_node, Visibility::Private);
+        assert_visibility(&constructor_node, Visibility::Public); // Explicit constructor defaults to public if no visibility specified
+
+        // Check node order (assuming definition order)
+        assert_eq!(graph.nodes[0].id, foo_node.id);
+        assert_eq!(graph.nodes[1].id, bar_node.id);
+        assert_eq!(graph.nodes[2].id, constructor_node.id);
+
+        // Check the single edge: bar() calls foo()
+        assert_eq!(graph.edges[0].source_node_id, bar_node.id);
+        assert_eq!(graph.edges[0].target_node_id, foo_node.id);
+        assert_eq!(graph.edges[0].edge_type, EdgeType::Call);
+        assert_eq!(graph.edges[0].sequence_number, 1, "Pipeline: bar -> foo sequence"); // First call found globally
+
+        Ok(())
+
+    }
+
+    #[test]
+    fn test_pipeline_step_enable_disable() -> Result<()> {
+        let source = r#"
+        pragma solidity ^0.8.0;
+
+        contract EnableDisableTest {
+            function target() public pure {}
+            function caller() public pure {
+                target();
+            }
+        }
+        "#;
+        let ast = parse_solidity(source)?;
+        let solidity_lang = Solidity.get_tree_sitter_language();
+
+        let input = CallGraphGeneratorInput {
+            source,
+            tree: &ast.tree,
+            solidity_lang: &solidity_lang,
+        };
+        let config: HashMap<String, String> = HashMap::new(); // Empty config
+
+        // --- Test with CallsHandling disabled ---
+        let mut ctx_disabled = CallGraphGeneratorContext {
+            state_var_types: HashMap::new(),
+            definition_nodes_info: Vec::new(),
+            all_contracts: HashMap::new(),
+            contracts_with_explicit_constructors: HashSet::new(),
+        };
+        let mut graph_disabled = CallGraph::new();
+        let mut pipeline_disabled = CallGraphGeneratorPipeline::new();
+
+        pipeline_disabled.add_step(Box::new(ContractHandling::default()));
+        pipeline_disabled.add_step(Box::new(CallsHandling::default()));
+
+        // Disable the CallsHandling step
+        pipeline_disabled.disable_step("Calls-Handling");
+
+        pipeline_disabled.run(&input, &mut ctx_disabled, &mut graph_disabled, &config)?;
+
+        // Nodes: target, caller, + default constructor
+        assert_eq!(graph_disabled.nodes.len(), 3, "Disabled: Should find 3 nodes (ContractHandling ran)");
+        assert_eq!(graph_disabled.edges.len(), 0, "Disabled: Should find 0 edges (CallsHandling disabled)");
+
+        // --- Test with CallsHandling enabled (default) ---
+        let mut ctx_enabled = CallGraphGeneratorContext {
+            state_var_types: HashMap::new(),
+            definition_nodes_info: Vec::new(),
+            all_contracts: HashMap::new(),
+            contracts_with_explicit_constructors: HashSet::new(),
+        };
+        let mut graph_enabled = CallGraph::new();
+        let mut pipeline_enabled = CallGraphGeneratorPipeline::new();
+
+        pipeline_enabled.add_step(Box::new(ContractHandling::default()));
+        pipeline_enabled.add_step(Box::new(CallsHandling::default()));
+        // No need to explicitly enable, it's enabled by default after add_step
+
+        pipeline_enabled.run(&input, &mut ctx_enabled, &mut graph_enabled, &config)?;
+
+        assert_eq!(graph_enabled.nodes.len(), 3, "Enabled: Should find 3 nodes");
+        assert_eq!(graph_enabled.edges.len(), 1, "Enabled: Should find 1 edge (CallsHandling ran)");
+
+        let target_node = find_node(&graph_enabled, "target", Some("EnableDisableTest")).expect("Enabled: target node");
+        let caller_node = find_node(&graph_enabled, "caller", Some("EnableDisableTest")).expect("Enabled: caller node");
+
+        assert_eq!(graph_enabled.edges[0].source_node_id, caller_node.id);
+        assert_eq!(graph_enabled.edges[0].target_node_id, target_node.id);
 
         Ok(())
     }

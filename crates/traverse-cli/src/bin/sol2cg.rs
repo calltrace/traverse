@@ -1,11 +1,12 @@
 use anyhow::{bail, Context, Result};
-use clap::Parser;
-use graph::cg::{CallGraph, CallGraphGenerator};
+use clap::{Parser, ValueEnum};
+use graph::cg::{CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline, ContractHandling, CallsHandling};
 use graph::cg_dot::CgToDot;
 use graph::cg_mermaid::{MermaidGenerator, ToSequenceDiagram};
 use graph::parser::parse_solidity;
 use language::{Language, Solidity};
 use mermaid::sequence_diagram_writer;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::io::{stdout, Write};
@@ -27,6 +28,20 @@ struct Cli {
     /// Output format.
     #[arg(short, long, value_parser = clap::value_parser!(OutputFormat), default_value_t = OutputFormat::Dot)]
     format: OutputFormat,
+    
+    /// Disable specific pipeline steps (comma-separated list)
+    /// Available steps: Contract-Handling, Calls-Handling
+    #[arg(long)]
+    disable_steps: Option<String>,
+    
+    /// Enable specific pipeline steps (comma-separated list)
+    /// Available steps: Contract-Handling, Calls-Handling
+    #[arg(long)]
+    enable_steps: Option<String>,
+    
+    /// Configuration parameters for pipeline steps (format: key=value,key2=value2)
+    #[arg(long)]
+    config: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, clap::ValueEnum)]
@@ -137,16 +152,58 @@ fn main() -> Result<()> {
     let combined_ast =
         parse_solidity(&combined_source).context("Failed to parse combined Solidity source")?;
 
-    // 4. Generate Call Graph
-    let generator =
-        CallGraphGenerator::new(&combined_ast).context("Failed to create CallGraphGenerator")?;
-    let mut graph = generator
-        .generate()
-        .context("Failed to generate initial call graph")?;
-
-    // 5. Add Explicit Return Edges
-
     let solidity_lang = Solidity.get_tree_sitter_language();
+    
+    // Create the pipeline input
+    let input = CallGraphGeneratorInput {
+        source: &combined_source,
+        tree: &combined_ast.tree,
+        solidity_lang: &solidity_lang,
+    };
+    
+    // Create the pipeline context
+    let mut ctx = CallGraphGeneratorContext {
+        state_var_types: HashMap::new(),
+        definition_nodes_info: Vec::new(),
+        all_contracts: HashMap::new(),
+        contracts_with_explicit_constructors: HashSet::new(),
+    };
+    
+    // Create the call graph
+    let mut graph = CallGraph::new();
+    
+    // Parse configuration parameters
+    let config = parse_config_params(cli.config.as_deref());
+    
+    // Create and configure the pipeline
+    let mut pipeline = CallGraphGeneratorPipeline::new();
+    
+    // Add default steps
+    pipeline.add_step(Box::new(ContractHandling::default()));
+    pipeline.add_step(Box::new(CallsHandling::default()));
+    
+    // Process step enabling/disabling
+    if let Some(disable_steps) = cli.disable_steps.as_deref() {
+        for step_name in disable_steps.split(',').map(|s| s.trim()) {
+            if !step_name.is_empty() {
+                pipeline.disable_step(step_name);
+            }
+        }
+    }
+    
+    if let Some(enable_steps) = cli.enable_steps.as_deref() {
+        for step_name in enable_steps.split(',').map(|s| s.trim()) {
+            if !step_name.is_empty() {
+                pipeline.enable_step(step_name);
+            }
+        }
+    }
+    
+    // Run the pipeline
+    pipeline.run(&input, &mut ctx, &mut graph, &config)
+        .context("Failed to generate call graph with pipeline")?;
+    
+    // 5. Add Explicit Return Edges
     graph
         .add_explicit_return_edges(&combined_source, &combined_ast.tree, &solidity_lang)
         .context("Failed to add explicit return edges")?;
@@ -181,6 +238,25 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Parse configuration parameters from a string in the format "key=value,key2=value2"
+fn parse_config_params(config_str: Option<&str>) -> HashMap<String, String> {
+    let mut config = HashMap::new();
+    
+    if let Some(config_str) = config_str {
+        for param in config_str.split(',') {
+            if let Some((key, value)) = param.split_once('=') {
+                let key = key.trim().to_string();
+                let value = value.trim().to_string();
+                if !key.is_empty() {
+                    config.insert(key, value);
+                }
+            }
+        }
+    }
+    
+    config
 }
 
 /// Finds all files with the .sol extension in the given paths (files or directories).

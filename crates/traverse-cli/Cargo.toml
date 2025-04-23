@@ -30,9 +30,9 @@ name = "ftd"
 path = "src/bin/ftd.rs"
 
 
-[[bin]]
-name = "trvh"
-path = "src/bin/trvh.rs"
+#[[bin]]
+#name = "trvh"
+#path = "src/bin/trvh.rs"
 
 [[bin]]
 name = "trvr"

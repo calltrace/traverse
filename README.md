@@ -18,6 +18,7 @@ The primary goal of `sol2cg` is to help developers understand the control flow w
 
 *   **Tree-sitter Powered:** Leverages the robust `tree-sitter` parsing library and its query language for accurate and efficient analysis of Solidity code structure.
 *   **Strongly-Typed Approach:** Operates on a structured representation of the code (Abstract Syntax Tree and derived Call Graph), ensuring more reliable analysis compared to simple text-based methods.
+*   Configurable Pipeline Architecture: Uses a modular pipeline with individually configurable and toggleable steps for flexible analysis.
 *   **Multiple Output Formats:** Supports both DOT (for detailed graph visualization) and MermaidJS (for clear sequence diagrams).
 *   **Handles Files and Directories:** Can process individual `.sol` files or entire directories containing Solidity code.
 *   **Docker Support:** Provides a `Dockerfile` for easy containerization and execution in isolated environments.
@@ -28,8 +29,12 @@ The tool follows a clear pipeline:
 
 1.  **Input:** Takes one or more Solidity `.sol` files or directories as input.
 2.  **Parsing:** Parses the combined source code using `tree-sitter-solidity` to build an Abstract Syntax Tree (AST).
-3.  **Call Graph Generation:** Analyzes the AST to identify function/modifier/constructor definitions and call sites, constructing an internal Call Graph representation. This graph includes nodes for definitions and edges for calls (with sequence numbers) and explicit returns (with return values where possible).
-4.  **Serialization:** Converts the internal Call Graph into the desired output format:
+3.  **Call Graph Generation:** Analyzes the AST using a configurable pipeline architecture:
+    * **Contract-Handling:** Identifies function/modifier/constructor definitions and builds the node structure.
+    * **Calls-Handling:** Analyzes call sites and creates edges between nodes.
+    * Each step can be individually enabled or disabled, and configured via command-line parameters.
+4.  **Return Edge Generation:** Analyzes return statements to add explicit return edges with return values where possible.
+5.  **Serialization:** Converts the internal Call Graph into the desired output format:
     *   **DOT:** Serializes the graph directly into DOT language.
     *   **Mermaid:** Traverses the call graph starting from public/external entry points (simulating user interaction) to generate a contract-level sequence diagram in MermaidJS syntax.
 
@@ -64,6 +69,9 @@ sol2cg [OPTIONS] <INPUT_PATHS>...
 *   `-f, --format <FORMAT>`: Sets the output format.
     *   `dot` (Default): Generates a DOT graph file (often saved with `.gv` or `.dot` extension).
     *   `mermaid`: Generates a MermaidJS sequence diagram (often saved with `.mmd` extension).
+*   `--disable-steps <STEPS>`: Comma-separated list of pipeline steps to disable. Available steps: `Contract-Handling`, `Calls-Handling`.
+*   `--enable-steps <STEPS>`: Comma-separated list of pipeline steps to enable. Use this to re-enable steps that were disabled by default or by `--disable-steps`.
+*   `--config <CONFIG>`: Configuration parameters for pipeline steps in the format `key=value,key2=value2`.
 *   `-h, --help`: Prints help information.
 *   `-V, --version`: Prints version information.
 
@@ -83,6 +91,15 @@ sol2cg [OPTIONS] <INPUT_PATHS>...
     ```bash
     sol2cg -f dot -o output/full_graph.dot ./contracts/
     ```
+4.  Generate a call graph with specific pipeline steps disabled:
+    ```bash
+    sol2cg --disable-steps "Calls-Handling" -o output/definitions_only.dot ./contracts/
+    ```
+
+5.  **Generate a call graph with custom configuration:**
+    ```bash
+    sol2cg --config "max_depth=3,include_internal=false" -o output/custom_graph.dot ./contracts/
+
 
 ### Running with Docker
 

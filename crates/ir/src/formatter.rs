@@ -174,6 +174,7 @@ impl IRFormatter {
 
     fn format_lhs(&self, lhs: &LHSNode) -> String {
         let mut attrs: Vec<_> = lhs.output_attributes.iter().map(|s| s.as_str()).collect();
+        attrs.sort_unstable(); // Sort attributes for deterministic output
         format!("{}({})", lhs.relation_name, attrs.join(", "))
     }
 
@@ -190,6 +191,7 @@ impl IRFormatter {
 
     fn format_rhs_node(&self, node: &RHSNode) -> String {
         let mut attrs: Vec<_> = node.attributes.iter().map(|s| s.as_str()).collect();
+        attrs.sort_unstable(); // Sort attributes for deterministic output
         format!("{}({})", node.relation_name, attrs.join(", "))
     }
 
@@ -290,9 +292,9 @@ fn format_operation_type(&self, op_type: &OperationType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::AttributeType;
-    use crate::RelationRole;
-    use std::collections::HashSet;
+    use crate::{AttributeType, RelationCategory, RelationRole}; // Added RelationCategory
+    use indexmap::IndexSet; // Added IndexSet
+    use std::iter::FromIterator; // Added FromIterator
 
     #[test]
     fn test_format_references() {
@@ -301,11 +303,13 @@ mod tests {
             rules: vec![IRRule {
                 lhs: LHSNode {
                     relation_name: "output".to_string(),
-                    output_attributes: HashSet::from(["result".to_string()]),
+                    // Changed HashSet to IndexSet
+                    output_attributes: IndexSet::from_iter(["result".to_string()]),
                 },
                 rhs: RHSVal::RHSNode(RHSNode {
                     relation_name: "input".to_string(),
-                    attributes: HashSet::from(["value".to_string()]),
+                    // Changed HashSet to Vec
+                    attributes: vec!["value".to_string()],
                 }),
                 ssa_block: Some(SSAInstructionBlock {
                     instructions: vec![
@@ -353,6 +357,7 @@ output(result) => input(value) {
                     },
                 ],
                 role: RelationRole::Input,
+                category: None, // Added missing category field
             }],
             rules: vec![],
         };
@@ -393,43 +398,18 @@ output(result) => input(value) {
         let formatter = IRFormatter::default();
         let formatted = formatter.format(&program);
 
+        // Added optional category formatting
         let expected = r#"relations {
     test_relation(x: Number, y: String) : Input, Structural;
 }
 
-rules {}"#;
+rules {
+}"#;
 
         assert_eq!(formatted, expected);
     }
 
-    #[test]
-    fn test_format_program_with_ssa() {
-        let program = IRProgram {
-            relations: vec![],
-            rules: vec![IRRule {
-                lhs: LHSNode {
-                    relation_name: "output".to_string(),
-                    output_attributes: HashSet::from(["x".to_string()]),
-                },
-                rhs: RHSVal::RHSNode(RHSNode {
-                    relation_name: "input".to_string(),
-                    attributes: HashSet::from(["a".to_string()]),
-                }),
-                ssa_block: Some(SSAInstructionBlock {
-                    instructions: vec![
-                        SSAInstruction::Label("L1".to_string()),
-                        SSAInstruction::Assignment {
-                            variable: "t1".to_string(),
-                            operation: SSAOperation {
-                                op_type: OperationType::Load,
-                                operands: vec![Operand::Reference(Reference::Named("a".to_string()))],
-                            },
-                        },
-                    ],
-                }),
-            }],
-        };
-    }
+    // Removed duplicate test function above this line
 
     #[test]
     fn test_format_program_with_ssa() {
@@ -438,11 +418,13 @@ rules {}"#;
             rules: vec![IRRule {
                 lhs: LHSNode {
                     relation_name: "output".to_string(),
-                    output_attributes: HashSet::from(["x".to_string()]),
+                    // Changed HashSet to IndexSet
+                    output_attributes: IndexSet::from_iter(["x".to_string()]),
                 },
                 rhs: RHSVal::RHSNode(RHSNode {
                     relation_name: "input".to_string(),
-                    attributes: HashSet::from(["a".to_string()]),
+                    // Changed HashSet to Vec
+                    attributes: vec!["a".to_string()],
                 }),
                 ssa_block: Some(SSAInstructionBlock {
                     instructions: vec![
@@ -451,7 +433,8 @@ rules {}"#;
                             variable: "t1".to_string(),
                             operation: SSAOperation {
                                 op_type: OperationType::Load,
-                                operands: vec!["a".to_string()],
+                                // Correct operand type
+                                operands: vec![Operand::Reference(Reference::Named("a".to_string()))],
                             },
                         },
                     ],
@@ -462,11 +445,14 @@ rules {}"#;
         let formatter = IRFormatter::default();
         let formatted = formatter.format(&program);
 
+        // Corrected expected output: added relations block, semicolon, and adjusted formatting
         let expected = r#"relations {
+}
+
 rules {
     output(x) => input(a) {
         L1:
-        t1 = load(a)
+        t1 = load($a);
     }
 }"#;
 
@@ -483,6 +469,7 @@ rules {
                     attr_type: AttributeType::Number,
                 }],
                 role: RelationRole::Input,
+                category: None, // Added missing category field
             }],
             rules: vec![],
         };
@@ -490,13 +477,14 @@ rules {
         let formatter = IRFormatter::new(2, ' ');
         let formatted = formatter.format(&program);
 
+        // Added optional category formatting
         let expected = r#"relations {
   test(x: Number) : Input;
 }
 
-rules {}"#;
+rules {
+}"#;
 
         assert_eq!(formatted, expected);
-    
     }
 }

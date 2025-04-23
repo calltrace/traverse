@@ -1,4 +1,3 @@
-
 use clap::Parser;
 use std::fs;
 use std::io::{self, Read, Write};
@@ -63,7 +62,6 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,13 +94,14 @@ rules {
 }
 "#;
 
-        let result = format_program(input, true, 4, false).unwrap();
+        let result = ir::format_program(input, true, 4, false).unwrap();
         assert!(result.contains("\x1b[")); // Contains ANSI escape codes
     }
 
     #[test]
     fn test_format_invalid_input() {
         let input = "invalid { program";
-        assert!(format_program(input, false, 4, false).is_err());
+        // Correctly call the function from the ir crate
+        assert!(ir::format_program(input, false, 4, false).is_err());
     }
 }

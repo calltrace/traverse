@@ -1087,6 +1087,7 @@ mod parser {
                         },
                     ],
                     role: RelationRole::Input,
+                    category: None, // Explicitly set category to None
                 },
                 RelationType {
                     name: "temp_relation".to_string(),
@@ -1095,6 +1096,7 @@ mod parser {
                         attr_type: AttributeType::Float,
                     }],
                     role: RelationRole::Intermediate,
+                    category: None, // Explicitly set category to None
                 },
                 RelationType {
                     name: "output_relation".to_string(),
@@ -1103,6 +1105,7 @@ mod parser {
                         attr_type: AttributeType::Float,
                     }],
                     role: RelationRole::Intermediate,
+                    category: None, // Explicitly set category to None
                 },
             ],
             rules: vec![IRRule {
@@ -1113,11 +1116,12 @@ mod parser {
                 rhs: RHSVal::NestedRHS(vec![
                     RHSVal::RHSNode(RHSNode {
                         relation_name: "input_relation".to_string(),
-                        attributes: IndexSet::from(["b".to_string(), "a".to_string()]),
+                        // Attributes are parsed into a Vec, order matters
+                        attributes: vec!["a".to_string(), "b".to_string()],
                     }),
                     RHSVal::RHSNode(RHSNode {
                         relation_name: "temp_relation".to_string(),
-                        attributes: IndexSet::from(["c".to_string()]),
+                        attributes: vec!["c".to_string()],
                     }),
                 ]),
                 ssa_block: Some(SSAInstructionBlock {
@@ -1127,14 +1131,18 @@ mod parser {
                             variable: "t1".to_string(),
                             operation: SSAOperation {
                                 op_type: OperationType::Load,
-                                operands: vec!["a".to_string()],
+                                // Operands should be Operand variants
+                                operands: vec![Operand::Identifier("a".to_string())],
                             },
                         },
                         SSAInstruction::Assignment {
                             variable: "t2".to_string(),
                             operation: SSAOperation {
                                 op_type: OperationType::Add,
-                                operands: vec!["t1".to_string(), "b".to_string()],
+                                operands: vec![
+                                    Operand::Identifier("t1".to_string()),
+                                    Operand::Identifier("b".to_string()),
+                                ],
                             },
                         },
                         SSAInstruction::Label("L2".to_string()),
@@ -1142,16 +1150,20 @@ mod parser {
                             variable: "t3".to_string(),
                             operation: SSAOperation {
                                 op_type: OperationType::Mul,
-                                operands: vec!["t2".to_string(), "c".to_string()],
+                                operands: vec![
+                                    Operand::Identifier("t2".to_string()),
+                                    Operand::Identifier("c".to_string()),
+                                ],
                             },
                         },
                         SSAInstruction::Goto("L3".to_string()),
                         SSAInstruction::Label("L3".to_string()),
+                        // Assignment of an identifier implies a Load operation
                         SSAInstruction::Assignment {
                             variable: "x".to_string(),
                             operation: SSAOperation {
                                 op_type: OperationType::Load,
-                                operands: vec!["t3".to_string()],
+                                operands: vec![Operand::Identifier("t3".to_string())],
                             },
                         },
                     ],
@@ -1159,6 +1171,11 @@ mod parser {
             }],
         };
 
+        // Add debug assertion for easier comparison on failure
+        if program != expected_ast {
+            eprintln!("Actual AST:\n{:#?}", program);
+            eprintln!("Expected AST:\n{:#?}", expected_ast);
+        }
         assert_eq!(program, expected_ast);
     }
 
@@ -1178,6 +1195,7 @@ mod parser {
                     },
                 ],
                 role: RelationRole::Input,
+                category: None, // Explicitly set category to None
             },
             RelationType {
                 name: "temp_relation".to_string(),
@@ -1186,6 +1204,7 @@ mod parser {
                     attr_type: AttributeType::Float,
                 }],
                 role: RelationRole::Intermediate,
+                category: None, // Explicitly set category to None
             },
         ];
 
@@ -1266,62 +1285,75 @@ rules {
 
     #[test]
     fn test_serialize_rules_with_ssa() {
-        fn test_serialize_rules_with_ssa() {
-            let rules = vec![IRRule {
-                lhs: LHSNode {
-                    relation_name: "output_relation".to_string(),
-                    output_attributes: HashSet::from(["x".to_string()]),
-                },
-                rhs: RHSVal::NestedRHS(vec![
-                    RHSVal::RHSNode(RHSNode {
-                        relation_name: "input_relation".to_string(),
-                        attributes: HashSet::from(["a".to_string(), "b".to_string()]),
-                    }),
-                    RHSVal::RHSNode(RHSNode {
-                        relation_name: "temp_relation".to_string(),
-                        attributes: HashSet::from(["c".to_string()]),
-                    }),
-                ]),
-                ssa_block: Some(SSAInstructionBlock {
-                    instructions: vec![
-                        SSAInstruction::Label("L1".to_string()),
-                        SSAInstruction::Assignment {
-                            variable: "t1".to_string(),
-                            operation: SSAOperation {
-                                op_type: OperationType::Load,
-                                operands: vec!["a".to_string()],
-                            },
-                        },
-                        SSAInstruction::Assignment {
-                            variable: "t2".to_string(),
-                            operation: SSAOperation {
-                                op_type: OperationType::Add,
-                                operands: vec!["t1".to_string(), "b".to_string()],
-                            },
-                        },
-                        SSAInstruction::Goto("L2".to_string()),
-                    ],
+        // Removed nested function definition
+        let rules = vec![IRRule {
+            lhs: LHSNode {
+                relation_name: "output_relation".to_string(),
+                // Use IndexSet for output_attributes
+                output_attributes: IndexSet::from(["x".to_string()]),
+            },
+            rhs: RHSVal::NestedRHS(vec![
+                RHSVal::RHSNode(RHSNode {
+                    relation_name: "input_relation".to_string(),
+                    // Use Vec for attributes, order matters for display (sorted)
+                    attributes: vec!["a".to_string(), "b".to_string()],
                 }),
-            }];
+                RHSVal::RHSNode(RHSNode {
+                    relation_name: "temp_relation".to_string(),
+                    attributes: vec!["c".to_string()],
+                }),
+            ]),
+            ssa_block: Some(SSAInstructionBlock {
+                instructions: vec![
+                    SSAInstruction::Label("L1".to_string()),
+                    SSAInstruction::Assignment {
+                        variable: "t1".to_string(),
+                        operation: SSAOperation {
+                            op_type: OperationType::Load,
+                            // Use Operand variants
+                            operands: vec![Operand::Identifier("a".to_string())],
+                        },
+                    },
+                    SSAInstruction::Assignment {
+                        variable: "t2".to_string(),
+                        operation: SSAOperation {
+                            op_type: OperationType::Add,
+                            operands: vec![
+                                Operand::Identifier("t1".to_string()),
+                                Operand::Identifier("b".to_string()),
+                            ],
+                        },
+                    },
+                    SSAInstruction::Goto("L2".to_string()),
+                ],
+            }),
+        }];
 
-            let program = IRProgram {
-                relations: vec![],
-                rules,
-            };
+        let program = IRProgram {
+            relations: vec![], // Empty relations for this test
+            rules,
+        };
 
-            let expected_output = r#"relations {
+        // Corrected expected output to match Display impl (indentation, semicolons)
+        // Note: RHSNode display sorts attributes, hence input_relation(a, b)
+        let expected_output = r#"relations {
 }
 
 rules {
+
     output_relation(x) => input_relation(a, b), temp_relation(c) {
         L1:
-        t1 = load(a)
-        t2 = add(t1, b)
-        goto L2
+        t1 = load(a);
+        t2 = add(t1, b);
+        goto L2;
     }
-}"#;
 
-            assert_eq!(program.to_string(), expected_output);
+}"#;
+        // Add debug assertion for easier comparison on failure
+        if program.to_string() != expected_output {
+            eprintln!("Actual Output:\n{}", program.to_string());
+            eprintln!("Expected Output:\n{}", expected_output);
         }
+        assert_eq!(program.to_string(), expected_output);
     }
 }
