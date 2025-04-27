@@ -42,7 +42,17 @@ struct Cli {
     /// Configuration parameters for pipeline steps (format: key=value,key2=value2)
     #[arg(long)]
     config: Option<String>,
+
+    /// [DOT format only] Exclude nodes that have no incoming or outgoing edges.
+    #[arg(long, requires = "format_dot")] // Only relevant for DOT format
+    exclude_isolated_nodes: bool,
 }
+
+// Helper function to get the value "dot" for the requires condition
+fn format_dot() -> OutputFormat {
+    OutputFormat::Dot
+}
+
 
 #[derive(Debug, Clone, PartialEq, Eq, clap::ValueEnum)]
 enum OutputFormat {
@@ -167,10 +177,17 @@ fn main() -> Result<()> {
         definition_nodes_info: Vec::new(),
         all_contracts: HashMap::new(),
         contracts_with_explicit_constructors: HashSet::new(),
+        using_for_directives: HashMap::new(),
+        all_interfaces: HashMap::new(), 
+        interface_functions: HashMap::new(),
+        contract_implements: HashMap::new(),
+        interface_inherits: HashMap::new(), 
+        all_libraries: HashMap::new(),
     };
     
     // Create the call graph
     let mut graph = CallGraph::new();
+    eprintln!("[Address Debug sol2cg] Graph created at: {:p}", &graph); // Added address log
     
     // Parse configuration parameters
     let config = parse_config_params(cli.config.as_deref());
@@ -200,20 +217,38 @@ fn main() -> Result<()> {
     }
     
     // Run the pipeline
+    eprintln!("[Address Debug sol2cg] Before pipeline.run: {:p}", &graph); // Added address log
     pipeline.run(&input, &mut ctx, &mut graph, &config)
         .context("Failed to generate call graph with pipeline")?;
+    eprintln!("[Address Debug sol2cg] After pipeline.run: {:p}", &graph); // Added address log
     
     // 5. Add Explicit Return Edges
+    eprintln!("[Address Debug sol2cg] Before add_explicit_return_edges: {:p}", &graph); // Added address log
     graph
-        .add_explicit_return_edges(&combined_source, &combined_ast.tree, &solidity_lang)
+        .add_explicit_return_edges(&combined_source, &ctx, &solidity_lang) // Pass context ctx instead of tree
         .context("Failed to add explicit return edges")?;
+    eprintln!("[Address Debug sol2cg] After add_explicit_return_edges: {:p}", &graph); // Added address log
 
     // 6. Serialize Graph
 
+    // --- DEBUG: Log edge counts before serialization ---
+    let total_edges = graph.edges.len();
+    let call_edges_count = graph.edges.iter().filter(|e| e.edge_type == graph::cg::EdgeType::Call).count();
+    let return_edges_count = graph.edges.iter().filter(|e| e.edge_type == graph::cg::EdgeType::Return).count();
+    eprintln!("[DEBUG sol2cg] Before serialization: Total Edges = {}, Call Edges = {}, Return Edges = {}", total_edges, call_edges_count, return_edges_count);
+    // --- END DEBUG ---
+
     let output_string = match cli.format {
-        OutputFormat::Dot => graph.to_dot("Solidity Call Graph"),
+        OutputFormat::Dot => {
+            // Create DotExportConfig based on CLI flag
+            let dot_config = graph::cg_dot::DotExportConfig {
+                exclude_isolated_nodes: cli.exclude_isolated_nodes,
+            };
+            graph.to_dot("Solidity Call Graph", &dot_config) // Pass config
+        }
         OutputFormat::Mermaid => {
             let generator = MermaidGenerator::new();
+            eprintln!("[Address Debug sol2cg] Before to_sequence_diagram: {:p}", &graph); // Added address log
             let sequence_diagram = generator.to_sequence_diagram(&graph);
             // Use the write_diagram function directly
             sequence_diagram_writer::write_diagram(&sequence_diagram)

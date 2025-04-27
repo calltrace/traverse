@@ -29,27 +29,51 @@ impl MermaidGenerator {
     const GLOBAL_SCOPE_ALIAS: &str = "Global Scope";
     const USER_ID: &str = "User";
     const USER_ALIAS: &str = "User";
+    // Use constants from cg.rs for synthetic nodes
+    const EVM_ID: &str = crate::cg::EVM_NODE_NAME; // "EVM"
+    const EVM_ALIAS: &str = "EVM";
+    const LISTENER_ID: &str = crate::cg::EVENT_LISTENER_NODE_NAME; // "EventListener"
+    const LISTENER_ALIAS: &str = "EventListener";
 
-    /// Generates a unique and Mermaid-compatible participant ID from a contract name Option.
-    /// Uses the contract name directly or a placeholder for global scope.
+    /// Generates a unique and Mermaid-compatible participant ID.
+    /// Handles contracts, global scope, EVM, and EventListener based on node name and contract scope.
     /// Replaces potentially problematic characters.
-    fn get_participant_id(contract_name: Option<&String>) -> String {
-        let name = match contract_name {
-            Some(contract) => contract.clone(),
-            None => MermaidGenerator::GLOBAL_SCOPE_ID.to_string(),
+    fn get_participant_id(node_name: &str, contract_name: Option<&String>) -> String {
+        let name = match node_name {
+            // Use predefined IDs for synthetic nodes
+            crate::cg::EVM_NODE_NAME => MermaidGenerator::EVM_ID.to_string(),
+            crate::cg::EVENT_LISTENER_NODE_NAME => MermaidGenerator::LISTENER_ID.to_string(),
+            // Otherwise, use contract name or global scope ID
+            _ => match contract_name {
+                Some(contract) => contract.clone(),
+                None => MermaidGenerator::GLOBAL_SCOPE_ID.to_string(),
+            },
         };
         // Mermaid IDs might have restrictions, replace common problematic chars
         // Allow underscores, alphanumeric. Replace others.
         name.chars()
-            .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect()
     }
 
-    /// Generates a display alias for a participant based on contract name Option.
-    fn get_participant_alias(contract_name: Option<&String>) -> String {
-        match contract_name {
-            Some(contract) => contract.clone(),
-            None => MermaidGenerator::GLOBAL_SCOPE_ALIAS.to_string(),
+    /// Generates a display alias for a participant.
+    /// Handles contracts, global scope, EVM, and EventListener based on node name and contract scope.
+    fn get_participant_alias(node_name: &str, contract_name: Option<&String>) -> String {
+        match node_name {
+            // Use predefined aliases for synthetic nodes
+            crate::cg::EVM_NODE_NAME => MermaidGenerator::EVM_ALIAS.to_string(),
+            crate::cg::EVENT_LISTENER_NODE_NAME => MermaidGenerator::LISTENER_ALIAS.to_string(),
+            // Otherwise, use contract name or global scope alias
+            _ => match contract_name {
+                Some(contract) => contract.clone(),
+                None => MermaidGenerator::GLOBAL_SCOPE_ALIAS.to_string(),
+            },
         }
     }
 
@@ -79,89 +103,178 @@ impl MermaidGenerator {
         outgoing_calls.sort_by_key(|edge| edge.sequence_number);
 
         for call_edge in outgoing_calls {
-            let call_edge_index = graph // Find the original index of this edge
+            let call_edge_index = graph
                 .edges
                 .iter()
                 .position(|e| e == call_edge)
-                .unwrap(); // Should always find it
+                .expect("Call edge must exist in graph.edges");
+
+            // --- Check 1: Skip if this edge was already processed (e.g., as the second part of an emit) ---
+            if processed_edges.contains(&call_edge_index) {
+                continue;
+            }
 
             let target_node_id = call_edge.target_node_id;
 
-            // Process the call edge if not already processed
-            if processed_edges.insert(call_edge_index) {
-                if let (Some(source_node), Some(target_node)) = (
-                    graph.nodes.get(current_node_id),
-                    graph.nodes.get(target_node_id),
-                ) {
-                    let source_contract_id =
-                        Self::get_participant_id(source_node.contract_name.as_ref());
-                    let target_contract_id =
-                        Self::get_participant_id(target_node.contract_name.as_ref());
-                    let message_content = format!("{}()", target_node.name);
-                    builder.signal(
-                        source_contract_id,
-                        target_contract_id,
-                        "->>", // Solid line for call
-                        Some(message_content),
-                    );
-                }
-            }
+            if let (Some(source_node), Some(target_node)) = (
+                graph.nodes.get(current_node_id),
+                graph.nodes.get(target_node_id),
+            ) {
+                // --- Check 2: Is this the start of an emit sequence (Caller -> EVM)? ---
+                if target_node.name == crate::cg::EVM_NODE_NAME {
+                    // --- Handle Emit ---
+                    // Find the corresponding EVM -> EventListener edge based on sequence number
+                    let listener_edge_opt = graph.edges.iter().enumerate().find(|(_, edge)| {
+                        edge.source_node_id == target_node_id // Source is EVM
+                        && edge.edge_type == EdgeType::Call
+                        && edge.sequence_number == call_edge.sequence_number // Match sequence
+                        && graph.nodes.get(edge.target_node_id).map_or(false, |n| n.name == crate::cg::EVENT_LISTENER_NODE_NAME) // Target is Listener
+                    });
 
-            // Recurse into the target node
-            self.process_flow(
-                target_node_id,
-                graph,
-                processed_edges,
-                builder,
-                return_edge_lookup,
-                visiting,
-            );
+                    // --- Generate Caller -> EVM signal ---
+                    // Process the first edge (Caller->EVM) if not already processed.
+                    if processed_edges.insert(call_edge_index) {
+                        let source_participant_id = Self::get_participant_id(
+                            &source_node.name,
+                            source_node.contract_name.as_ref(),
+                        );
+                        let evm_participant_id =
+                            Self::get_participant_id(crate::cg::EVM_NODE_NAME, None);
+                        let event_name = call_edge.event_name.as_deref().unwrap_or("UnknownEvent");
+                        let args_str = call_edge
+                            .argument_names
+                            .as_ref()
+                            .map(|args| args.join(", "))
+                            .unwrap_or_default();
+                        let message_content = format!("emit {}({})", event_name, args_str);
+                        builder.signal(
+                            source_participant_id,
+                            evm_participant_id,
+                            "->>", // Solid line for call to EVM
+                            Some(message_content),
+                        );
+                    }
 
-            // After recursion returns, process the corresponding return edge
-            let return_lookup_key = (target_node_id, current_node_id, call_edge.sequence_number);
-            if let Some(return_edge_index) = return_edge_lookup.get(&return_lookup_key) {
-                if processed_edges.insert(*return_edge_index) {
-                    if let Some(return_edge) = graph.edges.get(*return_edge_index) {
-                        if let (Some(source_node), Some(target_node)) = (
-                            graph.nodes.get(return_edge.source_node_id), // Node returning from (target of call)
-                            graph.nodes.get(return_edge.target_node_id), // Node returning to (source of call)
-                        ) {
-                            let source_contract_id =
-                                Self::get_participant_id(source_node.contract_name.as_ref());
-                            let target_contract_id =
-                                Self::get_participant_id(target_node.contract_name.as_ref());
-
-                            // Sanitize the return value for Mermaid compatibility
-                            let returned_value_str = return_edge
-                                .returned_value
+                    // --- Generate EVM -> Listener signal (if pair exists) ---
+                    if let Some((listener_edge_index, _listener_edge)) = listener_edge_opt {
+                        // Process the second edge (EVM->Listener) if not already processed.
+                        if processed_edges.insert(listener_edge_index) {
+                            let evm_participant_id =
+                                Self::get_participant_id(crate::cg::EVM_NODE_NAME, None);
+                            let listener_participant_id =
+                                Self::get_participant_id(crate::cg::EVENT_LISTENER_NODE_NAME, None);
+                            // Re-use event name and args from the first edge for the message content
+                            let event_name =
+                                call_edge.event_name.as_deref().unwrap_or("UnknownEvent");
+                            let args_str = call_edge
+                                .argument_names
                                 .as_ref()
-                                .map(|v| {
-                                    // Replace newlines with spaces and collapse multiple spaces
-                                    let sanitized_v = v
-                                        .replace('\n', " ")
-                                        .split_whitespace()
-                                        .collect::<Vec<&str>>()
-                                        .join(" ");
-                                    format!(" {}", sanitized_v)
-                                })
+                                .map(|args| args.join(", "))
                                 .unwrap_or_default();
-
-                            let message_content = format!(
-                                "ret{} from {}",
-                                returned_value_str, // Use the sanitized string
-                                source_node.name // Function returning
-                            );
+                            let message_content = format!("Event: {}({})", event_name, args_str); // Message indicates the event itself
                             builder.signal(
-                                source_contract_id,
-                                target_contract_id,
-                                "-->>", // Dashed line for return
+                                evm_participant_id,
+                                listener_participant_id,
+                                "->>", // Solid line for signal from EVM
                                 Some(message_content),
                             );
                         }
+                    } else {
+                        // Log if the second part of the pair is missing (already logged before)
+                        // eprintln!("Warning: Found emit edge Caller->EVM (Seq {}) but missing corresponding EVM->EventListener edge.", call_edge.sequence_number);
                     }
-                }
-            }
-        }
+                    // Skip recursion into EVM and return processing for the emit path.
+                    continue;
+                } else {
+                    // End if target_node.name == EVM_NODE_NAME
+                    // --- Handle Regular Call (Target is not EVM) ---
+                    // Process the call edge if it hasn't been processed yet.
+                    if processed_edges.insert(call_edge_index) {
+                        let source_participant_id = Self::get_participant_id(
+                            &source_node.name,
+                            source_node.contract_name.as_ref(),
+                        );
+                        let target_participant_id = Self::get_participant_id(
+                            &target_node.name,
+                            target_node.contract_name.as_ref(),
+                        );
+                        let args_str = call_edge
+                            .argument_names
+                            .as_ref()
+                            .map(|args| args.join(", "))
+                            .unwrap_or_default();
+                        let message_content = format!("{}({})", target_node.name, args_str);
+                        builder.signal(
+                            source_participant_id,
+                            target_participant_id,
+                            "->>", // Solid line for regular call
+                            Some(message_content),
+                        );
+                    }
+                    // Recurse into the target node for regular calls
+                    self.process_flow(
+                        target_node_id,
+                        graph,
+                        processed_edges, // Pass mutable borrow
+                        builder,
+                        return_edge_lookup,
+                        visiting, // Pass mutable borrow
+                    );
+
+                    // After recursion returns, process the corresponding return edge for regular calls
+                    let return_lookup_key =
+                        (target_node_id, current_node_id, call_edge.sequence_number);
+                    if let Some(return_edge_index) = return_edge_lookup.get(&return_lookup_key) {
+                        // Process the return edge if it hasn't been processed yet.
+                        if processed_edges.insert(*return_edge_index) {
+                            if let Some(return_edge) = graph.edges.get(*return_edge_index) {
+                                // Ensure we get the nodes involved in the return edge correctly
+                                if let (Some(ret_source_node), Some(ret_target_node)) = (
+                                    graph.nodes.get(return_edge.source_node_id), // Node returning from (original target)
+                                    graph.nodes.get(return_edge.target_node_id), // Node returning to (original source)
+                                ) {
+                                    let ret_source_participant_id = Self::get_participant_id(
+                                        &ret_source_node.name,
+                                        ret_source_node.contract_name.as_ref(),
+                                    );
+                                    let ret_target_participant_id = Self::get_participant_id(
+                                        &ret_target_node.name,
+                                        ret_target_node.contract_name.as_ref(),
+                                    );
+
+                                    // Sanitize the return value for Mermaid compatibility
+                                    let returned_value_str = return_edge
+                                        .returned_value
+                                        .as_ref()
+                                        .map(|v| {
+                                            let sanitized_v = v
+                                                .replace('\n', " ")
+                                                .split_whitespace()
+                                                .collect::<Vec<&str>>()
+                                                .join(" ");
+                                            format!(" {}", sanitized_v) // Add leading space only if value exists
+                                        })
+                                        .unwrap_or_default(); // Empty string if no value
+
+                                    // Use the name of the node *returning* the value
+                                    let message_content = format!(
+                                        "ret{} from {}",
+                                        returned_value_str,
+                                        ret_source_node.name // Function that executed the return
+                                    );
+                                    builder.signal(
+                                        ret_source_participant_id,
+                                        ret_target_participant_id,
+                                        "-->>", // Dashed line for return
+                                        Some(message_content),
+                                    );
+                                }
+                            }
+                        }
+                    } // End return edge processing
+                } // End else (regular call)
+            } // End if let Some(source/target_node)
+        } // End for loop
 
         // Backtrack: remove from visiting set
         visiting.remove(&current_node_id);
@@ -181,11 +294,15 @@ impl ToSequenceDiagram for MermaidGenerator {
         builder.participant_as(Self::USER_ID.to_string(), Self::USER_ALIAS.to_string());
         declared_participants.insert(Self::USER_ID.to_string());
 
-        // 3. Declare Contract Participants
+        // 3. Declare Participants (Contracts, Interfaces, Global Scope)
         for node in graph.iter_nodes() {
-            let participant_id = Self::get_participant_id(node.contract_name.as_ref());
+            // Get the participant ID based on the node's name and contract/interface name (or global scope)
+            let participant_id = Self::get_participant_id(&node.name, node.contract_name.as_ref());
+
+            // Only declare if not already declared
             if declared_participants.insert(participant_id.clone()) {
-                let alias = Self::get_participant_alias(node.contract_name.as_ref());
+                // Alias is based on contract name or synthetic node name
+                let alias = Self::get_participant_alias(&node.name, node.contract_name.as_ref());
                 builder.participant_as(participant_id, alias);
             }
         }
@@ -196,7 +313,11 @@ impl ToSequenceDiagram for MermaidGenerator {
         for (index, edge) in graph.edges.iter().enumerate() {
             if edge.edge_type == EdgeType::Return {
                 return_edge_lookup.insert(
-                    (edge.source_node_id, edge.target_node_id, edge.sequence_number),
+                    (
+                        edge.source_node_id,
+                        edge.target_node_id,
+                        edge.sequence_number,
+                    ),
                     index,
                 );
             }
@@ -206,15 +327,21 @@ impl ToSequenceDiagram for MermaidGenerator {
         let entry_points: Vec<&Node> = graph
             .iter_nodes()
             .filter(|node| {
+                // Entry points must be public/external functions AND NOT part of an interface definition
                 (node.visibility == crate::cg::Visibility::Public
                     || node.visibility == crate::cg::Visibility::External)
                     && node.node_type == NodeType::Function
+                    // Check if the node's contract_name corresponds to a known interface
+                    && !node.contract_name.as_ref().map_or(false, |c_name| {
+                        // Check if the graph contains an interface node with this name
+                        graph.nodes.iter().any(|n| n.node_type == NodeType::Interface && n.name == *c_name)
+                    })
             })
             .collect();
-
         for entry_node in entry_points {
             // Emit initial User call signal
-            let target_contract_id = Self::get_participant_id(entry_node.contract_name.as_ref());
+            let target_contract_id =
+                Self::get_participant_id(&entry_node.name, entry_node.contract_name.as_ref());
             let message_content = format!("call {}()", entry_node.name);
             builder.signal(
                 Self::USER_ID.to_string(),
@@ -233,6 +360,21 @@ impl ToSequenceDiagram for MermaidGenerator {
                 &return_edge_lookup,
                 &mut visiting,
             );
+
+            // --- Add synthetic return edge from entry point back to User ---
+            // Check the pre-calculated flag on the entry node
+            if entry_node.has_explicit_return {
+                let source_contract_id =
+                    Self::get_participant_id(&entry_node.name, entry_node.contract_name.as_ref());
+                let message_content = format!("ret from {}()", entry_node.name); // Simple return message
+                builder.signal(
+                    source_contract_id,
+                    Self::USER_ID.to_string(),
+                    "-->>", // Dashed line for return
+                    Some(message_content),
+                );
+            }
+            // --- End synthetic return edge ---
         }
 
         // Note: Any edges not reachable from a public/external function called by the User
@@ -278,7 +420,17 @@ mod tests {
         );
 
         // Call: A -> B (seq 1)
-        graph.add_edge(node_a_id, node_b_id, EdgeType::Call, (5, 8), None, 1, None);
+        graph.add_edge(
+            node_a_id,
+            node_b_id,
+            EdgeType::Call,
+            (5, 8),
+            None,
+            1,
+            None,
+            None,
+            None,
+        );
         // Call: B -> C (seq 2)
         graph.add_edge(
             node_b_id,
@@ -287,6 +439,8 @@ mod tests {
             (25, 28),
             None,
             2,
+            None,
+            None,
             None,
         );
         // Return: C -> B (seq 2) with value "result"
@@ -298,6 +452,8 @@ mod tests {
             Some((48, 49)), // return statement span
             2,              // Corresponds to call seq 2
             Some("result".to_string()),
+            None,
+            None,
         );
         // Return: B -> A (seq 1)
         graph.add_edge(
@@ -307,6 +463,8 @@ mod tests {
             (20, 30),       // func def span
             Some((29, 29)), // return statement span (implicit/end of func)
             1,              // Corresponds to call seq 1
+            None,
+            None,
             None,
         );
 
@@ -322,6 +480,7 @@ mod tests {
             contract_name: Some("MyContract.Sol".to_string()), // Contains '.'
             visibility: Visibility::Public,
             span: (0, 0),
+            has_explicit_return: true,
         };
         let node2 = Node {
             id: 1,
@@ -330,44 +489,45 @@ mod tests {
             contract_name: None,
             visibility: Visibility::Public,
             span: (0, 0),
+            has_explicit_return: true,
         };
 
         // Test with a node that has a contract name
         assert_eq!(
-            MermaidGenerator::get_participant_id(node1.contract_name.as_ref()),
+            MermaidGenerator::get_participant_id(&node1.name, node1.contract_name.as_ref()),
             "MyContract_Sol" // ID should be based on contract only, replacing '.' with '_'
         );
         assert_eq!(
-            MermaidGenerator::get_participant_alias(node1.contract_name.as_ref()),
+            MermaidGenerator::get_participant_alias(&node1.name, node1.contract_name.as_ref()),
             "MyContract.Sol" // Alias should be based on contract only
         );
 
         // Test with a node that has no contract name (global scope)
         assert_eq!(
-            MermaidGenerator::get_participant_id(node2.contract_name.as_ref()),
+            MermaidGenerator::get_participant_id(&node2.name, node2.contract_name.as_ref()),
             MermaidGenerator::GLOBAL_SCOPE_ID // Use global scope ID
         );
         assert_eq!(
-            MermaidGenerator::get_participant_alias(node2.contract_name.as_ref()),
+            MermaidGenerator::get_participant_alias(&node2.name, node2.contract_name.as_ref()),
             MermaidGenerator::GLOBAL_SCOPE_ALIAS // Use global scope alias
         );
 
         // Re-asserting the contract-only ID/Alias for clarity (already tested above)
         assert_eq!(
-            MermaidGenerator::get_participant_id(node1.contract_name.as_ref()),
+            MermaidGenerator::get_participant_id(&node1.name, node1.contract_name.as_ref()),
             "MyContract_Sol" // ID should be based on contract only
         );
         assert_eq!(
-            MermaidGenerator::get_participant_alias(node1.contract_name.as_ref()),
+            MermaidGenerator::get_participant_alias(&node1.name, node1.contract_name.as_ref()),
             "MyContract.Sol" // Alias should be based on contract only
         );
 
         assert_eq!(
-            MermaidGenerator::get_participant_id(node2.contract_name.as_ref()),
+            MermaidGenerator::get_participant_id(&node2.name, node2.contract_name.as_ref()),
             MermaidGenerator::GLOBAL_SCOPE_ID // Use global scope ID
         );
         assert_eq!(
-            MermaidGenerator::get_participant_alias(node2.contract_name.as_ref()),
+            MermaidGenerator::get_participant_alias(&node2.name, node2.contract_name.as_ref()),
             MermaidGenerator::GLOBAL_SCOPE_ALIAS // Use global scope alias
         );
     }
@@ -399,15 +559,19 @@ mod tests {
         // Order of A and B might vary based on node iteration order in graph, check presence
         let mut found_a = false;
         let mut found_b = false;
-        for stmt in diagram.statements.iter().skip(2) { // Skip title and user
-             if let Statement::Participant(p) = stmt {
-                 if p.id == id_a && p.alias.as_deref() == Some(alias_a) { found_a = true; }
-                 if p.id == id_b && p.alias.as_deref() == Some(alias_b) { found_b = true; }
-             }
+        for stmt in diagram.statements.iter().skip(2) {
+            // Skip title and user
+            if let Statement::Participant(p) = stmt {
+                if p.id == id_a && p.alias.as_deref() == Some(alias_a) {
+                    found_a = true;
+                }
+                if p.id == id_b && p.alias.as_deref() == Some(alias_b) {
+                    found_b = true;
+                }
+            }
         }
         assert!(found_a, "ContractA participant missing");
         assert!(found_b, "ContractB participant missing");
-
 
         // Check Signals (Order based on traversal from public entry points)
         // Entry points: funcA (ContractA), funcC (ContractB)
@@ -522,8 +686,14 @@ mod tests {
         let diagram = generator.to_sequence_diagram(&graph);
 
         // Should have title and user participant only
-        assert_eq!(diagram.statements.len(), 2, "Expected Title and User Participant");
+        assert_eq!(
+            diagram.statements.len(),
+            2,
+            "Expected Title and User Participant"
+        );
         assert!(matches!(&diagram.statements[0], Statement::Title(_)));
-        assert!(matches!(&diagram.statements[1], Statement::Participant(p) if p.id == MermaidGenerator::USER_ID));
+        assert!(
+            matches!(&diagram.statements[1], Statement::Participant(p) if p.id == MermaidGenerator::USER_ID)
+        );
     }
 }
