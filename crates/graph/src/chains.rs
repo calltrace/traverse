@@ -6,10 +6,10 @@ use crate::cg::{
 use crate::parser::get_node_text;
 // Removed anyhow imports
 use std::collections::VecDeque; // Keep only VecDeque
-use std::error::Error as StdError; // Alias std::error::Error to avoid conflict with thiserror
+// Removed unused std::error::Error import
 use streaming_iterator::StreamingIterator; // Import the trait for .next()
-use tree_sitter::{Node as TsNode, Point, Query, QueryCursor}; // Remove unused Tree
-                                                              //
+use tree_sitter::{Node as TsNode, Query, QueryCursor}; // Remove unused Point and Tree
+                                                       //
 
 // --- Error Handling ---
 
@@ -82,10 +82,10 @@ pub enum ResolvedTarget {
 /// Represents a single step in a potentially chained call sequence.
 #[derive(Debug, Clone)]
 pub struct ResolvedCallStep {
-    /// The tree-sitter node representing this specific call expression (e.g., `.method(...)`).
-    pub call_expr_span: (Point, Point),
-    /// The tree-sitter node representing the function/member being called (e.g., `method` in `obj.method()`).
-    pub function_span: (Point, Point),
+    /// The byte offsets representing the span of this specific call expression (e.g., `.method(...)`).
+    pub call_expr_span: (usize, usize),
+    /// The byte offsets representing the span of the function/member being called (e.g., `method` in `obj.method()`).
+    pub function_span: (usize, usize),
     /// The resolved target for this call step.
     pub target: ResolvedTarget,
     /// Text representation of the arguments passed in this call step.
@@ -130,7 +130,7 @@ pub(crate) fn analyze_chained_call<'a>(
 ) -> std::result::Result<Vec<ResolvedCallStep>, TypeError> {
     // Use full path to Result
     let mut steps = Vec::new();
-    let mut current_node = start_node;
+    let current_node = start_node; // Removed unused mut
     let mut current_object_type: Option<String> = None; // Type of the result of the previous step
 
     eprintln!(
@@ -192,10 +192,10 @@ pub(crate) fn analyze_chained_call<'a>(
             let arguments = vec![]; // Placeholder
 
             let step = ResolvedCallStep {
-                call_expr_span: (current_node.start_position(), current_node.end_position()), // Use start/end_position
+                call_expr_span: (current_node.start_byte(), current_node.end_byte()), // Use start/end_byte
                 function_span: (
-                    type_name_node.start_position(), // Use start/end_position
-                    type_name_node.end_position(),   // Use start/end_position
+                    type_name_node.start_byte(), // Use start/end_byte
+                    type_name_node.end_byte(),   // Use start/end_byte
                 ), // Span of the type name
                 target,
                 arguments,
@@ -242,25 +242,52 @@ pub(crate) fn analyze_chained_call<'a>(
                             || ctx.all_interfaces.contains_key(&name))
                     {
                         // Type cast/constructor - treat as returning the type itself
-                        current_object_type = Some(name.clone());
+                        // Set the type for the *next* step, but don't assign to unused variable if not start_node
+                        let resolved_type = Some(name.clone());
                         eprintln!(
                             "[Analyze Chained]   Call identified as type cast/constructor to '{}'",
                             name
                         );
-                        // This isn't a *call step* in our model unless it's `new Type()`.
-                        // We just update the type and break if this was the start node.
+                        
+                        // Only create a step for the constructor call if this is the start node
+                        // This prevents duplicate steps when analyzing chained calls
                         if current_node == start_node {
-                        } else {
-                            // If part of a chain, this cast sets the type for the *next* step.
-                            // We don't add a step for the cast itself. How to proceed?
-                            // This structure Type().member() is unlikely/invalid in Solidity.
-                            // Let's assume casts are usually terminals or wrapped.
-                            return Err(TypeError::UnsupportedNodeKind(format!(
-                                "Chained call after type cast '{}' is not supported directly.",
+                            // Extract arguments for the constructor call
+                            let arguments = extract_arguments_v2(current_node, source);
+                            
+                            // Create a step for the constructor call
+                            let target = ResolvedTarget::Function {
+                                contract_name: Some(name.clone()),
+                                function_name: name.clone(), // Constructor name is contract name
+                                node_type: NodeType::Constructor,
+                            };
+                            
+                            let step = ResolvedCallStep {
+                                call_expr_span: (current_node.start_byte(), current_node.end_byte()),
+                                function_span: (id_node.start_byte(), id_node.end_byte()),
+                                target,
+                                arguments,
+                                result_type: Some(name.clone()), // Result type is the contract itself
+                                object_type: None, // No object for type cast/constructor call
+                            };
+                            steps.push(step);
+                            // Set current_object_type only if it's the start node and a step was added
+                            current_object_type = resolved_type.clone();
+                        }
+
+                        // If part of a chain, this sets the type for the *next* step
+                        if current_node != start_node {
+                            // Type(addr).method() is valid.
+                            // We allow chaining by just setting the type.
+                            current_object_type = resolved_type; // Set the type for the next step
+                            // No step is generated here for the cast itself when not the top-level node.
+                            eprintln!(
+                                "[Analyze Chained]   Type cast '{}' encountered within a chain. Type set for next step.",
                                 name
-                            )));
+                            );
                         }
                     } else {
+                        // Simple function call `foo()`
                         // Simple function call `foo()`
                         eprintln!(
                             "[Analyze Chained]   Call identified as simple function call '{}'",
@@ -282,11 +309,8 @@ pub(crate) fn analyze_chained_call<'a>(
                         )?;
 
                         let step = ResolvedCallStep {
-                            call_expr_span: (
-                                current_node.start_position(),
-                                current_node.end_position(),
-                            ), // Use start/end_position
-                            function_span: (id_node.start_position(), id_node.end_position()), // Use start/end_position
+                            call_expr_span: (current_node.start_byte(), current_node.end_byte()), // Use start/end_byte
+                            function_span: (id_node.start_byte(), id_node.end_byte()), // Use start/end_byte
                             target,
                             arguments,
                             result_type: result_type.clone(),
@@ -401,14 +425,8 @@ pub(crate) fn analyze_chained_call<'a>(
                         )?;
 
                         let step = ResolvedCallStep {
-                            call_expr_span: (
-                                current_node.start_position(),
-                                current_node.end_position(),
-                            ), // Use start/end_position
-                            function_span: (
-                                property_node.start_position(),
-                                property_node.end_position(),
-                            ), // Use start/end_position
+                            call_expr_span: (current_node.start_byte(), current_node.end_byte()), // Use start/end_byte
+                            function_span: (property_node.start_byte(), property_node.end_byte()), // Use start/end_byte
                             target,
                             arguments,
                             result_type: result_type.clone(),
@@ -502,14 +520,8 @@ pub(crate) fn analyze_chained_call<'a>(
                     };
 
                     let step = ResolvedCallStep {
-                        call_expr_span: (
-                            current_node.start_position(),
-                            current_node.end_position(),
-                        ), // Use start/end_position
-                        function_span: (
-                            type_name_node.start_position(),
-                            type_name_node.end_position(),
-                        ), // Use start/end_position
+                        call_expr_span: (current_node.start_byte(), current_node.end_byte()), // Use start/end_byte
+                        function_span: (type_name_node.start_byte(), type_name_node.end_byte()), // Use start/end_byte
                         target,
                         arguments,
                         result_type: Some(contract_name.clone()), // Result is the contract type
