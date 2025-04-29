@@ -1,13 +1,21 @@
+use crate::cg::{
+    CallGraph,
+    CallGraphGeneratorContext,
+    CallGraphGeneratorInput,
+    CallGraphGeneratorPipeline,
+    CallGraphGeneratorStep,
+    EdgeType,
+    Node,
+    NodeType,
+    Visibility,
+    EVENT_LISTENER_NODE_NAME, // Added imports
+    EVM_NODE_NAME,
+};
 use crate::cg_dot;
 use crate::parser::parse_solidity;
 use anyhow::Result; // Add anyhow!
 use language::{Language, Solidity};
 use std::collections::{HashMap, HashSet}; // Import HashSet
-use crate::cg::{
-    CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline,
-    CallGraphGeneratorStep, EdgeType, Node, NodeType, Visibility, EVM_NODE_NAME,
-    EVENT_LISTENER_NODE_NAME, // Added imports
-};
 
 use crate::steps::CallsHandling;
 use crate::steps::ContractHandling;
@@ -49,18 +57,7 @@ fn test_simple_contract_call() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Create empty config
 
@@ -108,6 +105,155 @@ fn test_simple_contract_call() -> Result<()> {
 }
 
 #[test]
+fn test_contract_inheritance() -> Result<()> {
+    let source = r#"
+        pragma solidity ^0.8.20;
+
+        contract Base {
+            uint public baseValue;
+
+            function baseFunction() public pure returns (uint) {
+                return 1;
+            }
+
+            function overriddenFunction() public virtual pure returns (uint) {
+                return 10;
+            }
+        }
+
+        contract Derived is Base {
+            uint public derivedValue;
+
+            function derivedFunction() public pure returns (uint) {
+                // Call a function from the base contract
+                return baseFunction();
+            }
+
+            // Override a function from the base contract
+            function overriddenFunction() public pure override returns (uint) {
+                return 20;
+            }
+
+            function callOverridden() public pure returns (uint) {
+                // Call the overridden version within Derived
+                return overriddenFunction();
+            }
+
+             function callBaseOverridden() public pure returns (uint) {
+                // Explicitly call the base version
+                return Base.overriddenFunction();
+            }
+        }
+        "#;
+    let ast = parse_solidity(source)?;
+    let solidity_lang = Solidity.get_tree_sitter_language();
+
+    let input = CallGraphGeneratorInput {
+        source: source.to_string(),
+        tree: ast.tree,
+        solidity_lang,
+    };
+    let mut ctx = CallGraphGeneratorContext::default();
+    let mut graph = CallGraph::new();
+    let config: HashMap<String, String> = HashMap::new(); // Empty config
+
+    // Run the full pipeline
+    let mut pipeline = CallGraphGeneratorPipeline::new();
+    pipeline.add_step(Box::new(ContractHandling::default()));
+    pipeline.add_step(Box::new(CallsHandling::default()));
+    pipeline.run(input, &mut ctx, &mut graph, &config)?;
+
+    // --- Assertions ---
+
+    // 1. Verify inheritance relationship in context
+    assert!(
+        ctx.contract_inherits.contains_key("Derived"),
+        "Context should contain inheritance info for Derived"
+    );
+    let derived_inherits = ctx
+        .contract_inherits
+        .get("Derived")
+        .expect("Derived inheritance info missing");
+    assert!(
+        derived_inherits.contains(&"Base".to_string()),
+        "Derived should inherit from Base"
+    );
+    assert_eq!(
+        derived_inherits.len(),
+        1,
+        "Derived should only inherit from Base directly"
+    );
+
+    // 2. Verify nodes exist
+    // Base nodes
+    let base_ctor_node =
+        find_node(&graph, "Base", Some("Base")).expect("Base constructor node missing");
+    let base_func_node =
+        find_node(&graph, "baseFunction", Some("Base")).expect("Base.baseFunction node missing");
+    let base_override_node = find_node(&graph, "overriddenFunction", Some("Base"))
+        .expect("Base.overriddenFunction node missing");
+    // Derived nodes
+    let derived_ctor_node = find_node(&graph, "Derived", Some("Derived"))
+        .expect("Derived constructor node missing");
+    let derived_func_node = find_node(&graph, "derivedFunction", Some("Derived"))
+        .expect("Derived.derivedFunction node missing");
+    let derived_override_node = find_node(&graph, "overriddenFunction", Some("Derived"))
+        .expect("Derived.overriddenFunction node missing");
+    let derived_call_override_node = find_node(&graph, "callOverridden", Some("Derived"))
+        .expect("Derived.callOverridden node missing");
+    let derived_call_base_override_node =
+        find_node(&graph, "callBaseOverridden", Some("Derived"))
+            .expect("Derived.callBaseOverridden node missing");
+
+    // Nodes: Base (ctor, baseFunc, overrideFunc), Derived (ctor, derivedFunc, overrideFunc, callOverride, callBaseOverride) = 8 nodes
+    assert_eq!(graph.nodes.len(), 8, "Should find 8 nodes total");
+
+    // 3. Verify edges
+    // Edges:
+    // a) derivedFunction -> baseFunction
+    // b) callOverridden -> Derived.overriddenFunction
+    // c) callBaseOverridden -> Base.overriddenFunction
+    assert_eq!(graph.edges.len(), 3, "Should find 3 call edges");
+
+    // Edge a: derivedFunction -> baseFunction
+    let edge_derived_to_base = graph
+        .edges
+        .iter()
+        .find(|e| {
+            e.source_node_id == derived_func_node.id && e.target_node_id == base_func_node.id
+        })
+        .expect("Edge derivedFunction -> baseFunction missing");
+    assert_eq!(edge_derived_to_base.edge_type, EdgeType::Call);
+    assert_eq!(edge_derived_to_base.sequence_number, 1); // First call globally
+
+    // Edge b: callOverridden -> Derived.overriddenFunction
+    let edge_call_to_derived_override = graph
+        .edges
+        .iter()
+        .find(|e| {
+            e.source_node_id == derived_call_override_node.id
+                && e.target_node_id == derived_override_node.id
+        })
+        .expect("Edge callOverridden -> Derived.overriddenFunction missing");
+    assert_eq!(edge_call_to_derived_override.edge_type, EdgeType::Call);
+    assert_eq!(edge_call_to_derived_override.sequence_number, 2); // Second call globally
+
+    // Edge c: callBaseOverridden -> Base.overriddenFunction
+    let edge_call_to_base_override = graph
+        .edges
+        .iter()
+        .find(|e| {
+            e.source_node_id == derived_call_base_override_node.id
+                && e.target_node_id == base_override_node.id
+        })
+        .expect("Edge callBaseOverridden -> Base.overriddenFunction missing");
+    assert_eq!(edge_call_to_base_override.edge_type, EdgeType::Call);
+    assert_eq!(edge_call_to_base_override.sequence_number, 3); // Third call globally
+
+    Ok(())
+}
+
+#[test]
 fn test_modifier_call() -> Result<()> {
     let source = r#"
         pragma solidity ^0.8.0;
@@ -131,18 +277,7 @@ fn test_modifier_call() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Create empty config
 
@@ -202,18 +337,7 @@ fn test_free_function_call() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Create empty config
 
@@ -260,22 +384,11 @@ fn test_no_calls() -> Result<()> {
     let solidity_lang = Solidity.get_tree_sitter_language();
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
-        tree: ast.tree, // Pass tree by value
+        tree: ast.tree,               // Pass tree by value
         solidity_lang: solidity_lang, // Pass language by value
     };
 
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Create empty config
 
@@ -310,19 +423,8 @@ fn test_call_order_within_function() -> Result<()> {
         tree: ast.tree,
         solidity_lang: solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
-    let mut graph = CallGraph::new();
+    let mut ctx = CallGraphGeneratorContext::default();
+   let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Create empty config
 
     let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
@@ -372,22 +474,11 @@ fn test_empty_source() -> Result<()> {
     let solidity_lang = Solidity.get_tree_sitter_language();
 
     let input = CallGraphGeneratorInput {
-        source: source.to_string(), // Pass source string by value
-        tree: ast.tree, // Pass tree by value
+        source: source.to_string(),   // Pass source string by value
+        tree: ast.tree,               // Pass tree by value
         solidity_lang: solidity_lang, // Pass language by value
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Create empty config
 
@@ -419,18 +510,7 @@ fn test_unresolved_call() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Create empty config
 
@@ -484,18 +564,7 @@ fn test_inter_contract_call() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Create empty config
 
@@ -596,18 +665,7 @@ fn test_return_boolean_literal() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Create empty config
 
@@ -676,18 +734,7 @@ fn test_pipeline_execution() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Create empty config
 
@@ -754,18 +801,7 @@ fn test_pipeline_step_enable_disable() -> Result<()> {
     let config: HashMap<String, String> = HashMap::new(); // Empty config
 
     // --- Test with CallsHandling disabled ---
-    let mut ctx_disabled = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx_disabled = CallGraphGeneratorContext::default();
     let mut graph_disabled = CallGraph::new();
     let mut pipeline_disabled = CallGraphGeneratorPipeline::new();
 
@@ -775,7 +811,12 @@ fn test_pipeline_step_enable_disable() -> Result<()> {
     // Disable the CallsHandling step
     pipeline_disabled.disable_step("Calls-Handling");
 
-    pipeline_disabled.run(input.clone(), &mut ctx_disabled, &mut graph_disabled, &config)?; // Clone input as it's used again
+    pipeline_disabled.run(
+        input.clone(),
+        &mut ctx_disabled,
+        &mut graph_disabled,
+        &config,
+    )?; // Clone input as it's used again
 
     // Nodes: target, caller, + default constructor
     assert_eq!(
@@ -790,18 +831,7 @@ fn test_pipeline_step_enable_disable() -> Result<()> {
     );
 
     // --- Test with CallsHandling enabled (default) ---
-    let mut ctx_enabled = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx_enabled = CallGraphGeneratorContext::default();
     let mut graph_enabled = CallGraph::new();
     let mut pipeline_enabled = CallGraphGeneratorPipeline::new();
 
@@ -858,18 +888,7 @@ fn test_using_for_directive_extraction() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(), // Start with an empty map
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new(); // Graph is needed but won't be asserted on heavily
 
     // Create and run ONLY the ContractHandling step
@@ -941,18 +960,7 @@ fn test_library_definition_and_usage() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Empty config
 
@@ -1060,18 +1068,7 @@ fn test_using_for_call_resolution() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Empty config
 
@@ -1164,18 +1161,7 @@ fn test_interface_definition() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Empty config
 
@@ -1314,18 +1300,7 @@ fn test_interface_inheritance() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default(); 
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Empty config
 
@@ -1506,18 +1481,7 @@ fn test_interface_invocation_single_implementation() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Empty config
 
@@ -1644,18 +1608,7 @@ fn test_chained_call_resolution() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Empty config
 
@@ -1767,18 +1720,7 @@ fn test_explicit_return_edge_generation() -> Result<()> {
         tree: ast.tree.clone(),
         solidity_lang: solidity_lang.clone(),
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new();
 
@@ -1824,8 +1766,8 @@ fn test_explicit_return_edge_generation() -> Result<()> {
     // Recreating is safer if pipeline.run definitely consumed it.
     let input_for_returns = CallGraphGeneratorInput {
         source: source.to_string(), // Re-create source string
-        tree: ast.tree.clone(), // Clone the tree
-        solidity_lang, // Language can be copied
+        tree: ast.tree.clone(),     // Clone the tree
+        solidity_lang,              // Language can be copied
     };
     graph.add_explicit_return_edges(&input_for_returns, &ctx)?; // Pass references
 
@@ -1927,18 +1869,7 @@ fn test_direct_library_call() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Empty config
 
@@ -2019,18 +1950,7 @@ fn test_chained_library_call_resolution() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Empty config
 
@@ -2166,18 +2086,7 @@ fn test_interface_call_resolution_factory_pattern() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Empty config
 
@@ -2383,18 +2292,7 @@ fn test_argument_capturing() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Empty config
 
@@ -2494,18 +2392,7 @@ fn test_simple_emit_statement() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Empty config
 
@@ -2646,18 +2533,7 @@ fn test_interface_call_resolution_factory_pattern_no_return() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(),
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(),
-        all_libraries: HashMap::new(),
-    };
+    let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
     let config: HashMap<String, String> = HashMap::new(); // Empty config
 

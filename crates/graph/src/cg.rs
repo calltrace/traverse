@@ -472,8 +472,9 @@ pub struct CallGraphGeneratorContext {
     pub all_libraries: HashMap<String, NodeInfo>,
     pub all_interfaces: HashMap<String, NodeInfo>,
     pub interface_functions: HashMap<String, Vec<String>>,
-    pub contract_implements: HashMap<String, Vec<String>>,
-    pub interface_inherits: HashMap<String, Vec<String>>,
+    pub contract_implements: HashMap<String, Vec<String>>, // Contract -> List of Interfaces it implements
+    pub interface_inherits: HashMap<String, Vec<String>>, // Interface -> List of Interfaces it inherits from
+    pub contract_inherits: HashMap<String, Vec<String>>, // Contract -> List of Contracts/Interfaces it inherits from
 }
 
 

@@ -6,7 +6,7 @@ use crate::cg::{
 use crate::parser::get_node_text;
 // Removed anyhow imports
 use std::collections::VecDeque; // Keep only VecDeque
-// Removed unused std::error::Error import
+                                // Removed unused std::error::Error import
 use streaming_iterator::StreamingIterator; // Import the trait for .next()
 use tree_sitter::{Node as TsNode, Query, QueryCursor}; // Remove unused Point and Tree
                                                        //
@@ -251,22 +251,25 @@ pub(crate) fn analyze_chained_call<'a>(
                             "[Analyze Chained]   Call identified as type cast/constructor to '{}'",
                             name
                         );
-                        
+
                         // Only create a step for the constructor call if this is the original start node
                         // This prevents duplicate steps when analyzing chained calls
                         if current_node.id() == original_start_node.id() {
                             // Extract arguments for the constructor call
                             let arguments = extract_arguments_v2(current_node, source);
-                            
+
                             // Create a step for the constructor call
                             let target = ResolvedTarget::Function {
                                 contract_name: Some(name.clone()),
                                 function_name: name.clone(), // Constructor name is contract name
                                 node_type: NodeType::Constructor,
                             };
-                            
+
                             let step = ResolvedCallStep {
-                                call_expr_span: (current_node.start_byte(), current_node.end_byte()),
+                                call_expr_span: (
+                                    current_node.start_byte(),
+                                    current_node.end_byte(),
+                                ),
                                 function_span: (id_node.start_byte(), id_node.end_byte()),
                                 target,
                                 arguments,
@@ -283,7 +286,7 @@ pub(crate) fn analyze_chained_call<'a>(
                             // Type(addr).method() is valid.
                             // We allow chaining by just setting the type.
                             current_object_type = resolved_type; // Set the type for the next step
-                            // No step is generated here for the cast itself when not the top-level node.
+                                                                 // No step is generated here for the cast itself when not the top-level node.
                             eprintln!(
                                 "[Analyze Chained]   Type cast '{}' encountered within a chain. Type set for next step.",
                                 name
@@ -483,17 +486,24 @@ pub(crate) fn analyze_chained_call<'a>(
                     // --- Robust Type Name Extraction ---
                     let mut type_name_node_opt: Option<TsNode> = None;
                     let mut cursor = new_expr_node.walk();
-                    eprintln!("[Analyze Chained]     Iterating children of new_expression '{}':", get_node_text(&new_expr_node, source).trim());
+                    eprintln!(
+                        "[Analyze Chained]     Iterating children of new_expression '{}':",
+                        get_node_text(&new_expr_node, source).trim()
+                    );
                     for child in new_expr_node.children(&mut cursor) {
-                        eprintln!("[Analyze Chained]       Child kind: '{}', text: '{}'", child.kind(), get_node_text(&child, source).trim());
+                        eprintln!(
+                            "[Analyze Chained]       Child kind: '{}', text: '{}'",
+                            child.kind(),
+                            get_node_text(&child, source).trim()
+                        );
                         // Look for the node representing the type name
                         // Common kinds are 'identifier' or 'type_name' itself
                         if child.kind() == "identifier" || child.kind() == "type_name" {
-                             // Check if it's not the 'new' keyword itself if grammar is ambiguous
-                             if get_node_text(&child, source).trim() != "new" {
+                            // Check if it's not the 'new' keyword itself if grammar is ambiguous
+                            if get_node_text(&child, source).trim() != "new" {
                                 type_name_node_opt = Some(child);
                                 break; // Found it
-                             }
+                            }
                         }
                         // Add more kinds here if needed based on grammar inspection
                     }
@@ -645,7 +655,8 @@ pub(crate) fn analyze_chained_call<'a>(
                 );
                 // Recursively call analyze_chained_call on the child.
                 // The result of this recursive call *is* the result for the expression node.
-                return analyze_chained_call( // Use return here
+                return analyze_chained_call(
+                    // Use return here
                     child_node,
                     caller_node_id,
                     caller_contract_name_opt,
@@ -1406,7 +1417,29 @@ fn resolve_simple_call_v2<'a>(
                 });
             }
         }
-        // TODO: Check inherited functions within the contract scope
+        // --- Start: Check inherited contracts ---
+        if let Some(inherited_names) = ctx.contract_inherits.get(contract_name) {
+            eprintln!(
+                "[Resolve Simple V2]   Checking inheritance for '{}': {:?}",
+                contract_name, inherited_names
+            );
+            for base_name in inherited_names {
+                let base_key = (Some(base_name.clone()), name.to_string());
+                if let Some(id) = graph.node_lookup.get(&base_key) {
+                    if let Some(node) = graph.nodes.get(*id) {
+                        eprintln!("[Resolve Simple V2]     Found in base contract '{}': Node ID {}, Type: {:?}", base_name, id, node.node_type);
+                        // TODO: Handle potential ambiguity if found in multiple bases? For now, return first found.
+                        // TODO: Handle visibility checks for inherited functions.
+                        return Ok(ResolvedTarget::Function {
+                            contract_name: node.contract_name.clone(), // Use the base contract's name
+                            function_name: node.name.clone(),
+                            node_type: node.node_type.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        // --- End: Check inherited contracts ---
     }
 
     // 2. Look for a free function (no contract scope)
@@ -1666,18 +1699,7 @@ mod tests {
             .parse(source, None)
             .context("Failed to parse source code")?;
 
-        let mut ctx = CallGraphGeneratorContext {
-            state_var_types: HashMap::new(),
-            using_for_directives: HashMap::new(),
-            definition_nodes_info: Vec::new(),
-            all_contracts: HashMap::new(),
-            contracts_with_explicit_constructors: HashSet::new(),
-            all_libraries: HashMap::new(),
-            all_interfaces: HashMap::new(),
-            interface_functions: HashMap::new(),
-            contract_implements: HashMap::new(),
-            interface_inherits: HashMap::new(),
-        };
+        let mut ctx = CallGraphGeneratorContext::default();
         let mut graph = CallGraph::new();
 
         // --- Populate context and graph using the pipeline ---
@@ -2251,14 +2273,14 @@ mod tests {
 
         // Find the outer call_expression node for value.add(x).sub(y) by navigating from the assignment
         let assignment_node = find_nth_descendant_node_of_kind(
-                &caller_def_node, // Search within the caller function
-                source,
-                &lang,
-                "assignment_expression", // Kind to find
-                0,                 // Find the first one
-            )
-            .expect("Failed to query for assignment node")
-            .expect("Could not find the assignment_expression node within caller");
+            &caller_def_node, // Search within the caller function
+            source,
+            &lang,
+            "assignment_expression", // Kind to find
+            0,                       // Find the first one
+        )
+        .expect("Failed to query for assignment node")
+        .expect("Could not find the assignment_expression node within caller");
 
         // Navigate: assignment -> right: expression -> child(0): call_expression
         let outer_call_expr_node = assignment_node
@@ -2267,9 +2289,16 @@ mod tests {
             .child(0)
             .expect("Assignment 'right' expression missing child(0)");
 
-        assert_eq!(outer_call_expr_node.kind(), "call_expression", "Navigated node is not a call_expression");
-        eprintln!("DEBUG [Test]: Analyzing node kind='{}', text='{}'", outer_call_expr_node.kind(), get_node_text(&outer_call_expr_node, source));
-
+        assert_eq!(
+            outer_call_expr_node.kind(),
+            "call_expression",
+            "Navigated node is not a call_expression"
+        );
+        eprintln!(
+            "DEBUG [Test]: Analyzing node kind='{}', text='{}'",
+            outer_call_expr_node.kind(),
+            get_node_text(&outer_call_expr_node, source)
+        );
 
         let steps = analyze_chained_call(
             outer_call_expr_node, // Use the navigated node
@@ -2463,13 +2492,17 @@ mod tests {
 
         // Find the outermost call_expression node for (...).perform()
         // It should be the second call expression overall (first is create, second is perform)
-        let outer_call_expr_node = find_nth_node_of_kind(&tree, "call_expression", 1) // Find the second call_expression
-            .expect("Could not find the outer call_expression node for .perform()");
+        let outer_call_expr_node =
+            find_nth_node_of_kind(&tree, "call_expression", 1) // Find the second call_expression
+                .expect("Could not find the outer call_expression node for .perform()");
 
         // Debug: Verify we found the correct node
-        eprintln!("[Test Inline Factory] Analyzing node kind='{}', text='{}'", outer_call_expr_node.kind(), get_node_text(&outer_call_expr_node, source));
+        eprintln!(
+            "[Test Inline Factory] Analyzing node kind='{}', text='{}'",
+            outer_call_expr_node.kind(),
+            get_node_text(&outer_call_expr_node, source)
+        );
         assert!(get_node_text(&outer_call_expr_node, source).contains(".perform()"));
-
 
         let steps = analyze_chained_call(
             outer_call_expr_node,
@@ -2488,68 +2521,197 @@ mod tests {
 
         // Step 1: new Factory()
         let step1 = &steps[0];
-        assert_eq!(step1.object_type, None, "Step 1 (new): object_type should be None");
-        assert_eq!(step1.result_type, Some("Factory".to_string()), "Step 1 (new): result_type should be Factory");
-        assert!(step1.arguments.is_empty(), "Step 1 (new): arguments should be empty");
+        assert_eq!(
+            step1.object_type, None,
+            "Step 1 (new): object_type should be None"
+        );
+        assert_eq!(
+            step1.result_type,
+            Some("Factory".to_string()),
+            "Step 1 (new): result_type should be Factory"
+        );
+        assert!(
+            step1.arguments.is_empty(),
+            "Step 1 (new): arguments should be empty"
+        );
         match &step1.target {
-            ResolvedTarget::Function { contract_name, function_name, node_type } => {
-                assert_eq!(contract_name.as_deref(), Some("Factory"), "Step 1 (new): target contract");
-                assert_eq!(function_name, "Factory", "Step 1 (new): target function name (constructor)");
-                assert_eq!(*node_type, NodeType::Constructor, "Step 1 (new): target node type");
+            ResolvedTarget::Function {
+                contract_name,
+                function_name,
+                node_type,
+            } => {
+                assert_eq!(
+                    contract_name.as_deref(),
+                    Some("Factory"),
+                    "Step 1 (new): target contract"
+                );
+                assert_eq!(
+                    function_name, "Factory",
+                    "Step 1 (new): target function name (constructor)"
+                );
+                assert_eq!(
+                    *node_type,
+                    NodeType::Constructor,
+                    "Step 1 (new): target node type"
+                );
             }
-            _ => panic!("Step 1 (new): Expected Function (Constructor), got {:?}", step1.target),
+            _ => panic!(
+                "Step 1 (new): Expected Function (Constructor), got {:?}",
+                step1.target
+            ),
         }
 
         // Step 2: .create()
         let step2 = &steps[1];
-        assert_eq!(step2.object_type, Some("Factory".to_string()), "Step 2 (create): object_type should be Factory");
-        assert_eq!(step2.result_type, Some("IAction".to_string()), "Step 2 (create): result_type should be IAction");
-        assert!(step2.arguments.is_empty(), "Step 2 (create): arguments should be empty");
+        assert_eq!(
+            step2.object_type,
+            Some("Factory".to_string()),
+            "Step 2 (create): object_type should be Factory"
+        );
+        assert_eq!(
+            step2.result_type,
+            Some("IAction".to_string()),
+            "Step 2 (create): result_type should be IAction"
+        );
+        assert!(
+            step2.arguments.is_empty(),
+            "Step 2 (create): arguments should be empty"
+        );
         match &step2.target {
             // Assuming resolution finds the concrete implementation directly or via InterfaceMethod
-             ResolvedTarget::InterfaceMethod { interface_name, method_name, implementation } => {
-                 assert_eq!(interface_name, "IFactory", "Step 2 (create): target interface name");
-                 assert_eq!(method_name, "create", "Step 2 (create): target method name");
-                 assert!(implementation.is_some(), "Step 2 (create): implementation should be resolved");
-                 match implementation.as_deref() {
-                     Some(ResolvedTarget::Function { contract_name, function_name, node_type }) => {
-                         assert_eq!(contract_name.as_deref(), Some("Factory"), "Step 2 (create): impl contract");
-                         assert_eq!(function_name, "create", "Step 2 (create): impl function name");
-                         assert_eq!(*node_type, NodeType::Function, "Step 2 (create): impl node type");
-                     }
-                     _ => panic!("Step 2 (create): Expected implementation Function, got {:?}", implementation),
-                 }
-             }
-            ResolvedTarget::Function { contract_name, function_name, node_type } => {
-                 // Allow direct resolution to function if InterfaceMethod is skipped
-                 assert_eq!(contract_name.as_deref(), Some("Factory"), "Step 2 (create): target contract (direct)");
-                 assert_eq!(function_name, "create", "Step 2 (create): target function name (direct)");
-                 assert_eq!(*node_type, NodeType::Function, "Step 2 (create): target node type (direct)");
+            ResolvedTarget::InterfaceMethod {
+                interface_name,
+                method_name,
+                implementation,
+            } => {
+                assert_eq!(
+                    interface_name, "IFactory",
+                    "Step 2 (create): target interface name"
+                );
+                assert_eq!(method_name, "create", "Step 2 (create): target method name");
+                assert!(
+                    implementation.is_some(),
+                    "Step 2 (create): implementation should be resolved"
+                );
+                match implementation.as_deref() {
+                    Some(ResolvedTarget::Function {
+                        contract_name,
+                        function_name,
+                        node_type,
+                    }) => {
+                        assert_eq!(
+                            contract_name.as_deref(),
+                            Some("Factory"),
+                            "Step 2 (create): impl contract"
+                        );
+                        assert_eq!(
+                            function_name, "create",
+                            "Step 2 (create): impl function name"
+                        );
+                        assert_eq!(
+                            *node_type,
+                            NodeType::Function,
+                            "Step 2 (create): impl node type"
+                        );
+                    }
+                    _ => panic!(
+                        "Step 2 (create): Expected implementation Function, got {:?}",
+                        implementation
+                    ),
+                }
             }
-            _ => panic!("Step 2 (create): Expected InterfaceMethod or Function, got {:?}", step2.target),
+            ResolvedTarget::Function {
+                contract_name,
+                function_name,
+                node_type,
+            } => {
+                // Allow direct resolution to function if InterfaceMethod is skipped
+                assert_eq!(
+                    contract_name.as_deref(),
+                    Some("Factory"),
+                    "Step 2 (create): target contract (direct)"
+                );
+                assert_eq!(
+                    function_name, "create",
+                    "Step 2 (create): target function name (direct)"
+                );
+                assert_eq!(
+                    *node_type,
+                    NodeType::Function,
+                    "Step 2 (create): target node type (direct)"
+                );
+            }
+            _ => panic!(
+                "Step 2 (create): Expected InterfaceMethod or Function, got {:?}",
+                step2.target
+            ),
         }
-
 
         // Step 3: .perform()
         let step3 = &steps[2];
-        assert_eq!(step3.object_type, Some("IAction".to_string()), "Step 3 (perform): object_type should be IAction");
-        assert_eq!(step3.result_type, Some("bool".to_string()), "Step 3 (perform): result_type should be bool");
-        assert!(step3.arguments.is_empty(), "Step 3 (perform): arguments should be empty");
+        assert_eq!(
+            step3.object_type,
+            Some("IAction".to_string()),
+            "Step 3 (perform): object_type should be IAction"
+        );
+        assert_eq!(
+            step3.result_type,
+            Some("bool".to_string()),
+            "Step 3 (perform): result_type should be bool"
+        );
+        assert!(
+            step3.arguments.is_empty(),
+            "Step 3 (perform): arguments should be empty"
+        );
         match &step3.target {
-            ResolvedTarget::InterfaceMethod { interface_name, method_name, implementation } => {
-                assert_eq!(interface_name, "IAction", "Step 3 (perform): target interface name");
-                assert_eq!(method_name, "perform", "Step 3 (perform): target method name");
-                assert!(implementation.is_some(), "Step 3 (perform): implementation should be resolved");
+            ResolvedTarget::InterfaceMethod {
+                interface_name,
+                method_name,
+                implementation,
+            } => {
+                assert_eq!(
+                    interface_name, "IAction",
+                    "Step 3 (perform): target interface name"
+                );
+                assert_eq!(
+                    method_name, "perform",
+                    "Step 3 (perform): target method name"
+                );
+                assert!(
+                    implementation.is_some(),
+                    "Step 3 (perform): implementation should be resolved"
+                );
                 match implementation.as_deref() {
-                    Some(ResolvedTarget::Function { contract_name, function_name, node_type }) => {
-                        assert_eq!(contract_name.as_deref(), Some("Action"), "Step 3 (perform): impl contract");
-                        assert_eq!(function_name, "perform", "Step 3 (perform): impl function name");
-                        assert_eq!(*node_type, NodeType::Function, "Step 3 (perform): impl node type");
+                    Some(ResolvedTarget::Function {
+                        contract_name,
+                        function_name,
+                        node_type,
+                    }) => {
+                        assert_eq!(
+                            contract_name.as_deref(),
+                            Some("Action"),
+                            "Step 3 (perform): impl contract"
+                        );
+                        assert_eq!(
+                            function_name, "perform",
+                            "Step 3 (perform): impl function name"
+                        );
+                        assert_eq!(
+                            *node_type,
+                            NodeType::Function,
+                            "Step 3 (perform): impl node type"
+                        );
                     }
-                    _ => panic!("Step 3 (perform): Expected implementation Function, got {:?}", implementation),
+                    _ => panic!(
+                        "Step 3 (perform): Expected implementation Function, got {:?}",
+                        implementation
+                    ),
                 }
             }
-            _ => panic!("Step 3 (perform): Expected InterfaceMethod, got {:?}", step3.target),
+            _ => panic!(
+                "Step 3 (perform): Expected InterfaceMethod, got {:?}",
+                step3.target
+            ),
         }
 
         Ok(())
@@ -2568,7 +2730,8 @@ mod tests {
          "#;
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
 
-        let caller_def_node = find_function_definition_node_by_name(&tree, source, &lang, "caller")?; // Use ?
+        let caller_def_node =
+            find_function_definition_node_by_name(&tree, source, &lang, "caller")?; // Use ?
         let caller_node_id = graph
             .node_lookup
             .get(&(Some("Test".to_string()), "caller".to_string()))
@@ -2692,6 +2855,4 @@ mod tests {
 
         Ok(())
     }
-
-
 }

@@ -85,12 +85,11 @@ impl CallGraphGeneratorStep for CallsHandling {
         let call_query = Query::new(&input.solidity_lang, call_query_str)
             .context("Failed to create call query")?;
 
-        let mut call_sequence_counter: usize = 0; // Initialize GLOBAL sequence counter
+        let mut call_sequence_counter: usize = 0; // Initialize sequence counter GLOBALLY for this step run
 
         // Iterate through definition_nodes_info which now contains NodeInfo
         for (caller_node_id, caller_node_info, caller_contract_name_opt) in
             &ctx.definition_nodes_info
-        // Borrowing ctx, but info inside is owned/static
         {
             // Get the actual TsNode for the caller's definition using the span from NodeInfo
             let definition_ts_node = input

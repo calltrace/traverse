@@ -364,12 +364,20 @@ impl CallGraphGeneratorStep for ContractHandling {
                     (contract_name_opt.clone(), inherited_name_opt.clone())
                 {
                     // Contract inheriting from interface or contract
-                    // Assume contract only implements interfaces for now, but could inherit contracts too.
-                    // Storing in contract_implements, might need refinement if base contracts are tracked.
-                    ctx.contract_implements
-                        .entry(contract_name)
+                    // Distinguish between implementing an interface and inheriting from a contract/interface
+                    // Check if the inherited name is a known interface
+                    if ctx.all_interfaces.contains_key(&inherited_name) {
+                        // Contract implements an interface
+                        ctx.contract_implements
+                            .entry(contract_name.clone()) // Use clone for entry key
+                            .or_default()
+                            .push(inherited_name.clone()); // Clone inherited name
+                    }
+                    // Store all inheritance relationships (contract -> inherited)
+                    ctx.contract_inherits
+                        .entry(contract_name) // Use original contract_name
                         .or_default()
-                        .push(inherited_name);
+                        .push(inherited_name); // Use original inherited_name
                 } else {
                     // This case should ideally not happen if the query is correct
                     eprintln!(
