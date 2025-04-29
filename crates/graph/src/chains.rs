@@ -1539,7 +1539,6 @@ mod tests {
     }; // Import necessary items
     use crate::steps::ContractHandling;
     use crate::steps::CallsHandling;
-    use crate::parser::parse_solidity;
     use anyhow::{Context, Result}; // Add anyhow imports
     use language::{Language, Solidity}; // Assuming Language trait and Solidity struct exist
     use std::collections::{HashMap, HashSet};
