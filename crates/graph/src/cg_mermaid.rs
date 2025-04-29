@@ -92,189 +92,218 @@ impl MermaidGenerator {
             return; // Already visiting this node in the current path, stop recursion
         }
 
-        // Find outgoing call edges, sorted by sequence number
-        let mut outgoing_calls: Vec<&Edge> = graph
+        // Find *all* outgoing edges (calls, returns, storage ops)
+        let outgoing_edges: Vec<(usize, &Edge)> = graph // Store index along with edge ref
             .edges
             .iter()
-            .filter(|edge| {
-                edge.source_node_id == current_node_id && edge.edge_type == EdgeType::Call
-            })
+            .enumerate()
+            .filter(|(_, edge)| edge.source_node_id == current_node_id)
             .collect();
-        outgoing_calls.sort_by_key(|edge| edge.sequence_number);
 
-        for call_edge in outgoing_calls {
-            let call_edge_index = graph
-                .edges
-                .iter()
-                .position(|e| e == call_edge)
-                .expect("Call edge must exist in graph.edges");
+        // Sort edges primarily by sequence number (for calls/returns), then by type for stable ordering
+        let mut sorted_edges = outgoing_edges;
+        sorted_edges.sort_by_key(|(_, edge)| (edge.sequence_number, edge.edge_type.clone())); // Clone edge_type for sorting
 
-            // --- Check 1: Skip if this edge was already processed (e.g., as the second part of an emit) ---
-            if processed_edges.contains(&call_edge_index) {
+        for (edge_index, edge) in sorted_edges {
+            // --- Skip if this edge was already processed ---
+            if processed_edges.contains(&edge_index) {
                 continue;
             }
 
-            let target_node_id = call_edge.target_node_id;
+            let target_node_id = edge.target_node_id;
 
             if let (Some(source_node), Some(target_node)) = (
                 graph.nodes.get(current_node_id),
                 graph.nodes.get(target_node_id),
             ) {
-                // --- Check 2: Is this the start of an emit sequence (Caller -> EVM)? ---
-                if target_node.name == crate::cg::EVM_NODE_NAME {
-                    // --- Handle Emit ---
-                    // Find the corresponding EVM -> EventListener edge based on sequence number
-                    let listener_edge_opt = graph.edges.iter().enumerate().find(|(_, edge)| {
-                        edge.source_node_id == target_node_id // Source is EVM
-                        && edge.edge_type == EdgeType::Call
-                        && edge.sequence_number == call_edge.sequence_number // Match sequence
-                        && graph.nodes.get(edge.target_node_id).map_or(false, |n| n.name == crate::cg::EVENT_LISTENER_NODE_NAME) // Target is Listener
-                    });
+                match edge.edge_type {
+                    EdgeType::Call => {
+                        // --- Handle Emit (Caller -> EVM) ---
+                        if target_node.name == crate::cg::EVM_NODE_NAME {
+                            // Find the corresponding EVM -> EventListener edge
+                            let listener_edge_opt = graph.edges.iter().enumerate().find(|(_, le)| {
+                                le.source_node_id == target_node_id // Source is EVM
+                                && le.edge_type == EdgeType::Call
+                                && le.sequence_number == edge.sequence_number // Match sequence
+                                && graph.nodes.get(le.target_node_id).map_or(false, |n| n.name == crate::cg::EVENT_LISTENER_NODE_NAME) // Target is Listener
+                            });
 
-                    // --- Generate Caller -> EVM signal ---
-                    // Process the first edge (Caller->EVM) if not already processed.
-                    if processed_edges.insert(call_edge_index) {
-                        let source_participant_id = Self::get_participant_id(
-                            &source_node.name,
-                            source_node.contract_name.as_ref(),
-                        );
-                        let evm_participant_id =
-                            Self::get_participant_id(crate::cg::EVM_NODE_NAME, None);
-                        let event_name = call_edge.event_name.as_deref().unwrap_or("UnknownEvent");
-                        let args_str = call_edge
-                            .argument_names
-                            .as_ref()
-                            .map(|args| args.join(", "))
-                            .unwrap_or_default();
-                        let message_content = format!("emit {}({})", event_name, args_str);
-                        builder.signal(
-                            source_participant_id,
-                            evm_participant_id,
-                            "->>", // Solid line for call to EVM
-                            Some(message_content),
-                        );
-                    }
+                            // Process Caller -> EVM edge
+                            if processed_edges.insert(edge_index) {
+                                let source_participant_id = Self::get_participant_id(
+                                    &source_node.name,
+                                    source_node.contract_name.as_ref(),
+                                );
+                                let evm_participant_id =
+                                    Self::get_participant_id(crate::cg::EVM_NODE_NAME, None);
+                                let event_name = edge.event_name.as_deref().unwrap_or("UnknownEvent");
+                                let args_str = edge
+                                    .argument_names
+                                    .as_ref()
+                                    .map(|args| args.join(", "))
+                                    .unwrap_or_default();
+                                let message_content = format!("emit {}({})", event_name, args_str);
+                                builder.signal(
+                                    source_participant_id,
+                                    evm_participant_id,
+                                    "->>",
+                                    Some(message_content),
+                                );
+                            }
 
-                    // --- Generate EVM -> Listener signal (if pair exists) ---
-                    if let Some((listener_edge_index, _listener_edge)) = listener_edge_opt {
-                        // Process the second edge (EVM->Listener) if not already processed.
-                        if processed_edges.insert(listener_edge_index) {
-                            let evm_participant_id =
-                                Self::get_participant_id(crate::cg::EVM_NODE_NAME, None);
-                            let listener_participant_id =
-                                Self::get_participant_id(crate::cg::EVENT_LISTENER_NODE_NAME, None);
-                            // Re-use event name and args from the first edge for the message content
-                            let event_name =
-                                call_edge.event_name.as_deref().unwrap_or("UnknownEvent");
-                            let args_str = call_edge
-                                .argument_names
-                                .as_ref()
-                                .map(|args| args.join(", "))
-                                .unwrap_or_default();
-                            let message_content = format!("Event: {}({})", event_name, args_str); // Message indicates the event itself
-                            builder.signal(
-                                evm_participant_id,
-                                listener_participant_id,
-                                "->>", // Solid line for signal from EVM
-                                Some(message_content),
-                            );
-                        }
-                    } else {
-                        // Log if the second part of the pair is missing (already logged before)
-                        // eprintln!("Warning: Found emit edge Caller->EVM (Seq {}) but missing corresponding EVM->EventListener edge.", call_edge.sequence_number);
-                    }
-                    // Skip recursion into EVM and return processing for the emit path.
-                    continue;
-                } else {
-                    // End if target_node.name == EVM_NODE_NAME
-                    // --- Handle Regular Call (Target is not EVM) ---
-                    // Process the call edge if it hasn't been processed yet.
-                    if processed_edges.insert(call_edge_index) {
-                        let source_participant_id = Self::get_participant_id(
-                            &source_node.name,
-                            source_node.contract_name.as_ref(),
-                        );
-                        let target_participant_id = Self::get_participant_id(
-                            &target_node.name,
-                            target_node.contract_name.as_ref(),
-                        );
-                        let args_str = call_edge
-                            .argument_names
-                            .as_ref()
-                            .map(|args| args.join(", "))
-                            .unwrap_or_default();
-                        let message_content = format!("{}({})", target_node.name, args_str);
-                        builder.signal(
-                            source_participant_id,
-                            target_participant_id,
-                            "->>", // Solid line for regular call
-                            Some(message_content),
-                        );
-                    }
-                    // Recurse into the target node for regular calls
-                    self.process_flow(
-                        target_node_id,
-                        graph,
-                        processed_edges, // Pass mutable borrow
-                        builder,
-                        return_edge_lookup,
-                        visiting, // Pass mutable borrow
-                    );
-
-                    // After recursion returns, process the corresponding return edge for regular calls
-                    let return_lookup_key =
-                        (target_node_id, current_node_id, call_edge.sequence_number);
-                    if let Some(return_edge_index) = return_edge_lookup.get(&return_lookup_key) {
-                        // Process the return edge if it hasn't been processed yet.
-                        if processed_edges.insert(*return_edge_index) {
-                            if let Some(return_edge) = graph.edges.get(*return_edge_index) {
-                                // Ensure we get the nodes involved in the return edge correctly
-                                if let (Some(ret_source_node), Some(ret_target_node)) = (
-                                    graph.nodes.get(return_edge.source_node_id), // Node returning from (original target)
-                                    graph.nodes.get(return_edge.target_node_id), // Node returning to (original source)
-                                ) {
-                                    let ret_source_participant_id = Self::get_participant_id(
-                                        &ret_source_node.name,
-                                        ret_source_node.contract_name.as_ref(),
+                            // Process EVM -> Listener edge
+                            if let Some((listener_edge_index, _)) = listener_edge_opt {
+                                if processed_edges.insert(listener_edge_index) {
+                                    let evm_participant_id =
+                                        Self::get_participant_id(crate::cg::EVM_NODE_NAME, None);
+                                    let listener_participant_id = Self::get_participant_id(
+                                        crate::cg::EVENT_LISTENER_NODE_NAME,
+                                        None,
                                     );
-                                    let ret_target_participant_id = Self::get_participant_id(
-                                        &ret_target_node.name,
-                                        ret_target_node.contract_name.as_ref(),
-                                    );
-
-                                    // Sanitize the return value for Mermaid compatibility
-                                    let returned_value_str = return_edge
-                                        .returned_value
+                                    let event_name =
+                                        edge.event_name.as_deref().unwrap_or("UnknownEvent");
+                                    let args_str = edge
+                                        .argument_names
                                         .as_ref()
-                                        .map(|v| {
-                                            let sanitized_v = v
-                                                .replace('\n', " ")
-                                                .split_whitespace()
-                                                .collect::<Vec<&str>>()
-                                                .join(" ");
-                                            format!(" {}", sanitized_v) // Add leading space only if value exists
-                                        })
-                                        .unwrap_or_default(); // Empty string if no value
-
-                                    // Use the name of the node *returning* the value
-                                    let message_content = format!(
-                                        "ret{} from {}",
-                                        returned_value_str,
-                                        ret_source_node.name // Function that executed the return
-                                    );
+                                        .map(|args| args.join(", "))
+                                        .unwrap_or_default();
+                                    let message_content =
+                                        format!("Event: {}({})", event_name, args_str);
                                     builder.signal(
-                                        ret_source_participant_id,
-                                        ret_target_participant_id,
-                                        "-->>", // Dashed line for return
+                                        evm_participant_id,
+                                        listener_participant_id,
+                                        "->>",
                                         Some(message_content),
                                     );
                                 }
                             }
+                            // Skip recursion for emit path
+                            continue; // Move to the next edge
+                        } else {
+                            // --- Handle Regular Call ---
+                            if processed_edges.insert(edge_index) {
+                                let source_participant_id = Self::get_participant_id(
+                                    &source_node.name,
+                                    source_node.contract_name.as_ref(),
+                                );
+                                let target_participant_id = Self::get_participant_id(
+                                    &target_node.name,
+                                    target_node.contract_name.as_ref(),
+                                );
+                                let args_str = edge
+                                    .argument_names
+                                    .as_ref()
+                                    .map(|args| args.join(", "))
+                                    .unwrap_or_default();
+                                let message_content = format!("{}({})", target_node.name, args_str);
+                                builder.signal(
+                                    source_participant_id,
+                                    target_participant_id,
+                                    "->>",
+                                    Some(message_content),
+                                );
+                            }
+
+                            // Recurse into the target node
+                            self.process_flow(
+                                target_node_id,
+                                graph,
+                                processed_edges,
+                                builder,
+                                return_edge_lookup,
+                                visiting,
+                            );
+
+                            // After recursion, process the corresponding return edge
+                            let return_lookup_key =
+                                (target_node_id, current_node_id, edge.sequence_number);
+                            if let Some(return_edge_index) =
+                                return_edge_lookup.get(&return_lookup_key)
+                            {
+                                if processed_edges.insert(*return_edge_index) {
+                                    if let Some(return_edge) = graph.edges.get(*return_edge_index)
+                                    {
+                                        if let (Some(ret_source_node), Some(ret_target_node)) = (
+                                            graph.nodes.get(return_edge.source_node_id),
+                                            graph.nodes.get(return_edge.target_node_id),
+                                        ) {
+                                            let ret_source_participant_id =
+                                                Self::get_participant_id(
+                                                    &ret_source_node.name,
+                                                    ret_source_node.contract_name.as_ref(),
+                                                );
+                                            let ret_target_participant_id =
+                                                Self::get_participant_id(
+                                                    &ret_target_node.name,
+                                                    ret_target_node.contract_name.as_ref(),
+                                                );
+                                            let returned_value_str = return_edge
+                                                .returned_value
+                                                .as_ref()
+                                                .map(|v| {
+                                                    let sanitized_v = v
+                                                        .replace('\n', " ")
+                                                        .split_whitespace()
+                                                        .collect::<Vec<&str>>()
+                                                        .join(" ");
+                                                    format!(" {}", sanitized_v)
+                                                })
+                                                .unwrap_or_default();
+                                            let message_content = format!(
+                                                "ret{} from {}",
+                                                returned_value_str, ret_source_node.name
+                                            );
+                                            builder.signal(
+                                                ret_source_participant_id,
+                                                ret_target_participant_id,
+                                                "-->>",
+                                                Some(message_content),
+                                            );
+                                        }
+                                    }
+                                }
+                            } // End return edge processing
+                        } // End else (regular call)
+                    } // End EdgeType::Call
+                    EdgeType::Return => {
+                        // Return edges are handled implicitly after their corresponding Call edge recursion returns.
+                        // We mark them processed there. So, if we encounter one here directly,
+                        // it means it wasn't associated with a processed call, which might indicate an issue
+                        // or it's a return from an entry point handled separately.
+                        // We can optionally log this, but don't add a signal here.
+                        // processed_edges.insert(edge_index); // Mark as processed if needed, though likely already done.
+                    }
+                    EdgeType::StorageRead | EdgeType::StorageWrite => {
+                        // --- Handle Storage Read/Write ---
+                        if processed_edges.insert(edge_index) {
+                            // Source node is the function performing the action
+                            let source_participant_id = Self::get_participant_id(
+                                &source_node.name,
+                                source_node.contract_name.as_ref(),
+                            );
+                            // Target node is the storage variable
+                            let var_name = &target_node.name;
+                            // Use the target node's contract name for the variable's scope
+                            let var_contract_name = target_node
+                                .contract_name
+                                .as_deref()
+                                .unwrap_or("<Global>"); // Should ideally always have a contract
+
+                            let action = if edge.edge_type == EdgeType::StorageRead {
+                                "Read"
+                            } else {
+                                "Write"
+                            };
+                            let note_text = format!("{} {}.{}", action, var_contract_name, var_name);
+
+                            // Add note over the participant performing the action
+                            builder.note_over(vec![source_participant_id], note_text);
                         }
-                    } // End return edge processing
-                } // End else (regular call)
+                        // Do not recurse into storage variable nodes
+                    }
+                } // End match edge.edge_type
             } // End if let Some(source/target_node)
-        } // End for loop
+        } // End for loop over sorted_edges
 
         // Backtrack: remove from visiting set
         visiting.remove(&current_node_id);

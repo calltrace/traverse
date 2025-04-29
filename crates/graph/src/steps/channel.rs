@@ -12,9 +12,12 @@ use crate::{
     chains::{analyze_chained_call, ResolvedTarget, TypeError}, // Import items from chains module
     parser::get_node_text,
 };
-use anyhow::{anyhow, Context, Result}; // Add anyhow!
+use anyhow::{anyhow, Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node as TsNode, Query, QueryCursor};
+
+// Type alias for the key used to track unique storage edges
+type StorageEdgeKey = (usize, usize, EdgeType, (usize, usize));
 
 #[derive(Default)] // Add Default derive
 pub struct CallsHandling {
@@ -81,17 +84,45 @@ impl CallGraphGeneratorStep for CallsHandling {
               name: (expression (identifier) @emit_event_name) ; Correct field name: 'name'
               ; Arguments are direct children (call_argument), handled by extract_arguments
             ) @emit_statement_node ; Capture the whole emit statement
+
+            ; --- Storage Access ---
+            ; Capture assignment expression (write target extracted in Rust)
+            (assignment_expression) @assignment_expr
+
+            ; Capture identifiers used in expressions (potential read)
+            ; Exclude identifiers that are part of a call's function name
+            ; Exclude identifiers that are the left side of an assignment
+            (identifier) @read_candidate
+            ; Add more negative checks if needed (e.g., type names, event names, member access object/property)
+            (#not-match? @read_candidate "^(require|assert|revert|emit|new)$") ; Exclude keywords/builtins used like functions
+            ; --- Filtering for function names, assignment LHS, type names, etc., will be done in Rust code ---
         "#;
         let call_query = Query::new(&input.solidity_lang, call_query_str)
             .context("Failed to create call query")?;
 
         let mut call_sequence_counter: usize = 0; // Initialize sequence counter GLOBALLY for this step run
 
-        // Iterate through definition_nodes_info which now contains NodeInfo
-        for (caller_node_id, caller_node_info, caller_contract_name_opt) in
-            &ctx.definition_nodes_info
-        {
-            // Get the actual TsNode for the caller's definition using the span from NodeInfo
+        // --- Pre-filter executable nodes to avoid borrow checker issues ---
+        let executable_nodes_info: Vec<(usize, NodeInfo, Option<String>)> = ctx
+            .definition_nodes_info
+            .iter()
+            .filter(|(id, _, _)| {
+                // Only process nodes that can contain calls/emits
+                matches!(
+                    graph.nodes.get(*id).map(|n| &n.node_type),
+                    Some(NodeType::Function) | Some(NodeType::Modifier) | Some(NodeType::Constructor)
+                )
+            })
+            .map(|(id, info, contract_opt)| (*id, info.clone(), contract_opt.clone())) // Clone the needed data
+            .collect();
+        // --- End pre-filtering ---
+
+
+        // Iterate through the pre-filtered executable nodes
+        for (caller_node_id, caller_node_info, caller_contract_name_opt) in executable_nodes_info {
+             // Get the actual TsNode for the caller's definition using the span from NodeInfo
+             // Note: We use the original input.tree here, assuming it's still valid.
+             // If input ownership was an issue, we'd need to adjust how input is passed/cloned.
             let definition_ts_node = input
                 .tree
                 .root_node()
@@ -105,10 +136,13 @@ impl CallGraphGeneratorStep for CallsHandling {
 
             // Track processed call/emit spans within this caller function to avoid duplicates
             let mut processed_call_spans: HashSet<(usize, usize)> = HashSet::new();
+
+            // Track processed storage read/write edges within this caller function to avoid duplicates
+            let mut processed_storage_edges: HashSet<StorageEdgeKey> = HashSet::new();
             // --- DEBUG: Log the caller node being processed ---
             let caller_node_name = graph
                 .nodes
-                .get(*caller_node_id)
+                .get(caller_node_id) // Remove dereference
                 .map_or("?".to_string(), |n| {
                     format!(
                         "{}.{}",
@@ -134,6 +168,13 @@ impl CallGraphGeneratorStep for CallsHandling {
             let emit_capture_index = call_query
                 .capture_index_for_name("emit_statement_node")
                 .unwrap_or(u32::MAX);
+           // Capture indices for storage access
+            let assignment_capture_index = call_query
+                .capture_index_for_name("assignment_expr")
+                .unwrap_or(u32::MAX);
+            let read_candidate_capture_index = call_query
+                .capture_index_for_name("read_candidate")
+                .unwrap_or(u32::MAX);
 
             let mut call_matches =
                 call_cursor.matches(&call_query, definition_ts_node, |node: TsNode| {
@@ -151,6 +192,230 @@ impl CallGraphGeneratorStep for CallsHandling {
                         "call_expr_node" => potential_nodes.push((node, span, "call")),
                         "new_expression_node" => potential_nodes.push((node, span, "new")),
                         "emit_statement_node" => potential_nodes.push((node, span, "emit")),
+                        // --- Handle Assignment Expression for Storage Writes ---
+                        "assignment_expr" => {
+                            let assignment_node = node;
+                            let assignment_span = span;
+                            // eprintln!("[Storage DEBUG] Found Assignment Expr at span {:?}", assignment_span);
+
+                            // Find the identifier being assigned TO (the LHS)
+                            if let Some(lhs_node) = assignment_node.child_by_field_name("left") {
+                                // Traverse the LHS to find the actual identifier node
+                                // Handles simple identifiers, member access, etc.
+                                // We want the *last* identifier in a chain (e.g., 'b' in a.b = ...)
+                                let mut target_identifier_node: Option<TsNode> = None;
+                                let mut queue = std::collections::VecDeque::new();
+                                queue.push_back(lhs_node);
+
+                                while let Some(current) = queue.pop_front() {
+                                    if current.kind() == "identifier" {
+                                        target_identifier_node = Some(current); // Keep updating to get the last one
+                                    }
+                                    let mut cursor = current.walk();
+                                    // Only traverse deeper if not an identifier itself
+                                    if current.kind() != "identifier" {
+                                        for child in current.children(&mut cursor) {
+                                            queue.push_back(child);
+                                        }
+                                    }
+                                }
+
+
+                                if let Some(write_target_node) = target_identifier_node {
+                                    let var_name = get_node_text(&write_target_node, &input.source);
+                                    let write_target_span = (write_target_node.start_byte(), write_target_node.end_byte());
+                                    // eprintln!("[Storage DEBUG]   LHS Identifier found: '{}' at span {:?}", var_name, write_target_span);
+
+                                    // Resolve the variable name to its definition node ID
+                                    // TODO: Implement proper variable resolution (local, state, global, inherited)
+                                    // Convert var_name (&str) to String for the lookup key
+                                    let var_key = (caller_contract_name_opt.clone(), var_name.to_string());
+                                    if let Some(var_node_id) = graph.node_lookup.get(&var_key).copied() {
+                                        // Ensure the resolved node is actually a storage variable
+                                        if graph.nodes.get(var_node_id).map_or(false, |n| n.node_type == NodeType::StorageVariable) {
+                                            let edge_key: StorageEdgeKey = (
+                                                caller_node_id,
+                                                var_node_id,
+                                                EdgeType::StorageWrite,
+                                                assignment_span, // Use assignment span for uniqueness key
+                                            );
+                                            if processed_storage_edges.insert(edge_key) {
+                                                 eprintln!("[Storage DEBUG] Adding WRITE edge: CallerID={}, VarID={}, VarName='{}', AssignmentSpan={:?}", caller_node_id, var_node_id, var_name, assignment_span);
+                                                graph.add_edge(
+                                                    caller_node_id,
+                                                    var_node_id,
+                                                    EdgeType::StorageWrite,
+                                                    assignment_span, // Span of the whole assignment for the edge
+                                                    None, // Modifier
+                                                    0,    // Sequence number - TODO: Integrate with call sequence?
+                                                    None, // Return value
+                                                    None, // Arguments
+                                                    None, // Event name
+                                                );
+                                            }
+                                        } else {
+                                             // eprintln!("[Storage DEBUG]   LHS Identifier '{}' resolved to Node ID {} but it's not a StorageVariable.", var_name, var_node_id);
+                                        }
+                                    } else {
+                                        // eprintln!("[Storage DEBUG]   LHS Identifier '{}' could not be resolved to a known node.", var_name);
+                                    }
+                                } else {
+                                    // eprintln!("[Storage DEBUG]   Could not find target identifier within LHS node: {}", get_node_text(&lhs_node, &input.source));
+                                }
+                            } else {
+                                // eprintln!("[Storage DEBUG]   Assignment expression missing LHS node.");
+                            }
+                        }
+                        // --- Handle Read Candidate for Storage Reads ---
+                        "read_candidate" => {
+                            let read_candidate_node = node;
+                            let read_span = span;
+                            let var_name = get_node_text(&read_candidate_node, &input.source);
+                            // eprintln!("[Storage DEBUG] Found Read Candidate: '{}' at span {:?}", var_name, read_span);
+
+                            // Resolve the variable name to its definition node ID
+                            // TODO: Implement proper variable resolution (local, state, global, inherited)
+                            let var_key = (caller_contract_name_opt.clone(), var_name.to_string());
+                            if let Some(var_node_id) = graph.node_lookup.get(&var_key).copied() {
+                                // Ensure the resolved node is actually a storage variable
+                                if graph.nodes.get(var_node_id).map_or(false, |n| n.node_type == NodeType::StorageVariable) {
+
+                                    // --- Filter out identifiers used in non-read contexts ---
+                                    let mut skip_read_edge = false;
+                                    if let Some(parent) = read_candidate_node.parent() {
+                                        let parent_kind = parent.kind();
+                                        // Get the field name of the read_candidate_node within its parent
+                                        let parent_field_name: Option<&str> = {
+                                            let mut cursor = parent.walk();
+                                            let mut field_name_result: Option<&str> = None;
+                                            // Manually iterate children to avoid iterator borrow conflict
+                                            if cursor.goto_first_child() {
+                                                loop {
+                                                    // Check if the current node is the one we're looking for
+                                                    if cursor.node().id() == read_candidate_node.id() {
+                                                        // Cursor is positioned at the child, get its field name
+                                                        field_name_result = cursor.field_name();
+                                                        break; // Found it
+                                                    }
+                                                    // Move to the next sibling
+                                                    if !cursor.goto_next_sibling() {
+                                                        break; // No more siblings
+                                                    }
+                                                }
+                                                // Optional: Move cursor back to parent if needed later, though not necessary here
+                                                // cursor.goto_parent();
+                                            }
+                                            field_name_result
+                                        };
+
+                                        // Check if identifier is the function name in a call
+                                        if parent_kind == "expression" { // Simple call: foo()
+                                            if let Some(grandparent) = parent.parent() {
+                                                // Check if 'parent' is the node in the 'function' field of the 'grandparent' call_expression
+                                                if grandparent.kind() == "call_expression" &&
+                                                   grandparent.child_by_field_name("function").map_or(false, |func_child| func_child.id() == parent.id()) {
+                                                    skip_read_edge = true;
+                                                }
+                                             }
+                                             if let Some(expr_grandparent) = parent.parent() { // member_expression -> expression
+                                                 if expr_grandparent.kind() == "expression" {
+                                                     if let Some(call_great_grandparent) = expr_grandparent.parent() { // expression -> call_expression
+                                                         // Check if 'expr_grandparent' is the node in the 'function' field of the 'call_great_grandparent' call_expression
+                                                         if call_great_grandparent.kind() == "call_expression" &&
+                                                            call_great_grandparent.child_by_field_name("function").map_or(false, |func_child| func_child.id() == expr_grandparent.id()) {
+                                                             skip_read_edge = true;
+                                                         }
+                                                     }
+                                                 }
+                                             }
+                                        }
+                                        // Check if identifier is the left-hand side of an assignment
+                                        // Check if any ancestor is assignment_expression and this node is within its 'left' child
+                                        let mut current_ancestor = read_candidate_node;
+                                        while let Some(ancestor) = current_ancestor.parent() {
+                                            if ancestor.kind() == "assignment_expression" {
+                                                if let Some(lhs_of_ancestor) = ancestor.child_by_field_name("left") {
+                                                    // Check if our read_candidate_node is a descendant of the LHS
+                                                    let mut lhs_desc_cursor = lhs_of_ancestor.walk();
+                                                    let mut queue = std::collections::VecDeque::new();
+                                                    queue.push_back(lhs_of_ancestor);
+                                                    let mut is_descendant = false;
+                                                    while let Some(lhs_desc) = queue.pop_front() {
+                                                        if lhs_desc.id() == read_candidate_node.id() {
+                                                            is_descendant = true;
+                                                            break;
+                                                        }
+                                                        for child in lhs_desc.children(&mut lhs_desc_cursor) {
+                                                            queue.push_back(child);
+                                                        }
+                                                    }
+                                                    if is_descendant {
+                                                        skip_read_edge = true;
+                                                        break; // Found assignment ancestor where node is on LHS
+                                                    }
+                                                }
+                                            }
+                                            // Stop checking at function/modifier boundary
+                                            if ancestor.kind() == "function_definition" || ancestor.kind() == "modifier_definition" {
+                                                break;
+                                            }
+                                            current_ancestor = ancestor;
+                                        }
+
+                                        // Check if identifier is a type name
+                                        if !skip_read_edge && (parent_kind == "type_name" || parent_kind == "user_defined_type") {
+                                            skip_read_edge = true;
+                                        }
+                                        // Check if identifier is part of a declaration name
+                                        if !skip_read_edge && (parent_kind.ends_with("_definition") || parent_kind.ends_with("_declaration")) && parent_field_name == Some("name") {
+                                             skip_read_edge = true;
+                                        }
+                                        // Check if identifier is an event name in an emit statement
+                                        if !skip_read_edge && parent_kind == "emit_statement" && parent_field_name == Some("name") {
+                                            skip_read_edge = true;
+                                        }
+                                        // Check if identifier is a parameter name in a definition
+                                        if !skip_read_edge && parent_kind == "parameter" && parent_field_name == Some("name") {
+                                            skip_read_edge = true;
+                                        }
+                                        // Check if identifier is a variable declaration name
+                                        if !skip_read_edge && parent_kind == "variable_declaration" && parent_field_name == Some("name") {
+                                            skip_read_edge = true;
+                                        }
+                                    }
+
+                                    if skip_read_edge {
+                                        // eprintln!("[Storage DEBUG] Skipping READ edge for '{}' due to filtering.", var_name);
+                                    } else {
+                                        // --- Add Read Edge ---
+                                        let edge_key: StorageEdgeKey = (
+                                            caller_node_id,
+                                            var_node_id,
+                                            EdgeType::StorageRead,
+                                            read_span,
+                                        );
+                                        if processed_storage_edges.insert(edge_key) {
+                                            eprintln!("[Storage DEBUG] Adding READ edge: CallerID={}, VarID={}, VarName='{}', Span={:?}", caller_node_id, var_node_id, var_name, read_span);
+                                            graph.add_edge(
+                                                caller_node_id,
+                                                var_node_id,
+                                                EdgeType::StorageRead,
+                                                read_span,
+                                                None, // Modifier
+                                                0,    // Sequence number - TODO: Integrate with call sequence?
+                                                None, // Return value
+                                                None, // Arguments
+                                                None, // Event name
+                                            );
+                                        }
+                                    }
+                                } else {
+                                    // eprintln!("[Storage DEBUG] Read Candidate '{}' resolved to Node ID {} but it's not a StorageVariable.", var_name, var_node_id);
+                                }
+                            } else {
+                                // eprintln!("[Storage DEBUG] Read Candidate '{}' could not be resolved to a known node.", var_name);
+                            }
+                        }
                         _ => {} // Ignore other captures like @call_name, @member_property etc.
                     }
                 }
@@ -205,8 +470,8 @@ impl CallGraphGeneratorStep for CallsHandling {
 
                 match analyze_chained_call(
                     call_node, // Start analysis from the outermost node (call_expression or new_expression)
-                    *caller_node_id,
-                    caller_contract_name_opt,
+                    caller_node_id, // Remove dereference
+                    &caller_contract_name_opt, // Pass as reference
                     ctx,
                     graph,
                     &input.source,        // Pass source string directly
@@ -234,7 +499,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                 call_sequence_counter += 1; // Increment sequence for EACH valid step in the outer chain
                                 eprintln!("[CallsHandling DEBUG]             >>> Adding edge (from chain step): CallerID={}, TargetID={}, Seq={}, StepSpan={:?}", caller_node_id, target_node_id, call_sequence_counter, step.call_expr_span);
                                 graph.add_edge(
-                                    *caller_node_id, // Source is the original caller function
+                                    caller_node_id, // Source is the original caller function (Remove dereference)
                                     target_node_id,  // Target is the resolved node for this step
                                     EdgeType::Call,
                                     (step.call_expr_span.0.into(), step.call_expr_span.1.into()), // Use span from the step
@@ -621,7 +886,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                     // --- Add Edge 1: Caller -> EVM ---
                     eprintln!("[CallsHandling DEBUG]         >>> Adding edge (Emit Caller->EVM): CallerID={}, TargetID={}, Seq={}, Event='{}'", caller_node_id, evm_node_id, call_sequence_counter, event_name);
                     graph.add_edge(
-                        *caller_node_id,
+                        caller_node_id, // Remove dereference
                         evm_node_id,
                         EdgeType::Call,
                         span, // Use emit_node span

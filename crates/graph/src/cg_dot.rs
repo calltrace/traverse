@@ -111,6 +111,7 @@ impl CgToDot for CallGraph {
                             NodeType::Modifier => "lightcoral".to_string(),
                             NodeType::Library => "lightgrey".to_string(), // Keep lightgrey for Library
                             NodeType::Interface => "lightpink".to_string(), // Use lightpink for Interface
+                            NodeType::StorageVariable => "khaki".to_string(), // Added color for StorageVariable
                             NodeType::Evm => "gray".to_string(), // Added color for EVM
                             NodeType::EventListener => "lightcyan".to_string(), // Added color for EventListener
                         },
@@ -191,6 +192,22 @@ impl CgToDot for CallGraph {
                         attrs.push(("color".to_string(), "grey".to_string()));
                         attrs.push(("arrowhead".to_string(), "empty".to_string()));
 
+                    }
+                    EdgeType::StorageRead => {
+                        let tooltip = format!("Read Span: {:?}", edge.call_site_span);
+                        attrs.push(("label".to_string(), "read".to_string()));
+                        attrs.push(("tooltip".to_string(), escape_dot_string(&tooltip)));
+                        attrs.push(("color".to_string(), "darkgreen".to_string()));
+                        attrs.push(("fontcolor".to_string(), "darkgreen".to_string()));
+                        attrs.push(("style".to_string(), "dotted".to_string()));
+                    }
+                    EdgeType::StorageWrite => {
+                        let tooltip = format!("Write Span: {:?}", edge.call_site_span);
+                        attrs.push(("label".to_string(), "write".to_string()));
+                        attrs.push(("tooltip".to_string(), escape_dot_string(&tooltip)));
+                        attrs.push(("color".to_string(), "darkred".to_string()));
+                        attrs.push(("fontcolor".to_string(), "darkred".to_string()));
+                        attrs.push(("style".to_string(), "bold".to_string()));
                     }
                 }
                 // Allow overriding attributes from Edge::to_dot_attributes if needed

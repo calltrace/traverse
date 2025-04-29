@@ -16,6 +16,8 @@ pub(crate) const EVENT_LISTENER_NODE_NAME: &str = "EventListener";
 pub enum EdgeType {
     Call,
     Return,
+    StorageRead,  // Represents reading from a storage variable
+    StorageWrite, // Represents writing to a storage variable
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -25,6 +27,7 @@ pub enum NodeType {
     Modifier,
     Library,       // Added Library type
     Interface,     // Added Interface type
+    StorageVariable, // Represents a state variable in storage
     Evm,           // Synthetic node for EVM interaction
     EventListener, // Synthetic node for event listeners
 }
@@ -84,6 +87,8 @@ impl crate::cg_dot::ToDotLabel for Edge {
         match self.edge_type {
             EdgeType::Call => self.sequence_number.to_string(),
             EdgeType::Return => "ret".to_string(),
+            EdgeType::StorageRead => "read".to_string(),
+            EdgeType::StorageWrite => "write".to_string(),
         }
     }
 }
@@ -475,6 +480,7 @@ pub struct CallGraphGeneratorContext {
     pub contract_implements: HashMap<String, Vec<String>>, // Contract -> List of Interfaces it implements
     pub interface_inherits: HashMap<String, Vec<String>>, // Interface -> List of Interfaces it inherits from
     pub contract_inherits: HashMap<String, Vec<String>>, // Contract -> List of Contracts/Interfaces it inherits from
+    pub storage_var_nodes: HashMap<(Option<String>, String), usize>, // (ContractScope, VarName) -> Node ID
 }
 
 

@@ -162,7 +162,7 @@ impl CallGraphGeneratorStep for ContractHandling {
                     (state_variable_declaration
                         (type_name) @var_type
                         (identifier) @var_name
-                    ) @state_var_def ; Capture the whole declaration for context if needed
+                    ) @state_var_def ; Capture the whole declaration node
                 )
             )
 
@@ -204,10 +204,10 @@ impl CallGraphGeneratorStep for ContractHandling {
             let mut library_def_node_opt: Option<TsNode> = None; // Node for library definition (reused for interface def)
             let mut var_name_opt: Option<String> = None; // State variable name
             let mut var_type_opt: Option<String> = None; // State variable type
+            let mut state_var_def_node_opt: Option<TsNode> = None; // Node for state var definition
             let mut is_state_var = false; // Flag if the match is for a state variable
             let mut is_library_def = false; // Flag if the match is for a library definition
             let mut is_interface_def = false; // Flag if the match is for an interface definition
-                                              // Removed duplicate is_state_var and is_library_def flags
             let mut is_using_directive = false; // Flag for using directive
             let mut is_inheritance = false; // Flag for inheritance
             let mut inherited_name_opt: Option<String> = None; // For inherited interface/contract name
@@ -281,7 +281,10 @@ impl CallGraphGeneratorStep for ContractHandling {
                     }
                     "var_name" => var_name_opt = Some(text.to_string()),
                     "var_type" => var_type_opt = Some(text.to_string()),
-                    "state_var_def" => is_state_var = true, // Mark that this match is for a state variable
+                    "state_var_def" => {
+                        is_state_var = true; // Mark that this match is for a state variable
+                        state_var_def_node_opt = Some(captured_ts_node); // Capture the definition node
+                    }
                     // Captures for using directives
                     "using_library_name" => using_library_name_opt = Some(text.to_string()),
                     "using_type_or_wildcard_node" => {
@@ -386,17 +389,41 @@ impl CallGraphGeneratorStep for ContractHandling {
                     );
                 }
             }
-
-            // --- Handle specific definition types (Functions, Modifiers, Constructors, State Vars) ---
-
             // Handle state variable definitions
             if is_state_var {
-                if let (Some(contract_name), Some(var_name), Some(var_type)) =
-                    (contract_name_opt.clone(), var_name_opt, var_type_opt)
-                {
+                if let (
+                    Some(contract_name),
+                    Some(var_name),
+                    Some(var_type),
+                    Some(state_var_def_node),
+                ) = (
+                    contract_name_opt.clone(),
+                    var_name_opt,
+                    var_type_opt,
+                    state_var_def_node_opt,
+                ) {
                     // Store the type information for later use in call resolution
                     ctx.state_var_types
-                        .insert((contract_name, var_name), var_type);
+                        .insert((contract_name.clone(), var_name.clone()), var_type);
+
+                    // Add the StorageVariable node to the graph
+                    let span = (
+                        state_var_def_node.start_byte(),
+                        state_var_def_node.end_byte(),
+                    );
+                    // Storage variables don't have standard visibility keywords, use Default
+                    let node_id = graph.add_node(
+                        var_name.clone(),
+                        NodeType::StorageVariable,
+                        Some(contract_name.clone()), // Associate with the contract
+                        Visibility::Default,         // Use default visibility
+                        span,
+                    );
+
+                    // Store the node ID in the context for lookup during read/write detection
+                    let storage_var_key = (Some(contract_name), var_name);
+                    ctx.storage_var_nodes.insert(storage_var_key, node_id);
+
                 } else {
                     eprintln!(
                         "Warning: Incomplete capture for state variable definition: {:?}",
@@ -504,7 +531,7 @@ impl CallGraphGeneratorStep for ContractHandling {
                     NodeType::Library
                     | NodeType::Interface
                     | NodeType::Evm
-                    | NodeType::EventListener => Visibility::Default, // Should not happen here
+                    | NodeType::EventListener | NodeType::StorageVariable => Visibility::Default, // Should not happen here
                 });
 
                 let span = (def_node.start_byte(), def_node.end_byte());
