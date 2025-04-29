@@ -686,15 +686,23 @@ fn resolve_target_to_node_id(
             );
             resolve_target_to_node_id(impl_target, graph, _ctx)
         }
-        crate::chains::ResolvedTarget::InterfaceMethod {
+       crate::chains::ResolvedTarget::InterfaceMethod {
             implementation: None, // No concrete implementation found/resolved
             interface_name,
             method_name,
             ..
         } => {
-            // Cannot link directly to an abstract interface method without implementation
-            eprintln!("[Resolve Target ID] Warning: Cannot create edge to abstract interface method {}.{}. No implementation resolved.", interface_name, method_name);
-            None
+            // Link to the interface method node itself.
+            let key = (Some(interface_name.clone()), method_name.clone());
+            let result = graph.node_lookup.get(&key).copied();
+            eprintln!(
+                "[Resolve Target ID] InterfaceMethod (Abstract): Lookup Key=({:?}, '{}') -> Result={:?}",
+                Some(interface_name), method_name, result
+            );
+            if result.is_none() {
+                 eprintln!("[Resolve Target ID] Warning: Node for abstract interface method {}.{} not found in graph lookup.", interface_name, method_name);
+            }
+            result // Return the lookup result (Option<usize>)
         }
         crate::chains::ResolvedTarget::BuiltIn { object_type, name } => {
             // Built-ins don't have dedicated nodes in our graph currently
@@ -708,6 +716,11 @@ fn resolve_target_to_node_id(
         crate::chains::ResolvedTarget::External { address_expr } => {
             // External calls don't resolve to a specific node in our graph
              eprintln!("[Resolve Target ID] Info: Skipping edge creation for external call to address expr: {}", address_expr);
+            None
+        }
+        crate::chains::ResolvedTarget::TypeCast { type_name } => {
+            // Type casts don't resolve to a callable node for edge creation.
+            eprintln!("[Resolve Target ID] Info: Skipping edge creation for type cast to '{}'.", type_name);
             None
         }
     }

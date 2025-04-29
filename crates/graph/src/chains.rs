@@ -77,6 +77,8 @@ pub enum ResolvedTarget {
     NotCallable { reason: String },
     /// Target is external/unknown (e.g., call to an address).
     External { address_expr: String },
+    /// Represents a type cast expression like `TypeName(...)`.
+    TypeCast { type_name: String },
 }
 
 /// Represents a single step in a potentially chained call sequence.
@@ -239,31 +241,73 @@ pub(crate) fn analyze_chained_call<'a>(
                     let id_node = function_node.child(0).unwrap();
                     let name = get_node_text(&id_node, source).to_string();
 
-                    // Is it a type cast/constructor `TypeName(...)`?
-                    if name.chars().next().map_or(false, |c| c.is_uppercase())
-                        && (ctx.all_contracts.contains_key(&name)
-                            || ctx.all_interfaces.contains_key(&name))
-                    {
-                        // Type cast/constructor - treat as returning the type itself
-                        // Set the type for the *next* step, but don't assign to unused variable if not start_node
-                        let resolved_type = Some(name.clone());
-                        eprintln!(
-                            "[Analyze Chained]   Call identified as type cast/constructor to '{}'",
-                            name
-                        );
-
-                        // Only create a step for the constructor call if this is the original start node
-                        // This prevents duplicate steps when analyzing chained calls
-                        if current_node.id() == original_start_node.id() {
-                            // Extract arguments for the constructor call
-                            let arguments = extract_arguments_v2(current_node, source);
-
-                            // Create a step for the constructor call
+                    // Is it a constructor call `ContractName(...)` or an interface type cast `InterfaceName(...)`?
+                    if name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                        if ctx.all_contracts.contains_key(&name) {
+                            // Constructor Call `ContractName(...)`
+                            eprintln!(
+                                "[Analyze Chained]   Call identified as constructor call to '{}'",
+                                name
+                            );
                             let target = ResolvedTarget::Function {
                                 contract_name: Some(name.clone()),
                                 function_name: name.clone(), // Constructor name is contract name
                                 node_type: NodeType::Constructor,
                             };
+                            let result_type = Some(name.clone()); // Result type is the contract itself
+
+                            let step = ResolvedCallStep {
+                                call_expr_span: (
+                                    current_node.start_byte(),
+                                    current_node.end_byte(),
+                                ),
+                                function_span: (id_node.start_byte(), id_node.end_byte()),
+                                target,
+                                arguments, // Use extracted arguments
+                                result_type: result_type.clone(),
+                                object_type: None, // No object for constructor call
+                            };
+                            steps.push(step);
+                            current_object_type = result_type;
+                            eprintln!(
+                                "[Analyze Chained]   Constructor call step added for '{}'. Result type: {:?}",
+                                name, current_object_type
+                            );
+                        } else if ctx.all_interfaces.contains_key(&name) {
+                            // Interface Type Cast `InterfaceName(...)`
+                            eprintln!(
+                                "[Analyze Chained]   Expression identified as interface type cast to '{}'",
+                                name
+                            );
+                            // Resolve the type for the next step, but DO NOT create a call step for the cast itself.
+                            current_object_type = Some(name.clone());
+                            eprintln!(
+                                "[Analyze Chained]   Interface type cast processed. Result type for next step: {:?}",
+                                current_object_type
+                            );
+                            // No step is pushed for the type cast itself.
+                        } else {
+                            // Potentially a struct constructor or simple function call starting with uppercase?
+                            // Treat as simple function call for now.
+                            eprintln!(
+                                "[Analyze Chained]   Call identified as simple function call '{}' (uppercase start)",
+                                name
+                            );
+                            // Resolve target (could be local, contract func, free func)
+                            let target = resolve_simple_call_v2(
+                                &name,
+                                caller_contract_name_opt,
+                                graph,
+                                ctx,
+                            )?;
+                            let result_type = resolve_call_return_type(
+                                &target,
+                                ctx,
+                                graph,
+                                source,
+                                solidity_lang,
+                                input,
+                            )?;
 
                             let step = ResolvedCallStep {
                                 call_expr_span: (
@@ -273,28 +317,18 @@ pub(crate) fn analyze_chained_call<'a>(
                                 function_span: (id_node.start_byte(), id_node.end_byte()),
                                 target,
                                 arguments,
-                                result_type: Some(name.clone()), // Result type is the contract itself
-                                object_type: None, // No object for type cast/constructor call
+                                result_type: result_type.clone(),
+                                object_type: None, // No object for simple calls
                             };
                             steps.push(step);
-                            // Set current_object_type only if it's the original start node and a step was added
-                            current_object_type = resolved_type.clone();
-                        }
-
-                        // If part of a chain, this sets the type for the *next* step
-                        if current_node != start_node {
-                            // Type(addr).method() is valid.
-                            // We allow chaining by just setting the type.
-                            current_object_type = resolved_type; // Set the type for the next step
-                                                                 // No step is generated here for the cast itself when not the top-level node.
+                            current_object_type = result_type;
                             eprintln!(
-                                "[Analyze Chained]   Type cast '{}' encountered within a chain. Type set for next step.",
-                                name
+                                "[Analyze Chained]   Simple call (uppercase) step added. Result type: {:?}",
+                                current_object_type
                             );
                         }
                     } else {
-                        // Simple function call `foo()`
-                        // Simple function call `foo()`
+                        // Simple function call `foo()` (lowercase start)
                         eprintln!(
                             "[Analyze Chained]   Call identified as simple function call '{}'",
                             name
@@ -830,8 +864,6 @@ fn resolve_expression_type_v2<'a>(
                 Ok(last_step.result_type.clone())
             } else {
                 eprintln!("[Resolve Type V2]   Call expression analysis yielded no steps. Cannot determine type.");
-                // This might happen for type casts like `Type(arg)` which don't produce a step in our current model.
-                // Let's re-check for the type cast pattern here.
                 if let Some(func_node) = expr_node.child_by_field_name("function") {
                     if func_node.kind() == "expression"
                         && func_node
@@ -840,12 +872,9 @@ fn resolve_expression_type_v2<'a>(
                     {
                         let id_node = func_node.child(0).unwrap();
                         let name = get_node_text(&id_node, source).to_string();
-                        if name.chars().next().map_or(false, |c| c.is_uppercase())
-                            && (ctx.all_contracts.contains_key(&name)
-                                || ctx.all_interfaces.contains_key(&name))
-                        {
-                            eprintln!("[Resolve Type V2]   Re-identified as type cast/constructor to '{}'", name);
-                            return Ok(Some(name));
+                        if ctx.all_interfaces.contains_key(&name) {
+                            eprintln!("[Resolve Type V2]   Re-identified as interface type cast to '{}' (no steps generated)", name);
+                            return Ok(Some(name)); // Return the interface type
                         }
                     }
                 }
@@ -1663,6 +1692,10 @@ fn resolve_call_return_type<'a>(
         }
         ResolvedTarget::NotCallable { .. } => Ok(None), // Not callable, no return type
         ResolvedTarget::External { .. } => Ok(None), // Cannot determine return type of external call
+        ResolvedTarget::TypeCast { type_name } => {
+            // The result type of a type cast is the type name itself.
+            Ok(Some(type_name.clone()))
+        }
     }
 }
 
@@ -2061,15 +2094,21 @@ mod tests {
 
         // Find the call_expression node for c_instance.method() within the caller function
         // Use the new helper function starting from the caller's definition node
-        let call_expr_node = find_nth_descendant_node_of_kind(
+        let call_expr_node_opt = find_nth_descendant_node_of_kind(
+            // Changed to Option
             &caller_def_node, // Start search within the caller function node
             source,
             &lang,
             "call_expression", // Kind to find
             0,                 // Find the first one (index 0)
-        )
-        .expect("Failed to query for descendant node") // Handle Result
-        .expect("Could not find the call_expression node for c_instance.method() within caller"); // Handle Option
+        )?; // Propagate Result error
+
+        let call_expr_node = call_expr_node_opt.ok_or_else(|| { // Convert Option to Result
+                TypeError::Internal(format!(
+                    "Could not find the call_expression node for c_instance.method() within caller function node: {:?}",
+                    caller_def_node.byte_range()
+                ))
+            })?; // Propagate Option error
 
         let steps = analyze_chained_call(
             call_expr_node,

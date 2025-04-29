@@ -1,6 +1,8 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, ValueEnum};
-use graph::cg::{CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline};
+use graph::cg::{
+    CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline,
+};
 use graph::cg_dot::CgToDot;
 use graph::cg_mermaid::{MermaidGenerator, ToSequenceDiagram};
 use graph::parser::parse_solidity;
@@ -29,17 +31,17 @@ struct Cli {
     /// Output format.
     #[arg(short, long, value_parser = clap::value_parser!(OutputFormat), default_value_t = OutputFormat::Dot)]
     format: OutputFormat,
-    
+
     /// Disable specific pipeline steps (comma-separated list)
     /// Available steps: Contract-Handling, Calls-Handling
     #[arg(long)]
     disable_steps: Option<String>,
-    
+
     /// Enable specific pipeline steps (comma-separated list)
     /// Available steps: Contract-Handling, Calls-Handling
     #[arg(long)]
     enable_steps: Option<String>,
-    
+
     /// Configuration parameters for pipeline steps (format: key=value,key2=value2)
     #[arg(long)]
     config: Option<String>,
@@ -53,7 +55,6 @@ struct Cli {
 fn format_dot() -> OutputFormat {
     OutputFormat::Dot
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, clap::ValueEnum)]
 enum OutputFormat {
@@ -164,42 +165,31 @@ fn main() -> Result<()> {
         parse_solidity(&combined_source).context("Failed to parse combined Solidity source")?;
 
     let solidity_lang = Solidity.get_tree_sitter_language();
-    
+
     // Create the pipeline input
     let input = CallGraphGeneratorInput {
         source: combined_source.to_string(),
         tree: combined_ast.tree,
         solidity_lang,
     };
-    
+
     // Create the pipeline context
-    let mut ctx = CallGraphGeneratorContext {
-        state_var_types: HashMap::new(),
-        definition_nodes_info: Vec::new(),
-        all_contracts: HashMap::new(),
-        contracts_with_explicit_constructors: HashSet::new(),
-        using_for_directives: HashMap::new(),
-        all_interfaces: HashMap::new(), 
-        interface_functions: HashMap::new(),
-        contract_implements: HashMap::new(),
-        interface_inherits: HashMap::new(), 
-        all_libraries: HashMap::new(),
-    };
-    
+    let mut ctx = CallGraphGeneratorContext::default();
+
     // Create the call graph
     let mut graph = CallGraph::new();
     eprintln!("[Address Debug sol2cg] Graph created at: {:p}", &graph); // Added address log
-    
+
     // Parse configuration parameters
     let config = parse_config_params(cli.config.as_deref());
-    
+
     // Create and configure the pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();
-    
+
     // Add default steps
     pipeline.add_step(Box::new(ContractHandling::default()));
     pipeline.add_step(Box::new(CallsHandling::default()));
-    
+
     // Process step enabling/disabling
     if let Some(disable_steps) = cli.disable_steps.as_deref() {
         for step_name in disable_steps.split(',').map(|s| s.trim()) {
@@ -208,7 +198,7 @@ fn main() -> Result<()> {
             }
         }
     }
-    
+
     if let Some(enable_steps) = cli.enable_steps.as_deref() {
         for step_name in enable_steps.split(',').map(|s| s.trim()) {
             if !step_name.is_empty() {
@@ -216,27 +206,45 @@ fn main() -> Result<()> {
             }
         }
     }
-    
+
     // Run the pipeline
     eprintln!("[Address Debug sol2cg] Before pipeline.run: {:p}", &graph); // Added address log
-    pipeline.run(input.clone(), &mut ctx, &mut graph, &config)
+    pipeline
+        .run(input.clone(), &mut ctx, &mut graph, &config)
         .context("Failed to generate call graph with pipeline")?;
     eprintln!("[Address Debug sol2cg] After pipeline.run: {:p}", &graph); // Added address log
-    
+
     // 5. Add Explicit Return Edges
-    eprintln!("[Address Debug sol2cg] Before add_explicit_return_edges: {:p}", &graph); // Added address log
+    eprintln!(
+        "[Address Debug sol2cg] Before add_explicit_return_edges: {:p}",
+        &graph
+    ); // Added address log
     graph
         .add_explicit_return_edges(&input, &ctx) // Pass context ctx instead of tree
         .context("Failed to add explicit return edges")?;
-    eprintln!("[Address Debug sol2cg] After add_explicit_return_edges: {:p}", &graph); // Added address log
+    eprintln!(
+        "[Address Debug sol2cg] After add_explicit_return_edges: {:p}",
+        &graph
+    ); // Added address log
 
     // 6. Serialize Graph
 
     // --- DEBUG: Log edge counts before serialization ---
     let total_edges = graph.edges.len();
-    let call_edges_count = graph.edges.iter().filter(|e| e.edge_type == graph::cg::EdgeType::Call).count();
-    let return_edges_count = graph.edges.iter().filter(|e| e.edge_type == graph::cg::EdgeType::Return).count();
-    eprintln!("[DEBUG sol2cg] Before serialization: Total Edges = {}, Call Edges = {}, Return Edges = {}", total_edges, call_edges_count, return_edges_count);
+    let call_edges_count = graph
+        .edges
+        .iter()
+        .filter(|e| e.edge_type == graph::cg::EdgeType::Call)
+        .count();
+    let return_edges_count = graph
+        .edges
+        .iter()
+        .filter(|e| e.edge_type == graph::cg::EdgeType::Return)
+        .count();
+    eprintln!(
+        "[DEBUG sol2cg] Before serialization: Total Edges = {}, Call Edges = {}, Return Edges = {}",
+        total_edges, call_edges_count, return_edges_count
+    );
     // --- END DEBUG ---
 
     let output_string = match cli.format {
@@ -249,7 +257,10 @@ fn main() -> Result<()> {
         }
         OutputFormat::Mermaid => {
             let generator = MermaidGenerator::new();
-            eprintln!("[Address Debug sol2cg] Before to_sequence_diagram: {:p}", &graph); // Added address log
+            eprintln!(
+                "[Address Debug sol2cg] Before to_sequence_diagram: {:p}",
+                &graph
+            ); // Added address log
             let sequence_diagram = generator.to_sequence_diagram(&graph);
             // Use the write_diagram function directly
             sequence_diagram_writer::write_diagram(&sequence_diagram)
@@ -279,7 +290,7 @@ fn main() -> Result<()> {
 /// Parse configuration parameters from a string in the format "key=value,key2=value2"
 fn parse_config_params(config_str: Option<&str>) -> HashMap<String, String> {
     let mut config = HashMap::new();
-    
+
     if let Some(config_str) = config_str {
         for param in config_str.split(',') {
             if let Some((key, value)) = param.split_once('=') {
@@ -291,7 +302,7 @@ fn parse_config_params(config_str: Option<&str>) -> HashMap<String, String> {
             }
         }
     }
-    
+
     config
 }
 

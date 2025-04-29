@@ -105,6 +105,108 @@ fn test_simple_contract_call() -> Result<()> {
 }
 
 #[test]
+fn test_interface_call_no_implementation() -> Result<()> {
+    let source = r#"
+        pragma solidity ^0.8.20;
+
+        // Interface definition ONLY
+        interface IAction {
+            function performAction() external returns (bool);
+        }
+
+        // Contract that uses the interface type
+        contract ActionCaller {
+            IAction public actionContract; // State variable of interface type
+
+            constructor(address _actionAddress) {
+                actionContract = IAction(_actionAddress); // Assume setup elsewhere
+            }
+
+            function triggerAction() public returns (bool) {
+                // Call the interface method directly on the state variable
+                // No concrete implementation is known within this source unit.
+                return actionContract.performAction();
+            }
+        }
+        "#;
+    let ast = parse_solidity(source)?;
+    let solidity_lang = Solidity.get_tree_sitter_language();
+
+    let input = CallGraphGeneratorInput {
+        source: source.to_string(),
+        tree: ast.tree,
+        solidity_lang,
+    };
+    let mut ctx = CallGraphGeneratorContext::default();
+    let mut graph = CallGraph::new();
+    let config: HashMap<String, String> = HashMap::new(); // Empty config
+
+    // Run the full pipeline
+    let mut pipeline = CallGraphGeneratorPipeline::new();
+    pipeline.add_step(Box::new(ContractHandling::default()));
+    pipeline.add_step(Box::new(CallsHandling::default()));
+    pipeline.run(input, &mut ctx, &mut graph, &config)?;
+
+    // --- Assertions ---
+
+    // Nodes:
+    // 1. Interface: IAction
+    // 2. Interface Func: IAction.performAction
+    // 3. Contract Func: ActionCaller.triggerAction
+    // 4. Contract Ctor: ActionCaller (explicit)
+    assert_eq!(
+        graph.nodes.len(),
+        4,
+        "Should find 4 nodes (interface, iface func, contract func, contract ctor)"
+    );
+
+    // Find relevant nodes
+    let caller_trigger_node = find_node(&graph, "triggerAction", Some("ActionCaller"))
+        .expect("ActionCaller.triggerAction node missing");
+    let iface_perform_node = find_node(&graph, "performAction", Some("IAction"))
+        .expect("IAction.performAction node missing");
+    let _iface_node =
+        find_node(&graph, "IAction", Some("IAction")).expect("IAction interface node missing"); // Check interface node exists
+    let _caller_ctor_node = find_node(&graph, "ActionCaller", Some("ActionCaller")) // Mark unused
+        .expect("ActionCaller constructor node missing");
+
+    // Verify Edge: triggerAction -> IAction.performAction
+    // Since no implementation is provided, the edge should point directly to the interface method node.
+    assert_eq!(
+        graph.edges.len(),
+        1, // Expecting only the call edge, constructor call resolution might vary
+        "Should find 1 edge (triggerAction -> IAction.performAction)"
+    );
+
+    let call_edge = graph
+        .edges
+        .iter()
+        .find(|e| e.source_node_id == caller_trigger_node.id)
+        .expect("Edge from triggerAction not found");
+
+    assert_eq!(
+        call_edge.source_node_id, caller_trigger_node.id,
+        "Edge source should be ActionCaller.triggerAction"
+    );
+    assert_eq!(
+        call_edge.target_node_id, iface_perform_node.id,
+        "Edge target should be IAction.performAction (the interface method node)"
+    );
+    assert_eq!(
+        call_edge.edge_type,
+        EdgeType::Call,
+        "Edge type should be Call"
+    );
+    // Sequence number depends on constructor processing, check it's > 0
+    assert!(
+        call_edge.sequence_number > 0,
+        "Edge sequence number should be positive"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn test_contract_inheritance() -> Result<()> {
     let source = r#"
         pragma solidity ^0.8.20;
