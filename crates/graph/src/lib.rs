@@ -3,6 +3,8 @@ pub mod cg_dot;
 pub mod cg_mermaid;
 pub mod parser;
 pub mod chains;
+pub mod steps;
+
 
 #[cfg(test)]
 mod tests;

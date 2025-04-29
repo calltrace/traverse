@@ -1,17 +1,16 @@
 use crate::cg_dot;
-use crate::parser::{get_node_text, parse_solidity, SolidityAST};
-use anyhow::{anyhow, Context, Result}; // Add anyhow!
+use crate::parser::parse_solidity;
+use anyhow::Result; // Add anyhow!
 use language::{Language, Solidity};
 use std::collections::{HashMap, HashSet}; // Import HashSet
-use std::iter;
-use std::marker::PhantomData;
-use streaming_iterator::StreamingIterator;
-use tree_sitter::{Node as TsNode, Query, QueryCursor, Tree};
 use crate::cg::{
     CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline,
-    ContractHandling, CallsHandling, CallGraphGeneratorStep, EdgeType, Node, NodeType, Visibility, EVM_NODE_NAME,
+    CallGraphGeneratorStep, EdgeType, Node, NodeType, Visibility, EVM_NODE_NAME,
     EVENT_LISTENER_NODE_NAME, // Added imports
 };
+
+use crate::steps::CallsHandling;
+use crate::steps::ContractHandling;
 
 fn find_node<'a>(graph: &'a CallGraph, name: &str, contract: Option<&str>) -> Option<&'a Node> {
     graph
