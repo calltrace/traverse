@@ -63,17 +63,12 @@ impl MermaidGenerator {
     }
 
     /// Generates a display alias for a participant.
-    /// Handles contracts, global scope, EVM, and EventListener based on node name and contract scope.
+    /// Handles contracts and global scope based on node name and contract scope.
     fn get_participant_alias(node_name: &str, contract_name: Option<&String>) -> String {
-        match node_name {
-            // Use predefined aliases for synthetic nodes
-            crate::cg::EVM_NODE_NAME => MermaidGenerator::EVM_ALIAS.to_string(),
-            crate::cg::EVENT_LISTENER_NODE_NAME => MermaidGenerator::LISTENER_ALIAS.to_string(),
-            // Otherwise, use contract name or global scope alias
-            _ => match contract_name {
-                Some(contract) => contract.clone(),
-                None => MermaidGenerator::GLOBAL_SCOPE_ALIAS.to_string(),
-            },
+        // Removed EVM/Listener specific handling
+        match contract_name {
+            Some(contract) => contract.clone(),
+            None => MermaidGenerator::GLOBAL_SCOPE_ALIAS.to_string(),
         }
     }
 
@@ -118,24 +113,14 @@ impl MermaidGenerator {
             ) {
                 match edge.edge_type {
                     EdgeType::Call => {
-                        // --- Handle Emit (Caller -> EVM) ---
+                        // --- Handle Emit (Self-Signal) ---
                         if target_node.name == crate::cg::EVM_NODE_NAME {
-                            // Find the corresponding EVM -> EventListener edge
-                            let listener_edge_opt = graph.edges.iter().enumerate().find(|(_, le)| {
-                                le.source_node_id == target_node_id // Source is EVM
-                                && le.edge_type == EdgeType::Call
-                                && le.sequence_number == edge.sequence_number // Match sequence
-                                && graph.nodes.get(le.target_node_id).map_or(false, |n| n.name == crate::cg::EVENT_LISTENER_NODE_NAME) // Target is Listener
-                            });
-
-                            // Process Caller -> EVM edge
+                            // Process the original Caller -> EVM edge as a self-signal
                             if processed_edges.insert(edge_index) {
                                 let source_participant_id = Self::get_participant_id(
-                                    &source_node.name,
+                                    &source_node.name, // Use source node (the emitter)
                                     source_node.contract_name.as_ref(),
                                 );
-                                let evm_participant_id =
-                                    Self::get_participant_id(crate::cg::EVM_NODE_NAME, None);
                                 let event_name = edge.event_name.as_deref().unwrap_or("UnknownEvent");
                                 let args_str = edge
                                     .argument_names
@@ -143,41 +128,16 @@ impl MermaidGenerator {
                                     .map(|args| args.join(", "))
                                     .unwrap_or_default();
                                 let message_content = format!("emit {}({})", event_name, args_str);
+                                // Signal from source participant to itself
                                 builder.signal(
-                                    source_participant_id,
-                                    evm_participant_id,
+                                    source_participant_id.clone(), // From self
+                                    source_participant_id,         // To self
                                     "->>",
                                     Some(message_content),
                                 );
                             }
-
-                            // Process EVM -> Listener edge
-                            if let Some((listener_edge_index, _)) = listener_edge_opt {
-                                if processed_edges.insert(listener_edge_index) {
-                                    let evm_participant_id =
-                                        Self::get_participant_id(crate::cg::EVM_NODE_NAME, None);
-                                    let listener_participant_id = Self::get_participant_id(
-                                        crate::cg::EVENT_LISTENER_NODE_NAME,
-                                        None,
-                                    );
-                                    let event_name =
-                                        edge.event_name.as_deref().unwrap_or("UnknownEvent");
-                                    let args_str = edge
-                                        .argument_names
-                                        .as_ref()
-                                        .map(|args| args.join(", "))
-                                        .unwrap_or_default();
-                                    let message_content =
-                                        format!("Event: {}({})", event_name, args_str);
-                                    builder.signal(
-                                        evm_participant_id,
-                                        listener_participant_id,
-                                        "->>",
-                                        Some(message_content),
-                                    );
-                                }
-                            }
-                            // Skip recursion for emit path
+                            // Do NOT process the EVM -> Listener edge.
+                            // Do NOT recurse for emit path.
                             continue; // Move to the next edge
                         } else {
                             // --- Handle Regular Call ---
@@ -323,8 +283,13 @@ impl ToSequenceDiagram for MermaidGenerator {
         builder.participant_as(Self::USER_ID.to_string(), Self::USER_ALIAS.to_string());
         declared_participants.insert(Self::USER_ID.to_string());
 
-        // 3. Declare Participants (Contracts, Interfaces, Global Scope)
+        // 3. Declare Participants (Contracts, Interfaces, Global Scope - excluding EVM/Listener)
         for node in graph.iter_nodes() {
+            // Skip synthetic EVM and EventListener nodes
+            if node.name == crate::cg::EVM_NODE_NAME || node.name == crate::cg::EVENT_LISTENER_NODE_NAME {
+                continue;
+            }
+
             // Get the participant ID based on the node's name and contract/interface name (or global scope)
             let participant_id = Self::get_participant_id(&node.name, node.contract_name.as_ref());
 
