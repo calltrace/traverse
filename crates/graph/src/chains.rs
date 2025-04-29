@@ -127,7 +127,10 @@ pub(crate) fn analyze_chained_call<'a>(
     source: &'a str,
     solidity_lang: &'a tree_sitter::Language,
     input: &'a CallGraphGeneratorInput,
+    original_start_node: Option<TsNode<'a>>, // Track the original start node
 ) -> std::result::Result<Vec<ResolvedCallStep>, TypeError> {
+    // If original_start_node is None, this is the top-level call, so use start_node
+    let original_start_node = original_start_node.unwrap_or(start_node);
     // Use full path to Result
     let mut steps = Vec::new();
     let current_node = start_node; // Removed unused mut
@@ -249,9 +252,9 @@ pub(crate) fn analyze_chained_call<'a>(
                             name
                         );
                         
-                        // Only create a step for the constructor call if this is the start node
+                        // Only create a step for the constructor call if this is the original start node
                         // This prevents duplicate steps when analyzing chained calls
-                        if current_node == start_node {
+                        if current_node.id() == original_start_node.id() {
                             // Extract arguments for the constructor call
                             let arguments = extract_arguments_v2(current_node, source);
                             
@@ -271,7 +274,7 @@ pub(crate) fn analyze_chained_call<'a>(
                                 object_type: None, // No object for type cast/constructor call
                             };
                             steps.push(step);
-                            // Set current_object_type only if it's the start node and a step was added
+                            // Set current_object_type only if it's the original start node and a step was added
                             current_object_type = resolved_type.clone();
                         }
 
@@ -374,6 +377,7 @@ pub(crate) fn analyze_chained_call<'a>(
                         source,
                         solidity_lang,
                         input,
+                        Some(original_start_node), // Pass the original start node
                     )?;
 
                     // The type of the object for *this* call step is the result type of the *last* inner step,
@@ -579,6 +583,7 @@ pub(crate) fn analyze_chained_call<'a>(
                 source,
                 solidity_lang,
                 input,
+                None,
             )?;
             steps.splice(0..0, inner_steps.clone()); // Prepend inner steps
 
@@ -649,6 +654,7 @@ pub(crate) fn analyze_chained_call<'a>(
                     source,
                     solidity_lang,
                     input,
+                    Some(original_start_node), // Pass the original start node
                 );
                 // Note: No steps are added for the 'expression' node itself.
             } else {
@@ -802,6 +808,7 @@ fn resolve_expression_type_v2<'a>(
                 source,
                 solidity_lang,
                 input,
+                None,
             )?;
 
             if let Some(last_step) = steps.last() {
@@ -1982,6 +1989,7 @@ mod tests {
             source,
             &lang,
             &input,
+            None, // This is the top-level call
         )?;
 
         assert_eq!(steps.len(), 1);
@@ -2050,6 +2058,7 @@ mod tests {
             source,
             &lang,
             &input,
+            None,
         )?;
 
         assert_eq!(steps.len(), 1);
@@ -2109,6 +2118,7 @@ mod tests {
             source,
             &lang,
             &input,
+            None,
         )?;
 
         assert_eq!(steps.len(), 1);
@@ -2170,6 +2180,7 @@ mod tests {
             source,
             &lang,
             &input,
+            None,
         )?;
 
         assert_eq!(steps.len(), 1);
@@ -2269,6 +2280,7 @@ mod tests {
             source,
             &lang,
             &input,
+            None,
         )?;
 
         // Should have two steps: add, then sub
@@ -2349,6 +2361,7 @@ mod tests {
             source,
             &lang,
             &input,
+            None,
         )?;
 
         // Should have two steps: create, then perform
@@ -2422,6 +2435,127 @@ mod tests {
     }
 
     #[test]
+    fn test_analyze_chained_call_inline_factory() -> Result<()> {
+        // Variant of test_analyze_chained_call_interface_factory
+        // Here, the factory is instantiated inline: `new Factory().create().perform()`
+        let source = r#"
+             interface IAction { function perform() external returns (bool); }
+             contract Action is IAction { function perform() external override returns (bool) { return true; } }
+             interface IFactory { function create() external returns (IAction); }
+             contract Factory is IFactory { function create() external override returns (IAction) { return new Action(); } }
+             contract Test {
+                 // No factory state variable
+                 function caller() public returns (bool) {
+                     // Instantiate factory inline, then call create, then perform
+                     return new Factory().create().perform();
+                 }
+             }
+         "#;
+        let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
+
+        let caller_def_node = find_function_definition_node_by_name(&tree, source, &lang, "caller")
+            .expect("Could not find function definition node for caller");
+        let caller_node_id = graph
+            .node_lookup
+            .get(&(Some("Test".to_string()), "caller".to_string()))
+            .copied()
+            .unwrap();
+
+        // Find the outermost call_expression node for (...).perform()
+        // It should be the second call expression overall (first is create, second is perform)
+        let outer_call_expr_node = find_nth_node_of_kind(&tree, "call_expression", 1) // Find the second call_expression
+            .expect("Could not find the outer call_expression node for .perform()");
+
+        // Debug: Verify we found the correct node
+        eprintln!("[Test Inline Factory] Analyzing node kind='{}', text='{}'", outer_call_expr_node.kind(), get_node_text(&outer_call_expr_node, source));
+        assert!(get_node_text(&outer_call_expr_node, source).contains(".perform()"));
+
+
+        let steps = analyze_chained_call(
+            outer_call_expr_node,
+            caller_node_id,
+            &Some("Test".to_string()),
+            &ctx,
+            &graph,
+            source,
+            &lang,
+            &input,
+            None,
+        )?;
+
+        // Should have three steps: new Factory(), then .create(), then .perform()
+        assert_eq!(steps.len(), 3, "Expected 3 steps for inline factory chain");
+
+        // Step 1: new Factory()
+        let step1 = &steps[0];
+        assert_eq!(step1.object_type, None, "Step 1 (new): object_type should be None");
+        assert_eq!(step1.result_type, Some("Factory".to_string()), "Step 1 (new): result_type should be Factory");
+        assert!(step1.arguments.is_empty(), "Step 1 (new): arguments should be empty");
+        match &step1.target {
+            ResolvedTarget::Function { contract_name, function_name, node_type } => {
+                assert_eq!(contract_name.as_deref(), Some("Factory"), "Step 1 (new): target contract");
+                assert_eq!(function_name, "Factory", "Step 1 (new): target function name (constructor)");
+                assert_eq!(*node_type, NodeType::Constructor, "Step 1 (new): target node type");
+            }
+            _ => panic!("Step 1 (new): Expected Function (Constructor), got {:?}", step1.target),
+        }
+
+        // Step 2: .create()
+        let step2 = &steps[1];
+        assert_eq!(step2.object_type, Some("Factory".to_string()), "Step 2 (create): object_type should be Factory");
+        assert_eq!(step2.result_type, Some("IAction".to_string()), "Step 2 (create): result_type should be IAction");
+        assert!(step2.arguments.is_empty(), "Step 2 (create): arguments should be empty");
+        match &step2.target {
+            // Assuming resolution finds the concrete implementation directly or via InterfaceMethod
+             ResolvedTarget::InterfaceMethod { interface_name, method_name, implementation } => {
+                 assert_eq!(interface_name, "IFactory", "Step 2 (create): target interface name");
+                 assert_eq!(method_name, "create", "Step 2 (create): target method name");
+                 assert!(implementation.is_some(), "Step 2 (create): implementation should be resolved");
+                 match implementation.as_deref() {
+                     Some(ResolvedTarget::Function { contract_name, function_name, node_type }) => {
+                         assert_eq!(contract_name.as_deref(), Some("Factory"), "Step 2 (create): impl contract");
+                         assert_eq!(function_name, "create", "Step 2 (create): impl function name");
+                         assert_eq!(*node_type, NodeType::Function, "Step 2 (create): impl node type");
+                     }
+                     _ => panic!("Step 2 (create): Expected implementation Function, got {:?}", implementation),
+                 }
+             }
+            ResolvedTarget::Function { contract_name, function_name, node_type } => {
+                 // Allow direct resolution to function if InterfaceMethod is skipped
+                 assert_eq!(contract_name.as_deref(), Some("Factory"), "Step 2 (create): target contract (direct)");
+                 assert_eq!(function_name, "create", "Step 2 (create): target function name (direct)");
+                 assert_eq!(*node_type, NodeType::Function, "Step 2 (create): target node type (direct)");
+            }
+            _ => panic!("Step 2 (create): Expected InterfaceMethod or Function, got {:?}", step2.target),
+        }
+
+
+        // Step 3: .perform()
+        let step3 = &steps[2];
+        assert_eq!(step3.object_type, Some("IAction".to_string()), "Step 3 (perform): object_type should be IAction");
+        assert_eq!(step3.result_type, Some("bool".to_string()), "Step 3 (perform): result_type should be bool");
+        assert!(step3.arguments.is_empty(), "Step 3 (perform): arguments should be empty");
+        match &step3.target {
+            ResolvedTarget::InterfaceMethod { interface_name, method_name, implementation } => {
+                assert_eq!(interface_name, "IAction", "Step 3 (perform): target interface name");
+                assert_eq!(method_name, "perform", "Step 3 (perform): target method name");
+                assert!(implementation.is_some(), "Step 3 (perform): implementation should be resolved");
+                match implementation.as_deref() {
+                    Some(ResolvedTarget::Function { contract_name, function_name, node_type }) => {
+                        assert_eq!(contract_name.as_deref(), Some("Action"), "Step 3 (perform): impl contract");
+                        assert_eq!(function_name, "perform", "Step 3 (perform): impl function name");
+                        assert_eq!(*node_type, NodeType::Function, "Step 3 (perform): impl node type");
+                    }
+                    _ => panic!("Step 3 (perform): Expected implementation Function, got {:?}", implementation),
+                }
+            }
+            _ => panic!("Step 3 (perform): Expected InterfaceMethod, got {:?}", step3.target),
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn test_analyze_constructor_call() -> Result<()> {
         // Use our own Result type
         let source = r#"
@@ -2470,6 +2604,7 @@ mod tests {
             source,
             &lang,
             &input,
+            None,
         )?;
 
         assert_eq!(steps.len(), 1);
@@ -2529,6 +2664,7 @@ mod tests {
             source,
             &lang,
             &input,
+            None,
         )?;
 
         // Should have one step: perform
@@ -2556,4 +2692,6 @@ mod tests {
 
         Ok(())
     }
+
+
 }

@@ -1,9 +1,10 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, ValueEnum};
-use graph::cg::{CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline, ContractHandling, CallsHandling};
+use graph::cg::{CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline};
 use graph::cg_dot::CgToDot;
 use graph::cg_mermaid::{MermaidGenerator, ToSequenceDiagram};
 use graph::parser::parse_solidity;
+use graph::steps::{CallsHandling, ContractHandling};
 use language::{Language, Solidity};
 use mermaid::sequence_diagram_writer;
 use std::collections::{HashMap, HashSet};
@@ -166,9 +167,9 @@ fn main() -> Result<()> {
     
     // Create the pipeline input
     let input = CallGraphGeneratorInput {
-        source: &combined_source,
-        tree: &combined_ast.tree,
-        solidity_lang: &solidity_lang,
+        source: combined_source.to_string(),
+        tree: combined_ast.tree,
+        solidity_lang,
     };
     
     // Create the pipeline context
@@ -218,14 +219,14 @@ fn main() -> Result<()> {
     
     // Run the pipeline
     eprintln!("[Address Debug sol2cg] Before pipeline.run: {:p}", &graph); // Added address log
-    pipeline.run(&input, &mut ctx, &mut graph, &config)
+    pipeline.run(input.clone(), &mut ctx, &mut graph, &config)
         .context("Failed to generate call graph with pipeline")?;
     eprintln!("[Address Debug sol2cg] After pipeline.run: {:p}", &graph); // Added address log
     
     // 5. Add Explicit Return Edges
     eprintln!("[Address Debug sol2cg] Before add_explicit_return_edges: {:p}", &graph); // Added address log
     graph
-        .add_explicit_return_edges(&combined_source, &ctx, &solidity_lang) // Pass context ctx instead of tree
+        .add_explicit_return_edges(&input, &ctx) // Pass context ctx instead of tree
         .context("Failed to add explicit return edges")?;
     eprintln!("[Address Debug sol2cg] After add_explicit_return_edges: {:p}", &graph); // Added address log
 

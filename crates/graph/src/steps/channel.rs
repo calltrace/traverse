@@ -1,4 +1,7 @@
-use std::{collections::{HashMap, HashSet}, iter};
+use std::{
+    collections::{HashMap, HashSet},
+    iter,
+};
 
 use crate::{
     cg::{
@@ -86,12 +89,20 @@ impl CallGraphGeneratorStep for CallsHandling {
 
         // Iterate through definition_nodes_info which now contains NodeInfo
         for (caller_node_id, caller_node_info, caller_contract_name_opt) in
-            &ctx.definition_nodes_info // Borrowing ctx, but info inside is owned/static
+            &ctx.definition_nodes_info
+        // Borrowing ctx, but info inside is owned/static
         {
             // Get the actual TsNode for the caller's definition using the span from NodeInfo
-            let definition_ts_node = input.tree.root_node()
+            let definition_ts_node = input
+                .tree
+                .root_node()
                 .descendant_for_byte_range(caller_node_info.span.0, caller_node_info.span.1)
-                .ok_or_else(|| anyhow!("Failed to find definition TsNode for span {:?} in CallsHandling", caller_node_info.span))?;
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Failed to find definition TsNode for span {:?} in CallsHandling",
+                        caller_node_info.span
+                    )
+                })?;
 
             // Track processed call/emit spans within this caller function to avoid duplicates
             let mut processed_call_spans: HashSet<(usize, usize)> = HashSet::new();
@@ -112,165 +123,447 @@ impl CallGraphGeneratorStep for CallsHandling {
             let mut call_cursor = QueryCursor::new();
             // Sequence counter is now initialized outside the loop
 
-            // --- Collect potential call and emit nodes first ---
-            let mut potential_call_nodes: Vec<(TsNode, (usize, usize))> = Vec::new();
-            let mut potential_emit_nodes: Vec<(TsNode, (usize, usize))> = Vec::new();
+            // --- Collect potential call, new, and emit nodes first ---
+            let mut potential_nodes: Vec<(TsNode, (usize, usize), &str)> = Vec::new(); // Store node, span, and type (call/new/emit)
 
-            let call_expr_capture_index = call_query.capture_index_for_name("call_expr_node").unwrap_or(u32::MAX);
-            let emit_capture_index = call_query.capture_index_for_name("emit_statement_node").unwrap_or(u32::MAX);
-            let new_expr_capture_index = call_query.capture_index_for_name("new_expression_node").unwrap_or(u32::MAX); // Capture index for new_expression
+            let call_expr_capture_index = call_query
+                .capture_index_for_name("call_expr_node")
+                .unwrap_or(u32::MAX);
+            let new_expr_capture_index = call_query
+                .capture_index_for_name("new_expression_node")
+                .unwrap_or(u32::MAX);
+            let emit_capture_index = call_query
+                .capture_index_for_name("emit_statement_node")
+                .unwrap_or(u32::MAX);
 
             let mut call_matches =
-                call_cursor.matches(&call_query, definition_ts_node, |node: TsNode| { // Use retrieved node
+                call_cursor.matches(&call_query, definition_ts_node, |node: TsNode| {
+                    // Use retrieved node
                     iter::once(&source_bytes[node.byte_range()])
                 });
 
-            while let Some(call_match) = call_matches.next() {
-                 // Prioritize call_expression if both match (e.g., new inside call)
-                 if let Some(node) = call_match.nodes_for_capture_index(call_expr_capture_index).next() {
-                    potential_call_nodes.push((node, (node.start_byte(), node.end_byte())));
-                 } else if let Some(node) = call_match.nodes_for_capture_index(new_expr_capture_index).next() {
-                    // If it's *just* a new_expression (e.g., `Target t = new Target();`), treat it like a call for edge generation
-                    potential_call_nodes.push((node, (node.start_byte(), node.end_byte())));
-                 }
-
-                 if let Some(node) = call_match.nodes_for_capture_index(emit_capture_index).next() {
-                    potential_emit_nodes.push((node, (node.start_byte(), node.end_byte())));
-                 }
+            while let Some(match_) = call_matches.next() {
+                for capture in match_.captures {
+                    let capture_name = &call_query.capture_names()[capture.index as usize];
+                    let node = capture.node;
+                    let span = (node.start_byte(), node.end_byte());
+                    match *capture_name {
+                        // Dereference capture_name
+                        "call_expr_node" => potential_nodes.push((node, span, "call")),
+                        "new_expression_node" => potential_nodes.push((node, span, "new")),
+                        "emit_statement_node" => potential_nodes.push((node, span, "emit")),
+                        _ => {} // Ignore other captures like @call_name, @member_property etc.
+                    }
+                }
             }
 
             // Deduplicate potential nodes based on span (query might match same node multiple times with different patterns)
-            potential_call_nodes.sort_by_key(|k| k.1);
-            potential_call_nodes.dedup_by_key(|k| k.1);
-            potential_emit_nodes.sort_by_key(|k| k.1);
-            potential_emit_nodes.dedup_by_key(|k| k.1);
+            potential_nodes.sort_by_key(|k| k.1);
+            potential_nodes.dedup_by_key(|k| k.1);
 
-            // --- Filter for outermost call nodes ---
-            let outermost_call_nodes: Vec<(TsNode, (usize, usize))> = potential_call_nodes.iter().filter(|(node, span)| {
-                !potential_call_nodes.iter().any(|(_other_node, other_span)| {
-                    // Check if other_node is a proper ancestor of node
-                    other_span.0 <= span.0 && other_span.1 >= span.1 && other_span != span
+            // Separate into calls/news and emits
+            let potential_call_or_new_nodes: Vec<(TsNode, (usize, usize))> = potential_nodes
+                .iter()
+                .filter(|(_, _, type_)| *type_ == "call" || *type_ == "new")
+                .map(|(node, span, _)| (*node, *span)) // Clone node and span
+                .collect();
+            let potential_emit_nodes: Vec<(TsNode, (usize, usize))> = potential_nodes
+                .iter()
+                .filter(|(_, _, type_)| *type_ == "emit")
+                .map(|(node, span, _)| (*node, *span)) // Clone node and span
+                .collect();
+
+            // --- Filter for outermost call/new nodes ---
+            // A node is outermost if no other collected call/new node is its proper ancestor.
+            let outermost_call_nodes: Vec<(TsNode, (usize, usize))> = potential_call_or_new_nodes
+                .iter()
+                .filter(|(node, span)| {
+                    !potential_call_or_new_nodes
+                        .iter()
+                        .any(|(other_node, other_span)| {
+                            // Check if other_node is a proper ancestor of node
+                            other_span.0 <= span.0
+                                && other_span.1 >= span.1
+                                && other_span != span
+                                && other_node.id() != node.id()
+                        })
                 })
-            }).cloned().collect(); // Clone the TsNode and span
+                .cloned()
+                .collect(); // Clone the TsNode and span
 
-            // --- Process outermost calls ---
+            // --- Process outermost calls/news ---
             for (call_node, span) in outermost_call_nodes {
                 // This check might be redundant now but kept for safety
                 if processed_call_spans.contains(&span) {
-                    eprintln!("[CallsHandling DEBUG]       Skipping already processed outermost call span {:?}", span);
+                    eprintln!("[CallsHandling DEBUG]       Skipping already processed outermost call/new span {:?}", span);
                     continue;
                 }
                 processed_call_spans.insert(span); // Mark as processed
 
-                // Determine if it's a `new` expression or a regular call/member call
-                if call_node.kind() == "new_expression" {
-                     // --- Handle Standalone Constructor Call (e.g., Target t = new Target();) ---
-                     eprintln!("[CallsHandling DEBUG]       Processing Standalone New Expression at span {:?}", span);
-                     let new_contract_name_opt = call_node // `call_node` is the new_expression node here
-                        .child_by_field_name("type_name")
-                        .and_then(|tn| tn.child(0)) // type_name -> identifier or user_defined_type
-                        .and_then(|id_or_udt| {
-                            if id_or_udt.kind() == "identifier" {
-                                Some(id_or_udt)
-                            } else if id_or_udt.kind() == "user_defined_type" {
-                                id_or_udt.child(0).filter(|n| n.kind() == "identifier")
-                            } else {
-                                None
-                            }
-                        })
-                        .map(|n| get_node_text(&n, &input.source).to_string());
+                // Use analyze_chained_call for ALL call_expression and new_expression nodes found by the query.
+                // analyze_chained_call is designed to handle both simple calls, member calls, and constructor calls (new).
+                eprintln!("[CallsHandling DEBUG]       Processing Outermost Node via analyze_chained_call: Kind='{}', Span={:?}", call_node.kind(), span);
 
-                    if let Some(new_contract_name) = new_contract_name_opt {
-                        call_sequence_counter += 1; // Increment sequence for constructor call
-                        let constructor_key =
-                            (Some(new_contract_name.clone()), new_contract_name.clone());
-                        if let Some(target_node_id) = graph.node_lookup.get(&constructor_key) {
-                            eprintln!("[CallsHandling DEBUG]       >>> Adding edge (standalone new): CallerID={}, TargetID={}, Seq={}", caller_node_id, target_node_id, call_sequence_counter);
-                            // Extract arguments for constructor call (might be siblings in parent assignment/variable declaration)
-                            // For simplicity, we might not capture args perfectly here, focus is on the call edge.
-                            // Let's use extract_arguments on the new_expression node itself, though it might not find them directly.
-                            let constructor_args = extract_arguments(call_node, &input);
-                            graph.add_edge(
-                                *caller_node_id,
-                                *target_node_id,
-                                EdgeType::Call,
-                                span, // Use the span of the new_expression
-                                None,
-                                call_sequence_counter,
-                                None,
-                                Some(constructor_args), // Pass potentially empty args
-                                None, // No event name
-                            );
-                        } else {
-                            eprintln!("[CallsHandling DEBUG]       >>> Constructor call unresolved: new {}. Span: {:?}", new_contract_name, span);
+                match analyze_chained_call(
+                    call_node, // Start analysis from the outermost node (call_expression or new_expression)
+                    *caller_node_id,
+                    caller_contract_name_opt,
+                    ctx,
+                    graph,
+                    &input.source,        // Pass source string directly
+                    &input.solidity_lang, // Pass language directly
+                    &input,               // Pass the full input struct
+                    None, // This is the top-level call within the current caller function
+                ) {
+                    Ok(steps) => {
+                        eprintln!(
+                            "[CallsHandling DEBUG]         analyze_chained_call returned {} steps.",
+                            steps.len()
+                        );
+                        if steps.is_empty() {
+                            eprintln!("[CallsHandling DEBUG]         analyze_chained_call returned 0 steps for node: {}", get_node_text(&call_node, &input.source));
                         }
-                    }
 
-                } else if call_node.kind() == "call_expression" {
-                    // --- Handle Regular Function/Member Call using analyze_chained_call ---
-                    eprintln!("[CallsHandling DEBUG]       Processing Outermost Call Expression via analyze_chained_call at span {:?}", span);
-
-                    // Call analyze_chained_call to get all steps
-                    match analyze_chained_call(
-                        call_node, // Start analysis from the outermost call expression
-                        *caller_node_id,
-                        caller_contract_name_opt,
-                        ctx,
-                        graph,
-                        &input.source, // Pass source string directly
-                        &input.solidity_lang, // Pass language directly
-                        &input, // Pass the full input struct
-                    ) {
-                        Ok(steps) => {
-                            eprintln!("[CallsHandling DEBUG]         analyze_chained_call returned {} steps.", steps.len());
-                            if steps.is_empty() {
-                                 eprintln!("[CallsHandling DEBUG]         analyze_chained_call returned 0 steps for node: {}", get_node_text(&call_node, &input.source));
+                        // Iterate through each step and add an edge for the main call chain
+                        for step in &steps {
+                            // Borrow steps here to use it again later
+                            eprintln!("[CallsHandling DEBUG]           Processing Step: Target={:?}, Args={:?}", step.target, step.arguments);
+                            // Resolve the target of this step to a node ID
+                            if let Some(target_node_id) =
+                                resolve_target_to_node_id(&step.target, graph, ctx)
+                            {
+                                call_sequence_counter += 1; // Increment sequence for EACH valid step in the outer chain
+                                eprintln!("[CallsHandling DEBUG]             >>> Adding edge (from chain step): CallerID={}, TargetID={}, Seq={}, StepSpan={:?}", caller_node_id, target_node_id, call_sequence_counter, step.call_expr_span);
+                                graph.add_edge(
+                                    *caller_node_id, // Source is the original caller function
+                                    target_node_id,  // Target is the resolved node for this step
+                                    EdgeType::Call,
+                                    (step.call_expr_span.0.into(), step.call_expr_span.1.into()), // Use span from the step
+                                    None,
+                                    call_sequence_counter, // Use incremented sequence
+                                    None,                  // Return value not tracked here
+                                    Some(step.arguments.clone()), // Use arguments from the step (clone needed)
+                                    None,                         // No event name
+                                );
+                            } else {
+                                eprintln!("[CallsHandling DEBUG]             >>> Target for step {:?} did not resolve to a node ID. Skipping edge.", step.target);
                             }
-                            // Iterate through each step and add an edge
-                            for step in steps {
-                                eprintln!("[CallsHandling DEBUG]           Processing Step: Target={:?}, Args={:?}", step.target, step.arguments);
-                                // Resolve the target of this step to a node ID
-                                if let Some(target_node_id) =
-                                    resolve_target_to_node_id(&step.target, graph, ctx)
+                        }
+
+                        // --- NEW: Analyze target function bodies for internal 'new' calls ---
+                        for step in &steps {
+                            // Extract function details if the target is a Function or an InterfaceMethod with a Function implementation
+                            let function_details: Option<(String, String, usize)> =
+                                match &step.target {
+                                    ResolvedTarget::Function {
+                                        contract_name: Some(c_name),
+                                        function_name: f_name,
+                                        ..
+                                    } => {
+                                        let key = (Some(c_name.clone()), f_name.clone());
+                                        graph
+                                            .node_lookup
+                                            .get(&key)
+                                            .copied()
+                                            .map(|id| (c_name.clone(), f_name.clone(), id))
+                                    }
+                                    ResolvedTarget::InterfaceMethod {
+                                        implementation: Some(impl_target),
+                                        ..
+                                    } => {
+                                        if let ResolvedTarget::Function {
+                                            contract_name: Some(c_name),
+                                            function_name: f_name,
+                                            ..
+                                        } = &**impl_target
+                                        {
+                                            let key = (Some(c_name.clone()), f_name.clone());
+                                            graph
+                                                .node_lookup
+                                                .get(&key)
+                                                .copied()
+                                                .map(|id| (c_name.clone(), f_name.clone(), id))
+                                        } else {
+                                            None
+                                        }
+                                    }
+                                    _ => None,
+                                };
+
+                            if let Some((
+                                target_contract_name,
+                                target_function_name,
+                                target_function_node_id,
+                            )) = function_details
+                            {
+                                // Find the definition TsNode for this target function
+                                if let Some((_, target_node_info, _)) = ctx
+                                    .definition_nodes_info
+                                    .iter()
+                                    .find(|(id, _, _)| *id == target_function_node_id)
                                 {
-                                    call_sequence_counter += 1; // Increment sequence for EACH valid step
-                                    eprintln!("[CallsHandling DEBUG]             >>> Adding edge (from chain step): CallerID={}, TargetID={}, Seq={}, StepSpan={:?}", caller_node_id, target_node_id, call_sequence_counter, step.call_expr_span);
-                                    graph.add_edge(
-                                        *caller_node_id, // Source is the original caller function
-                                        target_node_id,  // Target is the resolved node for this step
-                                        EdgeType::Call,
-                                        (step.call_expr_span.0.into(), step.call_expr_span.1.into()), // Use span from the step
-                                        None,
-                                        call_sequence_counter, // Use incremented sequence
-                                        None, // Return value not tracked here
-                                        Some(step.arguments), // Use arguments from the step
-                                        None, // No event name
-                                    );
+                                    let target_definition_ts_node =
+                                        input.tree.root_node().descendant_for_byte_range(
+                                            target_node_info.span.0,
+                                            target_node_info.span.1,
+                                        );
+
+                                    if let Some(target_def_node) = target_definition_ts_node {
+                                        eprintln!("[CallsHandling DEBUG]           Analyzing body of target function \'{}.{}\' (NodeID {}) for \'new\' calls.", target_contract_name, target_function_name, target_function_node_id);
+                                        eprintln!("[CallsHandling DEBUG]             Target Def Node S-Expr: {}", target_def_node.to_sexp()); // DEBUG S-expression
+
+                                        // Track processed new_expression nodes to avoid duplicates
+                                        let mut processed_new_nodes: HashSet<usize> =
+                                            HashSet::new();
+
+                                        // Simplified query to find just the new_expression node.
+                                        // We will extract the type name manually.
+                                        let new_query_str = r#"
+                                            (new_expression) @new_expr_node
+                                        "#;
+
+                                        let new_query =
+                                            Query::new(&input.solidity_lang, new_query_str)
+                                                .context(
+                                                "Failed to create simplified internal 'new' query",
+                                            )?;
+                                        let mut new_cursor = QueryCursor::new();
+                                        let mut new_matches = new_cursor.matches(
+                                            &new_query,
+                                            target_def_node,
+                                            |node: TsNode| {
+                                                iter::once(&source_bytes[node.byte_range()])
+                                            },
+                                        );
+
+                                        let mut internal_call_seq = 0; // Local sequence for calls *within* this target function
+
+                                        while let Some(new_match) = new_matches.next() {
+                                            // Process captures - should only be @new_expr_node
+                                            if let Some(capture) = new_match.captures.first() {
+                                                let new_expr_node = capture.node;
+
+                                                // Manually extract the contract name from the new_expression node
+                                                let new_contract_name_opt = new_expr_node
+                                                    .child_by_field_name("name") // Get the 'name' field (type_name)
+                                                    .and_then(|type_name_node| {
+                                                        // Look for identifier within type_name or its children (e.g., user_defined_type)
+                                                        let mut name_cursor = type_name_node.walk();
+                                                        let mut queue =
+                                                            std::collections::VecDeque::new();
+                                                        queue.push_back(type_name_node);
+                                                        while let Some(current) = queue.pop_front()
+                                                        {
+                                                            if current.kind() == "identifier" {
+                                                                return Some(
+                                                                    get_node_text(
+                                                                        &current,
+                                                                        &input.source,
+                                                                    )
+                                                                    .to_string(),
+                                                                );
+                                                            }
+                                                            for child in
+                                                                current.children(&mut name_cursor)
+                                                            {
+                                                                queue.push_back(child);
+                                                            }
+                                                        }
+                                                        None // Identifier not found
+                                                    });
+
+                                                if let Some(new_contract_name) =
+                                                    new_contract_name_opt
+                                                {
+                                                    eprintln!("[CallsHandling DEBUG]             Found internal new_expression: '{}' (Node ID: {})", new_contract_name, new_expr_node.id()); // DEBUG: Confirm match found
+                                                                                                                                                                                             // Skip if we've already processed this node
+                                                    if processed_new_nodes
+                                                        .contains(&new_expr_node.id())
+                                                    {
+                                                        continue;
+                                                    }
+                                                    processed_new_nodes.insert(new_expr_node.id());
+
+                                                    // Find the constructor node ID for the contract being instantiated
+                                                    let constructor_key = (
+                                                        Some(new_contract_name.clone()),
+                                                        new_contract_name.clone(),
+                                                    ); // Constructor name is contract name
+                                                    if let Some(constructor_node_id) = graph
+                                                        .node_lookup
+                                                        .get(&constructor_key)
+                                                        .copied()
+                                                    {
+                                                        internal_call_seq += 1; // Increment internal sequence
+                                                        let new_span = (
+                                                            new_expr_node.start_byte(),
+                                                            new_expr_node.end_byte(),
+                                                        );
+
+                                                        // Extract arguments - try different approaches based on context
+                                                        let mut new_args = Vec::new();
+
+                                                        // First check if the new_expression is within a call_expression
+                                                        if let Some(parent_call) =
+                                                            new_expr_node.parent().filter(|p| {
+                                                                p.kind() == "call_expression"
+                                                            })
+                                                        {
+                                                            // Extract arguments from the parent call_expression
+                                                            new_args = extract_arguments(
+                                                                parent_call,
+                                                                &input,
+                                                            );
+                                                            eprintln!("[CallsHandling DEBUG]             Found parent call_expression for \'new {}\', extracted {} args", 
+                                                                 new_contract_name, new_args.len());
+                                                        } else {
+                                                            // For standalone new_expression, look for arguments list directly within new_expression
+                                                            // This handles cases like "return new Contract(...)"
+                                                            let mut cursor = new_expr_node.walk();
+                                                            for child in
+                                                                new_expr_node.children(&mut cursor)
+                                                            {
+                                                                if child.kind() == "arguments" {
+                                                                    // Found arguments node, extract its arguments
+                                                                    // Pass the new_expr_node itself to extract_arguments
+                                                                    new_args = extract_arguments(
+                                                                        new_expr_node,
+                                                                        &input,
+                                                                    );
+                                                                    eprintln!("[CallsHandling DEBUG]             Extracted {} args from \'new {}\' arguments node", 
+                                                                         new_args.len(), new_contract_name);
+                                                                    break;
+                                                                }
+                                                            }
+                                                        }
+
+                                                        eprintln!("[CallsHandling DEBUG]             >>> Adding edge (Internal \'new\'): SourceID={}, TargetID={}, InternalSeq={}, NewSpan={:?}, Args={:?}", 
+                                                             target_function_node_id, constructor_node_id, internal_call_seq, new_span, new_args);
+
+                                                        graph.add_edge(
+                                                            target_function_node_id, // Source is the function containing \'new\'
+                                                            constructor_node_id, // Target is the constructor being called
+                                                            EdgeType::Call,
+                                                            new_span,
+                                                            None,
+                                                            internal_call_seq, // Use internal sequence
+                                                            None,
+                                                            Some(new_args),
+                                                            None,
+                                                        );
+                                                    } else {
+                                                        eprintln!("[CallsHandling DEBUG]             >>> Constructor node not found for internal new {}", new_contract_name);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        eprintln!("[CallsHandling DEBUG]           Could not find definition TsNode for target function ID {}", target_function_node_id);
+                                    }
                                 } else {
-                                    eprintln!("[CallsHandling DEBUG]             >>> Target for step {:?} did not resolve to a node ID. Skipping edge.", step.target);
+                                    eprintln!("[CallsHandling DEBUG]           Could not find NodeInfo for target function ID {}", target_function_node_id);
                                 }
                             }
                         }
-                        Err(e) => {
-                            // Log the error from analyze_chained_call
-                            eprintln!("[CallsHandling DEBUG]       Error during analyze_chained_call for span {:?}: {:?}", span, e);
-                            // Optionally, decide if you want to add a placeholder edge or just skip
+                        /*
+
+                        for step in steps { // Iterate again, consuming steps now
+                            if let ResolvedTarget::Function { contract_name: Some(target_contract_name), function_name: target_function_name, .. } = &step.target {
+                                let target_key = (Some(target_contract_name.clone()), target_function_name.clone());
+                                if let Some(target_function_node_id) = graph.node_lookup.get(&target_key).copied() {
+                                    // Find the definition TsNode for this target function
+                                    if let Some((_, target_node_info, _)) = ctx.definition_nodes_info.iter().find(|(id, _, _)| *id == target_function_node_id) {
+                                        let target_definition_ts_node = input.tree.root_node()
+                                            .descendant_for_byte_range(target_node_info.span.0, target_node_info.span.1);
+
+                                        if let Some(target_def_node) = target_definition_ts_node {
+                                            eprintln!("[CallsHandling DEBUG]           Analyzing body of target function '{}' (NodeID {}) for 'new' calls.", target_function_name, target_function_node_id);
+                                            // Query specifically for 'new' expressions within this function's body
+                                            let new_query_str = r#"
+                                                (new_expression
+                                                    (type_name (identifier) @new_contract_name)
+                                                ) @new_expr_node
+                                            "#;
+                                            let new_query = Query::new(&input.solidity_lang, new_query_str).context("Failed to create internal 'new' query")?;
+                                            let mut new_cursor = QueryCursor::new();
+                                            let mut new_matches = new_cursor.matches(&new_query, target_def_node, |node: TsNode| iter::once(&source_bytes[node.byte_range()]));
+
+                                            let mut internal_call_seq = 0; // Local sequence for calls *within* this target function
+
+                                            while let Some(new_match) = new_matches.next() {
+                                                let mut new_contract_name_opt: Option<String> = None;
+                                                let mut new_expr_node_opt: Option<TsNode> = None;
+
+                                                for capture in new_match.captures {
+                                                    let capture_name = &new_query.capture_names()[capture.index as usize];
+                                                    match *capture_name { // Dereference
+                                                        "new_contract_name" => new_contract_name_opt = Some(get_node_text(&capture.node, &input.source).to_string()),
+                                                        "new_expr_node" => new_expr_node_opt = Some(capture.node),
+                                                        _ => {}
+                                                    }
+                                                }
+
+                                                if let (Some(new_contract_name), Some(new_expr_node)) = (new_contract_name_opt, new_expr_node_opt) {
+                                                    // Find the constructor node ID for the contract being instantiated
+                                                    let constructor_key = (Some(new_contract_name.clone()), new_contract_name.clone()); // Constructor name is contract name
+                                                    if let Some(constructor_node_id) = graph.node_lookup.get(&constructor_key).copied() {
+                                                        internal_call_seq += 1; // Increment internal sequence
+                                                        let new_span = (new_expr_node.start_byte(), new_expr_node.end_byte());
+                                                        let new_args = extract_arguments(new_expr_node.parent().unwrap_or(new_expr_node), &input); // Get args from parent call_expression if possible
+
+                                                        eprintln!("[CallsHandling DEBUG]             >>> Adding edge (Internal 'new'): SourceID={}, TargetID={}, InternalSeq={}, NewSpan={:?}", target_function_node_id, constructor_node_id, internal_call_seq, new_span);
+                                                        graph.add_edge(
+                                                            target_function_node_id, // Source is the function containing 'new'
+                                                            constructor_node_id,     // Target is the constructor being called
+                                                            EdgeType::Call,
+                                                            new_span,
+                                                            None,
+                                                            internal_call_seq, // Use internal sequence
+                                                            None,
+                                                            Some(new_args),
+                                                            None,
+                                                        );
+                                                    } else {
+                                                        eprintln!("[CallsHandling DEBUG]             >>> Constructor node not found for internal 'new {}'", new_contract_name);
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                             eprintln!("[CallsHandling DEBUG]           Could not find definition TsNode for target function ID {}", target_function_node_id);
+                                        }
+                                    } else {
+                                         eprintln!("[CallsHandling DEBUG]           Could not find NodeInfo for target function ID {}", target_function_node_id);
+                                    }
+                                }
+                            }
                         }
+                        // --- End NEW section ---
+                        */
                     }
-                } else {
-                     eprintln!("[CallsHandling DEBUG]       Skipping unexpected outermost node kind: '{}' at span {:?}", call_node.kind(), span);
+                    Err(e) => {
+                        // Log the error from analyze_chained_call
+                        eprintln!("[CallsHandling DEBUG]       Error during analyze_chained_call for span {:?}: {:?}", span, e);
+                        // Optionally, decide if you want to add a placeholder edge or just skip
+                    }
                 }
             }
 
             // --- Process emits ---
+            // (Emit processing remains the same as before)
             for (emit_node, span) in potential_emit_nodes {
-                 if processed_call_spans.contains(&span) {
-                    eprintln!("[CallsHandling DEBUG]       Skipping already processed emit span {:?}", span);
+                if processed_call_spans.contains(&span) {
+                    eprintln!(
+                        "[CallsHandling DEBUG]       Skipping already processed emit span {:?}",
+                        span
+                    );
                     continue;
                 }
                 processed_call_spans.insert(span); // Mark as processed
 
-                eprintln!("[CallsHandling DEBUG]       Processing Emit Statement at span {:?}", span);
+                eprintln!(
+                    "[CallsHandling DEBUG]       Processing Emit Statement at span {:?}",
+                    span
+                );
 
                 call_sequence_counter += 1; // Increment sequence for the emit event
 
@@ -283,12 +576,14 @@ impl CallGraphGeneratorStep for CallsHandling {
                     .filter(|id_node| id_node.kind() == "identifier")
                     .map(|id_node| get_node_text(&id_node, &input.source).to_string());
 
-
                 // Extract arguments (using the same helper as call_expression)
                 let argument_texts = extract_arguments(emit_node, &input); // Pass the emit_node itself
 
                 if let Some(event_name) = event_name_opt {
-                    eprintln!("[CallsHandling DEBUG]         Event Name: '{}', Args: {:?}", event_name, argument_texts);
+                    eprintln!(
+                        "[CallsHandling DEBUG]         Event Name: '{}', Args: {:?}",
+                        event_name, argument_texts
+                    );
 
                     // --- Get or Create EVM Node ---
                     let evm_key = (None, EVM_NODE_NAME.to_string());
@@ -310,18 +605,18 @@ impl CallGraphGeneratorStep for CallsHandling {
                     // --- Get or Create Event Listener Node ---
                     let listener_key = (None, EVENT_LISTENER_NODE_NAME.to_string());
                     let listener_node_id = if let Some(id) = graph.node_lookup.get(&listener_key) {
-                         *id
+                        *id
                     } else {
-                         eprintln!("[CallsHandling DEBUG]           Creating EventListener node.");
-                         let new_id = graph.add_node(
+                        eprintln!("[CallsHandling DEBUG]           Creating EventListener node.");
+                        let new_id = graph.add_node(
                             EVENT_LISTENER_NODE_NAME.to_string(),
                             NodeType::EventListener,
                             None,
                             Visibility::Default,
                             (0, 0),
                         );
-                         graph.node_lookup.insert(listener_key, new_id);
-                         new_id
+                        graph.node_lookup.insert(listener_key, new_id);
+                        new_id
                     };
 
                     // --- Add Edge 1: Caller -> EVM ---
@@ -351,9 +646,8 @@ impl CallGraphGeneratorStep for CallsHandling {
                         Some(argument_texts),
                         Some(event_name),
                     );
-
                 } else {
-                     eprintln!("[CallsHandling DEBUG]       >>> Emit statement missing event name. Span: {:?}", span);
+                    eprintln!("[CallsHandling DEBUG]       >>> Emit statement missing event name. Span: {:?}", span);
                 }
             }
         }
@@ -419,5 +713,3 @@ fn resolve_target_to_node_id(
         }
     }
 }
-
-
