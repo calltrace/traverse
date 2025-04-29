@@ -551,6 +551,7 @@ dependencies = [
  "petgraph",
  "serde_json",
  "streaming-iterator",
+ "thiserror 2.0.12",
  "tree-sitter",
  "tree-sitter-graph",
 ]
