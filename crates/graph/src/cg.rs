@@ -11,6 +11,7 @@ use tree_sitter::{Node as TsNode, Query, QueryCursor, Tree};
 // Constants for synthetic node names
 pub(crate) const EVM_NODE_NAME: &str = "EVM";
 pub(crate) const EVENT_LISTENER_NODE_NAME: &str = "EventListener";
+pub(crate) const REQUIRE_NODE_NAME: &str = "Require"; // Added for require statements
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum EdgeType {
@@ -23,13 +24,14 @@ pub enum EdgeType {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum NodeType {
     Function,
+    Interface,
     Constructor,
     Modifier,
     Library,       // Added Library type
-    Interface,     // Added Interface type
     StorageVariable, // Represents a state variable in storage
     Evm,           // Synthetic node for EVM interaction
     EventListener, // Synthetic node for event listeners
+    RequireCondition, // Synthetic node for require checks
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]

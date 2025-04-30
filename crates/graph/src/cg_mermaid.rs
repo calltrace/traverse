@@ -139,6 +139,32 @@ impl MermaidGenerator {
                             // Do NOT process the EVM -> Listener edge.
                             // Do NOT recurse for emit path.
                             continue; // Move to the next edge
+                        } else if target_node.node_type == NodeType::RequireCondition {
+                            // --- Handle Require Statement as Note ---
+                            if processed_edges.insert(edge_index) {
+                                let source_participant_id = Self::get_participant_id(
+                                    &source_node.name,
+                                    source_node.contract_name.as_ref(),
+                                );
+                                let condition = edge
+                                    .argument_names
+                                    .as_ref()
+                                    .and_then(|args| args.get(0)) // Get the first argument (condition)
+                                    .map(|s| s.as_str())
+                                    .unwrap_or("?");
+                                let message = edge
+                                    .argument_names
+                                    .as_ref()
+                                    .and_then(|args| args.get(1)) // Get the second argument (message)
+                                    .map(|s| format!(" ({})", s)) // Add parentheses if message exists
+                                    .unwrap_or_default();
+                                let note_text = format!("require({}){}", condition, message);
+
+                                // Add note over the participant performing the require check
+                                builder.note_over(vec![source_participant_id], note_text);
+                            }
+                            // Do not recurse for require path.
+                            continue; // Move to the next edge
                         } else {
                             // --- Handle Regular Call ---
                             if processed_edges.insert(edge_index) {

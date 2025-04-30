@@ -114,6 +114,7 @@ impl CgToDot for CallGraph {
                             NodeType::StorageVariable => "khaki".to_string(), // Added color for StorageVariable
                             NodeType::Evm => "gray".to_string(), // Added color for EVM
                             NodeType::EventListener => "lightcyan".to_string(), // Added color for EventListener
+                            NodeType::RequireCondition => "orange".to_string(), // Added color for RequireCondition
                         },
                     ),
                 ];

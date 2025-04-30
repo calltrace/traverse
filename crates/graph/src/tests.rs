@@ -94,9 +94,9 @@ fn test_simple_contract_call() -> Result<()> {
     assert_eq!(graph.edges[1].target_node_id, foo_node.id);
     assert_eq!(
         graph.edges[1].sequence_number,
-        2, // Global sequence counter makes this the 2nd call found
+        1, // Sequence is 1 within the constructor
         "constructor -> foo sequence"
-    ); // Sequence is 2 based on global counter
+    );
 
     assert_eq!(graph.iter_nodes().count(), 3);
     assert_eq!(graph.iter_edges().count(), 2);
@@ -327,7 +327,7 @@ fn test_contract_inheritance() -> Result<()> {
         .find(|e| e.source_node_id == derived_func_node.id && e.target_node_id == base_func_node.id)
         .expect("Edge derivedFunction -> baseFunction missing");
     assert_eq!(edge_derived_to_base.edge_type, EdgeType::Call);
-    assert_eq!(edge_derived_to_base.sequence_number, 1); // First call globally
+    assert_eq!(edge_derived_to_base.sequence_number, 1); // First call within derivedFunction
 
     // Edge b: callOverridden -> Derived.overriddenFunction
     let edge_call_to_derived_override = graph
@@ -339,7 +339,7 @@ fn test_contract_inheritance() -> Result<()> {
         })
         .expect("Edge callOverridden -> Derived.overriddenFunction missing");
     assert_eq!(edge_call_to_derived_override.edge_type, EdgeType::Call);
-    assert_eq!(edge_call_to_derived_override.sequence_number, 2); // Second call globally
+    assert_eq!(edge_call_to_derived_override.sequence_number, 1); // First call within callOverridden
 
     // Edge c: callBaseOverridden -> Base.overriddenFunction
     let edge_call_to_base_override = graph
@@ -351,7 +351,7 @@ fn test_contract_inheritance() -> Result<()> {
         })
         .expect("Edge callBaseOverridden -> Base.overriddenFunction missing");
     assert_eq!(edge_call_to_base_override.edge_type, EdgeType::Call);
-    assert_eq!(edge_call_to_base_override.sequence_number, 3); // Third call globally
+    assert_eq!(edge_call_to_base_override.sequence_number, 1); // First call within callBaseOverridden
 
     Ok(())
 }
@@ -2988,10 +2988,11 @@ fn test_library_call_on_return_value() -> Result<()> {
     // Library: SafeMath, Func: SafeMath.sub
     // Interface: IERC20, Func: IERC20.balanceOf
     // Contract: MyContract, Func: MyContract.doMath, Ctor: MyContract, StateVar: token
+    // Synthetic: Require (from SafeMath.sub)
     assert_eq!(
         graph.nodes.len(),
-        7,
-        "Should find 7 nodes (lib, lib func, iface, iface func, contract, contract func, ctor, state var)"
+        8, // +1 for the synthetic Require node
+        "Should find 8 nodes (lib, lib func, iface, iface func, contract, contract func, ctor, state var, Require)"
     );
 
     // Find relevant nodes
@@ -3011,17 +3012,12 @@ fn test_library_call_on_return_value() -> Result<()> {
     // 2. doMath -> SafeMath.sub (Call via using for on return value)
     // 3. doMath -> token (Read)
     // 4. constructor -> token (Write)
-    // 5. constructor -> IERC20 cast/call (Potentially expected, but not the focus here)
-    // Edges:
-    // 1. doMath -> IERC20.balanceOf (Call, seq 1)
-    // 2. doMath -> SafeMath.sub (Call, seq 2)
-    // 3. doMath -> token (Read)
-    // 4. constructor -> token (Write)
-    // 5. SafeMath.sub -> doMath (Return, seq 2) - Added by add_explicit_return_edges
+    // 5. SafeMath.sub -> Require (Call) - Added by require handling
+    // 6. SafeMath.sub -> doMath (Return, seq 2) - Added by add_explicit_return_edges
     assert_eq!(
         graph.edges.len(),
-        5, // Expecting 2 calls + 1 read + 1 write + 1 return
-        "Should find 5 edges (doMath->balanceOf, doMath->sub, doMath->token(R), ctor->token(W), sub->doMath(Ret))"
+        6, // Expecting 2 calls + 1 read + 1 write + 1 require call + 1 return
+        "Should find 6 edges (doMath->balanceOf, doMath->sub, doMath->token(R), ctor->token(W), sub->Require, sub->doMath(Ret))"
     );
 
     // Verify Edge 1: doMath -> balanceOf
@@ -3057,4 +3053,96 @@ fn test_library_call_on_return_value() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_require_statement() -> Result<()> {
+    let source = r#"
+        pragma solidity ^0.8.20;
+
+        contract RequireTest {
+            uint256 public threshold = 10;
+
+            function checkValue(uint256 value) public view {
+                require(value > threshold, "Value must be greater than threshold"); // Require call
+                // ... rest of the function
+            }
+        }
+        "#;
+    let ast = parse_solidity(source)?;
+    let solidity_lang = Solidity.get_tree_sitter_language();
+
+    let input = CallGraphGeneratorInput {
+        source: source.to_string(),
+        tree: ast.tree,
+        solidity_lang,
+    };
+    let mut ctx = CallGraphGeneratorContext::default();
+    let mut graph = CallGraph::new();
+    let config: HashMap<String, String> = HashMap::new(); // Empty config
+
+    // Run the full pipeline
+    let mut pipeline = CallGraphGeneratorPipeline::new();
+    pipeline.add_step(Box::new(ContractHandling::default()));
+    pipeline.add_step(Box::new(CallsHandling::default()));
+    pipeline.run(input, &mut ctx, &mut graph, &config)?;
+
+    // --- Assertions ---
+
+    // Nodes:
+    // 1. Function: RequireTest.checkValue
+    // 2. Constructor: RequireTest (default)
+    // 3. State Variable: threshold
+    // 4. Synthetic: Require
+    assert_eq!(
+        graph.nodes.len(),
+        4,
+        "Should find 4 nodes (checkValue, default ctor, state var, Require)"
+    );
+
+    // Find relevant nodes
+    let check_value_node = find_node(&graph, "checkValue", Some("RequireTest"))
+        .expect("RequireTest.checkValue node missing");
+    let require_node = find_node(&graph, crate::cg::REQUIRE_NODE_NAME, None) // Use constant
+        .expect("Require node missing");
+    let _threshold_node = find_node(&graph, "threshold", Some("RequireTest")) // Mark unused
+        .expect("RequireTest.threshold node missing");
+
+    assert_eq!(require_node.node_type, NodeType::RequireCondition);
+
+    // Edges:
+    // 1. checkValue -> threshold (Read)
+    // 2. checkValue -> Require (Call)
+    assert_eq!(
+        graph.edges.len(),
+        2,
+        "Should find 2 edges (1 read, 1 require call)"
+    );
+
+    // Verify Edge: checkValue -> Require
+    let require_edge = graph
+        .edges
+        .iter()
+        .find(|e| {
+            e.source_node_id == check_value_node.id && e.target_node_id == require_node.id
+        })
+        .expect("Edge checkValue -> Require missing");
+
+    assert_eq!(require_edge.edge_type, EdgeType::Call);
+    assert_eq!(
+        require_edge.sequence_number, 1,
+        "Require call sequence number should be 1"
+    );
+    assert_eq!(
+        require_edge.argument_names,
+        Some(vec![
+            "value > threshold".to_string(),
+            "\"Value must be greater than threshold\"".to_string()
+        ]),
+        "Require call arguments mismatch"
+    );
+    assert!(require_edge.call_site_span.0 > 0, "Require call site span start should be > 0"); // Basic span check
+
+    Ok(())
+}
+
 
