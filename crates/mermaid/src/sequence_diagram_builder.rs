@@ -241,7 +241,25 @@ impl SequenceDiagramBuilder {
         }))
     }
 
-     // --- Block Statements (using closures) ---
+    // --- Alt Block Statements ---
+
+    /// Starts an `alt` block with the given condition label.
+    /// Must be followed by statements and eventually `alt_else` or `alt_end`.
+    pub fn alt_start(&mut self, label: impl Into<String>) -> &mut Self {
+        self.add_statement(Statement::AltStart(AltStartStatement { label: label.into() }))
+    }
+
+    /// Adds an `else` section to an existing `alt` block with the given condition label.
+    pub fn alt_else(&mut self, label: impl Into<String>) -> &mut Self {
+        self.add_statement(Statement::AltElse(AltElseStatement { label: label.into() }))
+    }
+
+    /// Ends the current `alt` block.
+    pub fn alt_end(&mut self) -> &mut Self {
+        self.add_statement(Statement::AltEnd(AltEndStatement {}))
+    }
+
+    // --- Block Statements (using closures) ---
 
     /// Adds a `loop` block.
     ///

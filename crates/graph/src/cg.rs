@@ -19,6 +19,7 @@ pub enum EdgeType {
     Return,
     StorageRead,  // Represents reading from a storage variable
     StorageWrite, // Represents writing to a storage variable
+    Require,      // Represents a require check
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -91,6 +92,7 @@ impl crate::cg_dot::ToDotLabel for Edge {
             EdgeType::Return => "ret".to_string(),
             EdgeType::StorageRead => "read".to_string(),
             EdgeType::StorageWrite => "write".to_string(),
+            EdgeType::Require => "require".to_string(), // Add label for Require
         }
     }
 }

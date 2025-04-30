@@ -124,6 +124,12 @@ fn write_statement(output: &mut String, statement: &Statement, indent: &mut Stri
         }
         Statement::Destroy(s) => writeln!(output, "{indent}destroy {}", s.id).unwrap(),
 
+        // --- Alt Block Statements ---
+        Statement::AltStart(s) => writeln!(output, "{indent}alt {}", s.label).unwrap(),
+        Statement::AltElse(s) => writeln!(output, "{indent}else {}", s.label).unwrap(),
+        Statement::AltEnd(_) => writeln!(output, "{indent}end").unwrap(),
+
+
         // --- TODO: Implement remaining statement types ---
         Statement::Box(_) => writeln!(output, "{indent}%% TODO: Box statement not implemented").unwrap(),
         Statement::Links(_) => writeln!(output, "{indent}%% TODO: Links statement not implemented").unwrap(),

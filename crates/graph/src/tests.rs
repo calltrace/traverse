@@ -174,8 +174,8 @@ fn test_interface_call_no_implementation() -> Result<()> {
     // Since no implementation is provided, the edge should point directly to the interface method node.
     assert_eq!(
         graph.edges.len(),
-        3, // Expecting call edge + 1 read + 1 write for state var
-        "Should find 3 edges (triggerAction -> IAction.performAction, 1 read, 1 write)"
+        3, // Expecting triggerAction -> IAction.performAction (Call, seq 2), constructor -> actionContract (Write, seq 1), triggerAction -> actionContract (Read, seq 1)
+        "Should find 3 edges (1 call, 1 read, 1 write)"
     );
 
     let call_edge = graph
@@ -197,10 +197,10 @@ fn test_interface_call_no_implementation() -> Result<()> {
         EdgeType::Call,
         "Edge type should be Call"
     );
-    // Sequence number depends on constructor processing, check it's > 0
-    assert!(
-        call_edge.sequence_number > 0,
-        "Edge sequence number should be positive"
+    // Sequence number: 1 for read of actionContract, 2 for the call
+    assert_eq!(
+        call_edge.sequence_number, 2,
+        "Edge sequence number should be 2 (read + call)"
     );
 
     Ok(())
@@ -704,10 +704,16 @@ fn test_inter_contract_call() -> Result<()> {
     // 4. callIncrement -> myCounter (Read)
     // 5. constructor -> myCounter (Write)
     // Missing: increment -> count (Write) due to += not being detected yet.
+    // Edges:
+    // 1. callIncrement -> myCounter (Read, seq 1)
+    // 2. callIncrement -> increment (Call, seq 2)
+    // 3. increment -> count (Read, seq 1 within increment)
+    // 4. increment -> count (Write, seq 2 within increment) - Assuming += is split
+    // 5. constructor -> myCounter (Write, seq 1 within constructor)
     assert_eq!(
         graph.edges.len(),
-        5, // Adjusted from 6 - missing write for +=
-        "Should find 5 edges currently (2 calls, 2 reads, 1 write)"
+        5,
+        "Should find 5 edges (1 call, 2 reads, 2 writes)" // Updated count reasoning
     );
 
     // Find the specific *call* edge for callIncrement -> increment
@@ -729,11 +735,10 @@ fn test_inter_contract_call() -> Result<()> {
     // Let's assume the sequence counter increments for both calls.
     // Call 1: Constructor -> Constructor (sequence 1)
     // Call 2: callIncrement -> increment (sequence 2)
-    // Sequence number check might be fragile due to storage edges.
-    // Let's just check it's positive for now.
-    assert!(
-        call_inc_edge.sequence_number > 0,
-        "callIncrement -> increment sequence should be positive"
+    // Sequence: 1 for read of myCounter, 2 for the call
+    assert_eq!(
+        call_inc_edge.sequence_number, 2,
+        "callIncrement -> increment sequence should be 2 (read + call)"
     );
 
     Ok(())
@@ -1220,7 +1225,7 @@ fn test_using_for_call_resolution() -> Result<()> {
     assert_eq!(
         graph.edges.len(),
         2,
-        "Should find exactly 2 edges (checkNumberIsEven -> isEven via 'using for', 1 read)"
+        "Should find exactly 2 edges (1 read, 1 call)" // Updated order description
     );
     // Find the specific call edge, don't rely on index [0]
     let call_edge = graph
@@ -1246,10 +1251,11 @@ fn test_using_for_call_resolution() -> Result<()> {
         EdgeType::Call,
         "Edge type should be Call"
     );
+    // Sequence: 1 for read of number, 2 for call to isEven
     assert_eq!(
-        call_edge.sequence_number, 1,
-        "Edge sequence number should be 1"
-    ); // First call within checkNumberIsEven
+        call_edge.sequence_number, 2, // Updated sequence
+        "Edge sequence number should be 2"
+    );
 
     // Optionally, verify the read edge exists too
     let read_edge = graph
@@ -1794,10 +1800,15 @@ fn test_chained_call_resolution() -> Result<()> {
     // Edges:
     // 1. complexUpdate -> SafeMath.add (for value.add(_add))
     // 2. complexUpdate -> SafeMath.sub (for (...).sub(_sub))
+    // Edges:
+    // 1. complexUpdate -> value (Read, seq 1)
+    // 2. complexUpdate -> add (Call, seq 2)
+    // 3. complexUpdate -> sub (Call, seq 3)
+    // 4. complexUpdate -> value (Write, seq 4) - Note: Write happens first in assignment `value = ...`
     assert_eq!(
         graph.edges.len(),
         4,
-        "Should find 4 edges for the chained call (2 calls + 1 read + 1 write)"
+        "Should find 4 edges for the chained call (1 write + 1 read + 2 calls)" // Updated order description
     );
 
     // Verify edge 1: complexUpdate -> add
@@ -1809,10 +1820,10 @@ fn test_chained_call_resolution() -> Result<()> {
         })
         .expect("Edge complexUpdate -> add missing");
     assert_eq!(edge_to_add.edge_type, EdgeType::Call);
-    // Sequence number depends on parsing order, check it's 1 or 2
-    assert!(
-        edge_to_add.sequence_number == 1 || edge_to_add.sequence_number == 2,
-        "Edge complexUpdate -> add sequence invalid"
+    // Sequence: 1 for write, 2 for read of value, 3 for call to add
+    assert_eq!(
+        edge_to_add.sequence_number, 3, // Updated sequence
+        "Edge complexUpdate -> add sequence should be 3"
     );
 
     // Verify edge 2: complexUpdate -> sub
@@ -1824,14 +1835,10 @@ fn test_chained_call_resolution() -> Result<()> {
         })
         .expect("Edge complexUpdate -> sub missing");
     assert_eq!(edge_to_sub.edge_type, EdgeType::Call);
-    // Sequence number depends on parsing order, check it's 1 or 2 and different from add edge
-    assert!(
-        edge_to_sub.sequence_number == 1 || edge_to_sub.sequence_number == 2,
-        "Edge complexUpdate -> sub sequence invalid"
-    );
-    assert_ne!(
-        edge_to_add.sequence_number, edge_to_sub.sequence_number,
-        "Sequence numbers for add and sub should be different"
+    // Sequence: 1 for write, 2 for read, 3 for add call, 4 for sub call
+    assert_eq!(
+        edge_to_sub.sequence_number, 4, // Updated sequence
+        "Edge complexUpdate -> sub sequence should be 4"
     );
 
     Ok(())
@@ -2137,10 +2144,15 @@ fn test_chained_library_call_resolution() -> Result<()> {
     // Edges:
     // 1. complexUpdate -> SafeMath.mul (for balance.mul(1000))
     // 2. complexUpdate -> SafeMath.sub (for (...).sub(3))
+    // Edges:
+    // 1. complexUpdate -> balance (Read, seq 1)
+    // 2. complexUpdate -> mul (Call, seq 2)
+    // 3. complexUpdate -> sub (Call, seq 3)
+    // 4. complexUpdate -> balance (Write, seq 4) - Note: Write happens first in assignment `balance = ...`
     assert_eq!(
         graph.edges.len(),
         4,
-        "Should find 4 edges for the chained library call (2 calls + 1 read + 1 write)"
+        "Should find 4 edges for the chained library call (1 write + 1 read + 2 calls)" // Updated order description
     );
 
     // Verify edge 1: complexUpdate -> mul
@@ -2152,10 +2164,10 @@ fn test_chained_library_call_resolution() -> Result<()> {
         })
         .expect("Edge complexUpdate -> mul missing");
     assert_eq!(edge_to_mul.edge_type, EdgeType::Call);
-    // Sequence number depends on parsing order, check it's 1 or 2
-    assert!(
-        edge_to_mul.sequence_number == 1 || edge_to_mul.sequence_number == 2,
-        "Edge complexUpdate -> mul sequence invalid"
+    // Sequence: 1 for write, 2 for read of balance, 3 for call to mul
+    assert_eq!(
+        edge_to_mul.sequence_number, 3, // Updated sequence
+        "Edge complexUpdate -> mul sequence should be 3"
     );
 
     // Verify edge 2: complexUpdate -> sub
@@ -2167,14 +2179,10 @@ fn test_chained_library_call_resolution() -> Result<()> {
         })
         .expect("Edge complexUpdate -> sub missing");
     assert_eq!(edge_to_sub.edge_type, EdgeType::Call);
-    // Sequence number depends on parsing order, check it's 1 or 2 and different from mul edge
-    assert!(
-        edge_to_sub.sequence_number == 1 || edge_to_sub.sequence_number == 2,
-        "Edge complexUpdate -> sub sequence invalid"
-    );
-    assert_ne!(
-        edge_to_mul.sequence_number, edge_to_sub.sequence_number,
-        "Sequence numbers for mul and sub should be different"
+    // Sequence: 1 for write, 2 for read, 3 for mul call, 4 for sub call
+    assert_eq!(
+        edge_to_sub.sequence_number, 4, // Updated sequence
+        "Edge complexUpdate -> sub sequence should be 4"
     );
 
     Ok(())
@@ -2380,17 +2388,16 @@ fn test_interface_call_resolution_factory_pattern() -> Result<()> {
     );
 
     // Check sequence numbers within triggerAction
-    // Call 1: .createAction() -> edge_trigger_to_factory
-    // Call 2: .performAction() -> edge_trigger_to_impl
-    // Sequence numbers depend on the order tree-sitter finds the call_expression nodes.
-    // Let's assert they are 1 and 2 in some order.
-    let seq1 = edge_trigger_to_factory.sequence_number;
-    let seq2 = edge_trigger_to_impl.sequence_number;
-    assert!(
-        (seq1 == 1 && seq2 == 2) || (seq1 == 2 && seq2 == 1),
-        "Sequence numbers within triggerAction should be 1 and 2 (found {} and {})",
-        seq1,
-        seq2
+    // Seq 1: Read factoryAddress
+    // Seq 2: Call createAction() -> edge_trigger_to_factory
+    // Seq 3: Call performAction() -> edge_trigger_to_impl
+    assert_eq!(
+        edge_trigger_to_factory.sequence_number, 2,
+        "triggerAction -> createAction sequence should be 2"
+    );
+    assert_eq!(
+        edge_trigger_to_impl.sequence_number, 3,
+        "triggerAction -> performAction sequence should be 3"
     );
 
     Ok(())
@@ -2487,6 +2494,8 @@ fn test_argument_capturing() -> Result<()> {
         Some(vec!["data + 1".to_string()]),
         "Intra-contract call arguments mismatch"
     );
+    // Sequence: 1 for the call
+    assert_eq!(intra_contract_edge.sequence_number, 1, "Intra-contract call sequence should be 1");
 
     // 2. Contract-to-contract call: callExternal -> externalTarget
     let inter_contract_edge = graph
@@ -2503,6 +2512,8 @@ fn test_argument_capturing() -> Result<()> {
         Some(vec!["num".to_string(), "text".to_string()]),
         "Inter-contract call arguments mismatch"
     );
+    // Sequence: 1 for read of calleeInstance, 2 for the call
+    assert_eq!(inter_contract_edge.sequence_number, 2, "Inter-contract call sequence should be 2");
 
     // 3. User-to-contract call (entryPoint): No direct edge generated for user calls,
     //    but we can check the node itself exists.
@@ -2596,9 +2607,10 @@ fn test_simple_emit_statement() -> Result<()> {
         .expect("Edge updateValue -> EVM missing");
 
     assert_eq!(edge_func_to_evm.edge_type, EdgeType::Call);
+    // Sequence: 1 for read _value, 2 for write _value, 3 for emit
     assert_eq!(
-        edge_func_to_evm.sequence_number, 1,
-        "Emit sequence number should be 1"
+        edge_func_to_evm.sequence_number, 3,
+        "Emit sequence number should be 3"
     );
     assert_eq!(
         edge_func_to_evm.event_name,
@@ -2619,9 +2631,10 @@ fn test_simple_emit_statement() -> Result<()> {
         .expect("Edge EVM -> EventListener missing");
 
     assert_eq!(edge_evm_to_listener.edge_type, EdgeType::Call);
+    // Sequence: 1 for read _value, 2 for write _value, 3 for emit
     assert_eq!(
-        edge_evm_to_listener.sequence_number, 1,
-        "Sequence number should be the same for both emit edges"
+        edge_evm_to_listener.sequence_number, 3,
+        "Sequence number should be the same for both emit edges (3)"
     );
     assert_eq!(
         edge_evm_to_listener.event_name,
@@ -2784,13 +2797,16 @@ fn test_interface_call_resolution_factory_pattern_no_return() -> Result<()> {
     );
 
     // Check sequence numbers within triggerAction
-    let seq1 = edge_trigger_to_factory.sequence_number;
-    let seq2 = edge_trigger_to_impl.sequence_number;
-    assert!(
-        (seq1 == 1 && seq2 == 2) || (seq1 == 2 && seq2 == 1),
-        "NoReturn: Sequence numbers within triggerAction should be 1 and 2 (found {} and {})",
-        seq1,
-        seq2
+    // Seq 1: Read factoryAddress
+    // Seq 2: Call createAction() -> edge_trigger_to_factory
+    // Seq 3: Call performAction() -> edge_trigger_to_impl
+    assert_eq!(
+        edge_trigger_to_factory.sequence_number, 2,
+        "NoReturn: triggerAction -> createAction sequence should be 2"
+    );
+    assert_eq!(
+        edge_trigger_to_impl.sequence_number, 3,
+        "NoReturn: triggerAction -> performAction sequence should be 3"
     );
 
     Ok(())
@@ -2872,12 +2888,9 @@ fn test_storage_read_write() -> Result<()> {
     // This test assumes that functionality exists or will be added.
     // If CallsHandling doesn't create these, the test will fail, indicating the need for implementation.
 
-    // TODO: Update edge count assertion when Storage Read/Write edge generation is implemented.
-    // For now, we expect 0 edges until the feature is added.
-    // assert_eq!(graph.edges.len(), 2, "Should find 2 edges (1 read, 1 write)");
+    assert_eq!(graph.edges.len(), 2, "Should find 2 edges (1 read, 1 write)");
 
     // --- Assertions for when Read/Write edges are implemented ---
-    // Uncomment and adapt these assertions once the feature exists.
 
     // Verify Edge 1: readVariable -> myVariable (StorageRead)
     let read_edge = graph
@@ -2889,6 +2902,8 @@ fn test_storage_read_write() -> Result<()> {
                 && e.edge_type == EdgeType::StorageRead
         })
         .expect("StorageRead edge from readVariable to myVariable missing");
+    // Sequence: 1 for the read
+    assert_eq!(read_edge.sequence_number, 1, "StorageRead sequence should be 1");
 
     // Verify Edge 2: writeVariable -> myVariable (StorageWrite)
     let write_edge = graph
@@ -2900,7 +2915,8 @@ fn test_storage_read_write() -> Result<()> {
                 && e.edge_type == EdgeType::StorageWrite
         })
         .expect("StorageWrite edge from writeVariable to myVariable missing");
-
+    // Sequence: 1 for the write
+    assert_eq!(write_edge.sequence_number, 1, "StorageWrite sequence should be 1");
 
     Ok(())
 }
@@ -3043,13 +3059,14 @@ fn test_library_call_on_return_value() -> Result<()> {
         .expect("Edge doMath -> SafeMath.sub missing");
 
     // Verify sequence numbers within doMath
-    // Call 1: token.balanceOf(...)
-    // Call 2: balance.sub(1)
+    // Seq 1: Read token
+    // Seq 2: Call token.balanceOf(...)
+    // Seq 3: Call balance.sub(1)
     assert_eq!(
-        edge_to_balance_of.sequence_number, 1,
-        "balanceOf call should be sequence 1"
+        edge_to_balance_of.sequence_number, 2,
+        "balanceOf call should be sequence 2"
     );
-    assert_eq!(edge_to_sub.sequence_number, 2, "sub call should be sequence 2");
+    assert_eq!(edge_to_sub.sequence_number, 3, "sub call should be sequence 3");
 
     Ok(())
 }
@@ -3128,9 +3145,10 @@ fn test_require_statement() -> Result<()> {
         .expect("Edge checkValue -> Require missing");
 
     assert_eq!(require_edge.edge_type, EdgeType::Call);
+    // Sequence: 1 for read threshold, 2 for require call
     assert_eq!(
-        require_edge.sequence_number, 1,
-        "Require call sequence number should be 1"
+        require_edge.sequence_number, 2,
+        "Require call sequence number should be 2"
     );
     assert_eq!(
         require_edge.argument_names,

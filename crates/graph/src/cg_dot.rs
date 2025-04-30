@@ -210,6 +210,27 @@ impl CgToDot for CallGraph {
                         attrs.push(("fontcolor".to_string(), "darkred".to_string()));
                         attrs.push(("style".to_string(), "bold".to_string()));
                     }
+                    EdgeType::Require => {
+                        // --- BEGIN DOT REQUIRE DEBUG ---
+                        eprintln!("[DOT Require DEBUG] Formatting Require edge: {} -> {}", edge.source_node_id, edge.target_node_id);
+                        // --- END DOT REQUIRE DEBUG ---
+                        let tooltip = format!("Require Check Span: {:?}", edge.call_site_span);
+                        let args_str = edge.argument_names.as_ref()
+                            .map(|args| {
+                                if args.is_empty() {
+                                    "".to_string()
+                                } else {
+                                    args.iter().map(|arg| escape_dot_string(arg)).collect::<Vec<_>>().join(", ")
+                                }
+                            })
+                            .unwrap_or_default();
+                        let label = format!("require({})", args_str);
+                        attrs.push(("label".to_string(), escape_dot_string(&label)));
+                        attrs.push(("tooltip".to_string(), escape_dot_string(&tooltip)));
+                        attrs.push(("color".to_string(), "orange".to_string()));
+                        attrs.push(("fontcolor".to_string(), "orange".to_string()));
+                        attrs.push(("style".to_string(), "dashed".to_string()));
+                    }
                 }
                 // Allow overriding attributes from Edge::to_dot_attributes if needed
                 attrs.extend(edge.to_dot_attributes());

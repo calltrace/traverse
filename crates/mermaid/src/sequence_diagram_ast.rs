@@ -43,6 +43,10 @@ pub enum Statement {
     ParOver(ParOverStatement),
     Break(BreakStatement),
     Critical(CriticalStatement),
+    // --- Added for Alt blocks ---
+    AltStart(AltStartStatement),
+    AltElse(AltElseStatement),
+    AltEnd(AltEndStatement),
 }
 
 /// Signal statement (e.g., "Alice->>John: Hello")
@@ -279,3 +283,23 @@ pub struct CriticalStatement {
     pub label: Option<String>,
     pub statements: Vec<Statement>,
 }
+
+// --- Added for Alt blocks ---
+
+/// Alt Start statement (e.g., "alt Condition 1")
+#[derive(Debug, Clone, PartialEq)]
+pub struct AltStartStatement {
+    pub label: String, // The condition text
+}
+
+/// Else statement within an Alt block (e.g., "else Condition 2")
+#[derive(Debug, Clone, PartialEq)]
+pub struct AltElseStatement {
+    pub label: String, // The condition text
+}
+
+/// End statement for Alt/Loop/Opt etc. (e.g., "end")
+#[derive(Debug, Clone, PartialEq)]
+pub struct AltEndStatement {}
+// --- End Added for Alt blocks ---
+

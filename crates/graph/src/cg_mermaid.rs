@@ -121,7 +121,8 @@ impl MermaidGenerator {
                                     &source_node.name, // Use source node (the emitter)
                                     source_node.contract_name.as_ref(),
                                 );
-                                let event_name = edge.event_name.as_deref().unwrap_or("UnknownEvent");
+                                let event_name =
+                                    edge.event_name.as_deref().unwrap_or("UnknownEvent");
                                 let args_str = edge
                                     .argument_names
                                     .as_ref()
@@ -138,32 +139,6 @@ impl MermaidGenerator {
                             }
                             // Do NOT process the EVM -> Listener edge.
                             // Do NOT recurse for emit path.
-                            continue; // Move to the next edge
-                        } else if target_node.node_type == NodeType::RequireCondition {
-                            // --- Handle Require Statement as Note ---
-                            if processed_edges.insert(edge_index) {
-                                let source_participant_id = Self::get_participant_id(
-                                    &source_node.name,
-                                    source_node.contract_name.as_ref(),
-                                );
-                                let condition = edge
-                                    .argument_names
-                                    .as_ref()
-                                    .and_then(|args| args.get(0)) // Get the first argument (condition)
-                                    .map(|s| s.as_str())
-                                    .unwrap_or("?");
-                                let message = edge
-                                    .argument_names
-                                    .as_ref()
-                                    .and_then(|args| args.get(1)) // Get the second argument (message)
-                                    .map(|s| format!(" ({})", s)) // Add parentheses if message exists
-                                    .unwrap_or_default();
-                                let note_text = format!("require({}){}", condition, message);
-
-                                // Add note over the participant performing the require check
-                                builder.note_over(vec![source_participant_id], note_text);
-                            }
-                            // Do not recurse for require path.
                             continue; // Move to the next edge
                         } else {
                             // --- Handle Regular Call ---
@@ -207,8 +182,7 @@ impl MermaidGenerator {
                                 return_edge_lookup.get(&return_lookup_key)
                             {
                                 if processed_edges.insert(*return_edge_index) {
-                                    if let Some(return_edge) = graph.edges.get(*return_edge_index)
-                                    {
+                                    if let Some(return_edge) = graph.edges.get(*return_edge_index) {
                                         if let (Some(ret_source_node), Some(ret_target_node)) = (
                                             graph.nodes.get(return_edge.source_node_id),
                                             graph.nodes.get(return_edge.target_node_id),
@@ -251,6 +225,43 @@ impl MermaidGenerator {
                             } // End return edge processing
                         } // End else (regular call)
                     } // End EdgeType::Call
+                    EdgeType::Require => {
+                        // --- Handle Require Statement as Note ---
+                        if processed_edges.insert(edge_index) {
+                            let source_participant_id = Self::get_participant_id(
+                                &source_node.name,
+                                source_node.contract_name.as_ref(),
+                            );
+                            let condition = edge
+                                .argument_names
+                                .as_ref()
+                                .and_then(|args| args.get(0)) // Get the first argument (condition)
+                                .map(|s| s.as_str())
+                                .unwrap_or("?");
+                            let message = edge
+                                .argument_names
+                                .as_ref()
+                                .and_then(|args| args.get(1)) // Get the second argument (message)
+                                .map(|s| format!(" ({})", s)) // Add parentheses if message exists
+                                .unwrap_or_default();
+                            let condition_text = format!("require({}){}", condition, message);
+
+                            // Represent the require check as an alt block
+                            builder.alt_start(condition_text);
+                            // Add the success note
+                            builder.note_over(
+                                vec![source_participant_id.clone()], // Note is over the target participant
+                                "Continue processing".to_string(),
+                            );
+                            builder.alt_else("");
+                            builder.note_over(
+                                vec![source_participant_id], // Note is over the target participant
+                                "Revert transaction".to_string(),
+                            );
+                            builder.alt_end();
+                        }
+                        // Do not recurse for require path.
+                    }
                     EdgeType::Return => {
                         // Return edges are handled implicitly after their corresponding Call edge recursion returns.
                         // We mark them processed there. So, if we encounter one here directly,
@@ -270,17 +281,16 @@ impl MermaidGenerator {
                             // Target node is the storage variable
                             let var_name = &target_node.name;
                             // Use the target node's contract name for the variable's scope
-                            let var_contract_name = target_node
-                                .contract_name
-                                .as_deref()
-                                .unwrap_or("<Global>"); // Should ideally always have a contract
+                            let var_contract_name =
+                                target_node.contract_name.as_deref().unwrap_or("<Global>"); // Should ideally always have a contract
 
                             let action = if edge.edge_type == EdgeType::StorageRead {
                                 "Read"
                             } else {
                                 "Write"
                             };
-                            let note_text = format!("{} {}.{}", action, var_contract_name, var_name);
+                            let note_text =
+                                format!("{} {}.{}", action, var_contract_name, var_name);
 
                             // Add note over the participant performing the action
                             builder.note_over(vec![source_participant_id], note_text);
@@ -312,7 +322,9 @@ impl ToSequenceDiagram for MermaidGenerator {
         // 3. Declare Participants (Contracts, Interfaces, Global Scope - excluding EVM/Listener)
         for node in graph.iter_nodes() {
             // Skip synthetic EVM and EventListener nodes
-            if node.name == crate::cg::EVM_NODE_NAME || node.name == crate::cg::EVENT_LISTENER_NODE_NAME {
+            if node.name == crate::cg::EVM_NODE_NAME
+                || node.name == crate::cg::EVENT_LISTENER_NODE_NAME
+            {
                 continue;
             }
 
