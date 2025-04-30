@@ -787,12 +787,20 @@ pub(crate) fn get_function_return_type(
         // NOTE: This simplified query only handles `returns (type)`.
         // It does NOT handle named return parameters like `returns (uint value)`
         // or returns from modifiers. This is sufficient for the current test case.
+        // Added pattern for interface function definitions.
         let return_type_query_str = r#"
             (function_definition
               return_type: (return_type_definition
                 (parameter type: (type_name) @return_type_name_node)
               )
             )
+
+            ; Interface function definitions might have a slightly different structure
+            ; but the return type part should be similar.
+            (interface_declaration (contract_body (function_definition
+              return_type: (return_type_definition
+                (parameter type: (type_name) @return_type_name_node))
+            )))
         "#;
         // Note: Using a static query cache might be more efficient if this runs often.
         let return_type_query = match Query::new(&input.solidity_lang, return_type_query_str) {

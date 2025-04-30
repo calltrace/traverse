@@ -784,11 +784,86 @@ fn resolve_expression_type_v2<'a>(
                     );
                     return Ok(Some(type_name.clone()));
                 }
-                // TODO: Check local variables/parameters within the caller_node_id's definition_ts_node
-                // This requires parsing the function parameters and local variable declarations.
+            // TODO: Check local variables/parameters within the caller_node_id's definition_ts_node
+            // This requires parsing the function parameters and local variable declarations.
+            // --- Start: Check local variables ---
+            if let Some((_, caller_node_info, _)) = ctx
+                .definition_nodes_info
+                .iter()
+                .find(|(id, _, _)| *id == caller_node_id)
+            {
+                if let Some(definition_ts_node) = input
+                    .tree
+                    .root_node()
+                    .descendant_for_byte_range(caller_node_info.span.0, caller_node_info.span.1)
+                {
+                    let local_var_query_str = r#"
+                        ; Local variable declaration statement
+                        (variable_declaration_statement
+                          (variable_declaration
+                            type: (_) @local_var_type
+                            name: (identifier) @local_var_name
+                          )
+                        ) @local_var_decl_stmt
+
+                    "#;
+                    // Use try_new for query creation with error handling
+                    let local_var_query = match Query::new(&input.solidity_lang, local_var_query_str) {
+                        Ok(q) => q,
+                        Err(e) => return Err(TypeError::QueryError(format!("Failed to create local var query: {}", e))),
+                    };
+
+                    let mut cursor = QueryCursor::new();
+                    let source_bytes = input.source.as_bytes(); // Needed for closure
+                    let mut matches = cursor.matches(
+                        &local_var_query,
+                        definition_ts_node, // Query within the function definition
+                        |node: TsNode| std::iter::once(&source_bytes[node.byte_range()]),
+                    );
+
+                    while let Some(match_) = matches.next() {
+                        let mut var_name_opt: Option<String> = None;
+                        let mut type_node_opt: Option<TsNode> = None;
+                        let mut decl_end_byte: usize = 0;
+
+                        for capture in match_.captures {
+                            let capture_name = &local_var_query.capture_names()[capture.index as usize];
+                            match *capture_name { // Dereference capture_name
+                                "local_var_name" | "param_name" => {
+                                    var_name_opt = Some(get_node_text(&capture.node, &input.source).to_string());
+                                    // Use the end byte of the name node for scope check
+                                    decl_end_byte = capture.node.end_byte();
+                                }
+                                "local_var_type" | "param_type" => {
+                                    type_node_opt = Some(capture.node);
+                                }
+                                "local_var_decl_stmt" => {
+                                    // Use the end byte of the whole statement for scope check
+                                    decl_end_byte = capture.node.end_byte();
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        if let (Some(var_name), Some(type_node)) = (var_name_opt, type_node_opt) {
+                            // Check if the declared variable name matches the identifier we are resolving
+                            // AND if the identifier usage occurs *after* the declaration
+                            if var_name == name && expr_node.start_byte() >= decl_end_byte {
+                                let type_name = get_node_text(&type_node, &input.source).to_string();
+                                eprintln!(
+                                    "[Resolve Type V2]   Identifier '{}' resolved to local var/param type '{}'",
+                                    name, type_name
+                                );
+                                return Ok(Some(type_name));
+                            }
+                        }
+                    }
+                }
             }
-            // 2. Check if it's a known contract, library, or interface name (these are types)
-            if ctx.all_contracts.contains_key(&name)
+            // --- End: Check local variables ---
+        }
+        // 2. Check if it's a known contract, library, or interface name (these are types)
+        if ctx.all_contracts.contains_key(&name)
                 || ctx.all_libraries.contains_key(&name)
                 || ctx.all_interfaces.contains_key(&name)
             {
@@ -815,7 +890,7 @@ fn resolve_expression_type_v2<'a>(
                 "[Resolve Type V2]   Identifier '{}' type not resolved (state/type/local?).",
                 name
             );
-            Ok(None)
+            Ok(None) // Identifier not resolved
         }
         "primitive_type" => Ok(Some(expr_text)),
         "string_literal" => Ok(Some("string".to_string())), // Assume string memory
@@ -1555,14 +1630,21 @@ fn get_function_return_type_v2(
 ) -> std::result::Result<Option<String>, TypeError> {
     // Use full path to Result
     // Query to find the actual type name node within the standard return structure.
-    // Aligned with the query in cg::get_function_return_type.
     // Handles simple cases like `returns (uint)`. Does not handle named returns yet.
+    // Added pattern for interface function definitions.
     let query_str = r#"
         (function_definition
           return_type: (return_type_definition
-            (parameter type: (type_name) @return_type_name_node) 
+            (parameter type: (type_name) @return_type_name_node)
           )
         )
+
+        ; Interface function definitions might have a slightly different structure
+        ; but the return type part should be similar.
+        (interface_declaration (contract_body (function_definition
+          return_type: (return_type_definition
+            (parameter type: (type_name) @return_type_name_node))
+        )))
     "#;
     // Use lang and source from input
     let query = Query::new(&input.solidity_lang, query_str)?;

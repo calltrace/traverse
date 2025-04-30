@@ -2904,3 +2904,157 @@ fn test_storage_read_write() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_library_call_on_return_value() -> Result<()> {
+    let source = r#"
+        pragma solidity ^0.8.20;
+
+        library SafeMath {
+            function sub(uint256 a, uint256 b) internal pure returns (uint256) {
+                require(b <= a, "SafeMath: subtraction overflow");
+                return a - b;
+            }
+        }
+
+        interface IERC20 {
+            function balanceOf(address account) external view returns (uint256);
+        }
+
+        contract MyContract {
+            using SafeMath for uint256;
+
+            IERC20 public token; // Assume set elsewhere or in constructor
+
+            constructor(address _token) {
+                token = IERC20(_token);
+            }
+
+            function doMath() public view returns (uint256) {
+                // 1. Call balanceOf on the interface instance
+                uint256 balance = token.balanceOf(address(this));
+                // 2. Call sub (from SafeMath via using for) on the returned uint256
+                uint256 result = balance.sub(1);
+                return result;
+            }
+        }
+        "#;
+    let ast = parse_solidity(source)?;
+    let solidity_lang = Solidity.get_tree_sitter_language();
+
+    let input = CallGraphGeneratorInput {
+        source: source.to_string(),
+        tree: ast.tree,
+        solidity_lang,
+    };
+    let mut ctx = CallGraphGeneratorContext::default();
+    let mut graph = CallGraph::new();
+    let config: HashMap<String, String> = HashMap::new(); // Empty config
+
+    // Run the full pipeline
+    let mut pipeline = CallGraphGeneratorPipeline::new();
+    pipeline.add_step(Box::new(ContractHandling::default()));
+    pipeline.add_step(Box::new(CallsHandling::default()));
+    pipeline.run(input.clone(), &mut ctx, &mut graph, &config)?;
+    // --- DEBUG: Inspect edges related to doMath ---
+    let do_math_node_opt = find_node(&graph, "doMath", Some("MyContract"));
+    if let Some(do_math_node) = do_math_node_opt {
+        eprintln!("[DEBUG Mermaid Focus] Edges involving doMath (Node ID {}):", do_math_node.id);
+        for (idx, edge) in graph.edges.iter().enumerate() {
+            let source_node_name = graph.nodes.get(edge.source_node_id).map_or("?".to_string(), |n| format!("{}.{}", n.contract_name.as_deref().unwrap_or("Global"), n.name));
+            let target_node_name = graph.nodes.get(edge.target_node_id).map_or("?".to_string(), |n| format!("{}.{}", n.contract_name.as_deref().unwrap_or("Global"), n.name));
+
+            if edge.source_node_id == do_math_node.id || edge.target_node_id == do_math_node.id {
+                 eprintln!(
+                    "[DEBUG Mermaid Focus]   Edge Index {}: {} -> {} (Target: '{}'), Type: {:?}, Seq: {}, Args: {:?}, RetVal: {:?}",
+                    idx, edge.source_node_id, edge.target_node_id, target_node_name, edge.edge_type, edge.sequence_number, edge.argument_names, edge.returned_value
+                );
+            }
+        }
+    } else {
+        eprintln!("[DEBUG Mermaid Focus] Could not find doMath node!");
+    }
+    // --- END DEBUG ---
+
+
+    // Add explicit return edges AFTER inspecting call edges
+    graph.add_explicit_return_edges(&input, &ctx)?;
+
+
+
+    // --- Assertions ---
+
+    // Nodes:
+    // Library: SafeMath, Func: SafeMath.sub
+    // Interface: IERC20, Func: IERC20.balanceOf
+    // Contract: MyContract, Func: MyContract.doMath, Ctor: MyContract, StateVar: token
+    assert_eq!(
+        graph.nodes.len(),
+        7,
+        "Should find 7 nodes (lib, lib func, iface, iface func, contract, contract func, ctor, state var)"
+    );
+
+    // Find relevant nodes
+    let do_math_node = find_node(&graph, "doMath", Some("MyContract"))
+        .expect("MyContract.doMath node missing");
+    let balance_of_node = find_node(&graph, "balanceOf", Some("IERC20"))
+        .expect("IERC20.balanceOf node missing");
+    let sub_node =
+        find_node(&graph, "sub", Some("SafeMath")).expect("SafeMath.sub node missing");
+    let _token_var_node = find_node(&graph, "token", Some("MyContract")) // Mark unused
+        .expect("MyContract.token state variable node missing");
+    let _ctor_node = find_node(&graph, "MyContract", Some("MyContract")) // Mark unused
+        .expect("MyContract constructor node missing");
+
+    // Edges:
+    // 1. doMath -> IERC20.balanceOf (Call)
+    // 2. doMath -> SafeMath.sub (Call via using for on return value)
+    // 3. doMath -> token (Read)
+    // 4. constructor -> token (Write)
+    // 5. constructor -> IERC20 cast/call (Potentially expected, but not the focus here)
+    // Edges:
+    // 1. doMath -> IERC20.balanceOf (Call, seq 1)
+    // 2. doMath -> SafeMath.sub (Call, seq 2)
+    // 3. doMath -> token (Read)
+    // 4. constructor -> token (Write)
+    // 5. SafeMath.sub -> doMath (Return, seq 2) - Added by add_explicit_return_edges
+    assert_eq!(
+        graph.edges.len(),
+        5, // Expecting 2 calls + 1 read + 1 write + 1 return
+        "Should find 5 edges (doMath->balanceOf, doMath->sub, doMath->token(R), ctor->token(W), sub->doMath(Ret))"
+    );
+
+    // Verify Edge 1: doMath -> balanceOf
+    let edge_to_balance_of = graph
+        .edges
+        .iter()
+        .find(|e| {
+            e.source_node_id == do_math_node.id
+                && e.target_node_id == balance_of_node.id
+                && e.edge_type == EdgeType::Call
+        })
+        .expect("Edge doMath -> IERC20.balanceOf missing");
+
+    // Verify Edge 2: doMath -> sub
+    let edge_to_sub = graph
+        .edges
+        .iter()
+        .find(|e| {
+            e.source_node_id == do_math_node.id
+                && e.target_node_id == sub_node.id
+                && e.edge_type == EdgeType::Call
+        })
+        .expect("Edge doMath -> SafeMath.sub missing");
+
+    // Verify sequence numbers within doMath
+    // Call 1: token.balanceOf(...)
+    // Call 2: balance.sub(1)
+    assert_eq!(
+        edge_to_balance_of.sequence_number, 1,
+        "balanceOf call should be sequence 1"
+    );
+    assert_eq!(edge_to_sub.sequence_number, 2, "sub call should be sequence 2");
+
+    Ok(())
+}
+
