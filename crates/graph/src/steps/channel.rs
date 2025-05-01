@@ -20,7 +20,7 @@ use tree_sitter::{Node as TsNode, Query, QueryCursor};
 // type StorageEdgeKey = (usize, usize, EdgeType, (usize, usize)); // No longer needed with deferred approach
 
 // --- NEW: Struct to hold modification data for deferred edge addition ---
-#[derive(Debug, Clone)] // Added Debug and Clone
+#[derive(Debug, Clone, PartialEq, Eq)] // Added PartialEq, Eq for deduplication
 struct GraphModification {
     source_node_id: usize,
     target_node_id: usize,
@@ -337,7 +337,8 @@ impl CallGraphGeneratorStep for CallsHandling {
                                             return_value: None, // Not tracked here
                                             arguments: Some(step.arguments.clone()),
                                             event_name: None,
-                                            sort_span_start: step.call_expr_span.0, // Use step's span start for sorting
+                                            // Use the function span start for sorting chained calls correctly
+                                            sort_span_start: step.function_span.0,
                                         });
                                     } else {
                                         eprintln!("[CallsHandling DEBUG]             >>> Target for step {:?} did not resolve to a node ID. Skipping modification.", step.target);
@@ -530,7 +531,9 @@ impl CallGraphGeneratorStep for CallsHandling {
                                                                         return_value: None,
                                                                         arguments: Some(new_args),
                                                                         event_name: None,
-                                                                        sort_span_start: new_span.0, // Use new expression start for sorting
+                                                                        // Use the sort span start of the call step that triggered this internal analysis
+                                                                        // This groups the internal 'new' logically with the call that caused it.
+                                                                        sort_span_start: step.call_expr_span.0,
                                                                     },
                                                                 );
                                                             } else {
@@ -932,8 +935,22 @@ impl CallGraphGeneratorStep for CallsHandling {
             );
             modifications.sort_by_key(|m| m.sort_span_start);
 
+            // --- Deduplicate modifications ---
+            // We dedup based on all fields after sorting by the originating span start.
+            // This ensures that if the exact same interaction (source, target, type, span, args, etc.)
+            // was somehow collected multiple times, we only add it once.
+            // The sorting ensures that identical items are adjacent for dedup() to work.
+            let original_len = modifications.len();
+            modifications.dedup();
+            let deduped_len = modifications.len();
+            if original_len != deduped_len {
+                eprintln!("[CallsHandling DEBUG] Deduplicated {} modifications for Caller Node ID: {}", original_len - deduped_len, caller_node_id);
+            }
+            // --- End Deduplication ---
+
+
             let mut call_sequence_counter: usize = 0; // Reset sequence counter for each function body
-            for modification in modifications {
+            for modification in modifications { // Iterate over the deduplicated list
                 call_sequence_counter += 1; // Increment sequence number for each edge added
                 // --- BEGIN ADD EDGE DEBUG ---
                 eprintln!("[Add Edge DEBUG] Adding Edge (Seq: {}): Source={}, Target={}, Type={:?}, Span={:?}, OrigSpanStart={}",

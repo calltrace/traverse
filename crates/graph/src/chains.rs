@@ -56,7 +56,7 @@ impl From<tree_sitter::QueryError> for TypeError {
 
 /// Represents the resolved target of a specific call step.
 /// Stores names, allowing cg.rs to perform the final node ID lookup.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ResolvedTarget {
     /// Resolved to a specific function/modifier/constructor.
     Function {
@@ -82,7 +82,8 @@ pub enum ResolvedTarget {
 }
 
 /// Represents a single step in a potentially chained call sequence.
-#[derive(Debug, Clone)]
+// Added PartialEq, Eq, PartialOrd, Ord for sorting and deduplication
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ResolvedCallStep {
     /// The byte offsets representing the span of this specific call expression (e.g., `.method(...)`).
     pub call_expr_span: (usize, usize),
@@ -738,6 +739,13 @@ pub(crate) fn analyze_chained_call<'a>(
             }
         }
     }
+ // --- Deduplication ---
+    // Sort steps primarily by call expression start byte, then end byte.
+    // This allows dedup to remove identical steps originating from the same source location.
+    // The Ord trait derived uses all fields, but sorting by span is the main goal here.
+    steps.sort_unstable(); // Relies on the derived Ord implementation
+    steps.dedup(); // Removes consecutive duplicates
+
 
     eprintln!(
         "[Analyze Chained] Analysis finished. Total steps generated: {}",
