@@ -406,6 +406,13 @@ impl CallGraphGeneratorStep for ContractHandling {
                     ctx.state_var_types
                         .insert((contract_name.clone(), var_name.clone()), var_type);
 
+                    // --- DEBUG: Log state variable processing ---
+                    eprintln!(
+                        "[ContractHandling DEBUG] Processing State Var: Contract='{}', Var='{}', Type='{}'",
+                        contract_name, var_name, var_name
+                    );
+                    // --- END DEBUG ---
+
                     // Add the StorageVariable node to the graph
                     let span = (
                         state_var_def_node.start_byte(),
@@ -420,7 +427,23 @@ impl CallGraphGeneratorStep for ContractHandling {
                         span,
                     );
 
+                    // --- DEBUG: Log node creation and expected lookup key ---
+                    let expected_lookup_key = (Some(contract_name.clone()), var_name.clone());
+                    eprintln!(
+                        "[ContractHandling DEBUG]   Added Node ID: {}, Expected Lookup Key: {:?}",
+                        node_id, expected_lookup_key
+                    );
+                    // Verify if the key exists immediately after adding
+                    if graph.node_lookup.contains_key(&expected_lookup_key) {
+                         eprintln!("[ContractHandling DEBUG]   VERIFIED: Key {:?} exists in node_lookup.", expected_lookup_key);
+                    } else {
+                         eprintln!("[ContractHandling DEBUG]   FAILED VERIFICATION: Key {:?} DOES NOT exist in node_lookup immediately after add_node!", expected_lookup_key);
+                    }
+                    // --- END DEBUG ---
+
+
                     // Store the node ID in the context for lookup during read/write detection
+                    // Note: ctx.storage_var_nodes is not used by CallsHandling for lookup, graph.node_lookup is.
                     let storage_var_key = (Some(contract_name), var_name);
                     ctx.storage_var_nodes.insert(storage_var_key, node_id);
 

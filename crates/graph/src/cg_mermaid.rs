@@ -77,12 +77,12 @@ impl MermaidGenerator {
         &self,
         current_node_id: usize,
         graph: &CallGraph,
-        processed_edges: &mut HashSet<usize>,
+        processed_return_edges: &mut HashSet<usize>, // Tracks processed *return* edges to avoid duplicates
         builder: &mut SequenceDiagramBuilder,
         return_edge_lookup: &HashMap<(usize, usize, usize), usize>,
-        visiting: &mut HashSet<usize>, // For cycle detection
+        visiting: &mut HashSet<usize>, // For cycle detection within a single call stack path
     ) {
-        // Cycle detection
+        // Cycle detection for the current path
         if !visiting.insert(current_node_id) {
             return; // Already visiting this node in the current path, stop recursion
         }
@@ -100,10 +100,9 @@ impl MermaidGenerator {
         sorted_edges.sort_by_key(|(_, edge)| (edge.sequence_number, edge.edge_type.clone())); // Clone edge_type for sorting
 
         for (edge_index, edge) in sorted_edges {
-            // --- Skip if this edge was already processed ---
-            if processed_edges.contains(&edge_index) {
-                continue;
-            }
+            // Note: The check for already processed non-Call edges has been removed
+            // to allow internal actions (storage, require, emit) to be shown on every call.
+            // The `processed_return_edges` set is now used *only* to prevent duplicate return signals.
 
             let target_node_id = edge.target_node_id;
 
@@ -115,8 +114,8 @@ impl MermaidGenerator {
                     EdgeType::Call => {
                         // --- Handle Emit (Self-Signal) ---
                         if target_node.name == crate::cg::EVM_NODE_NAME {
-                            // Process the original Caller -> EVM edge as a self-signal
-                            if processed_edges.insert(edge_index) {
+                                // Process the original Caller -> EVM edge as a self-signal on the caller.
+                                // No need to check processed_return_edges here, emits should show every time.
                                 let source_participant_id = Self::get_participant_id(
                                     &source_node.name, // Use source node (the emitter)
                                     source_node.contract_name.as_ref(),
@@ -136,43 +135,43 @@ impl MermaidGenerator {
                                     "->>",
                                     Some(message_content),
                                 );
-                            }
-                            // Do NOT process the EVM -> Listener edge.
-                            // Do NOT recurse for emit path.
-                            continue; // Move to the next edge
-                        } else {
-                            // --- Handle Regular Call ---
-                            if processed_edges.insert(edge_index) {
-                                let source_participant_id = Self::get_participant_id(
-                                    &source_node.name,
-                                    source_node.contract_name.as_ref(),
-                                );
-                                let target_participant_id = Self::get_participant_id(
-                                    &target_node.name,
-                                    target_node.contract_name.as_ref(),
-                                );
-                                let args_str = edge
-                                    .argument_names
-                                    .as_ref()
-                                    .map(|args| args.join(", "))
-                                    .unwrap_or_default();
-                                let message_content = format!("{}({})", target_node.name, args_str);
-                                builder.signal(
-                                    source_participant_id,
-                                    target_participant_id,
-                                    "->>",
-                                    Some(message_content),
-                                );
-                            }
+                                // Do NOT process the EVM -> Listener edge.
+                                // Do NOT recurse for emit path.
+                                continue; // Move to the next edge
+                            } else {
+                           // --- Handle Regular Call ---
+                            // Note: We do NOT insert the call edge_index into processed_edges here.
+                            // This allows the call and its subsequent flow to be processed every time.
 
-                            // Recurse into the target node
+                            // Add the call signal
+                            let source_participant_id = Self::get_participant_id(
+                                &source_node.name,
+                                source_node.contract_name.as_ref(),
+                            );
+                            let target_participant_id = Self::get_participant_id(
+                                &target_node.name,
+                                target_node.contract_name.as_ref(),
+                            );
+                            let args_str = edge
+                                .argument_names
+                                .as_ref()
+                                .map(|args| args.join(", "))
+                                .unwrap_or_default();
+                            let message_content = format!("{}({})", target_node.name, args_str);
+                            builder.signal(
+                                source_participant_id,
+                                target_participant_id,
+                                "->>",
+                                Some(message_content),
+                            );
+
                             self.process_flow(
                                 target_node_id,
                                 graph,
-                                processed_edges,
+                                processed_return_edges, // Pass the set along
                                 builder,
                                 return_edge_lookup,
-                                visiting,
+                                visiting, // Pass the cycle detection set
                             );
 
                             // After recursion, process the corresponding return edge
@@ -181,7 +180,10 @@ impl MermaidGenerator {
                             if let Some(return_edge_index) =
                                 return_edge_lookup.get(&return_lookup_key)
                             {
-                                if processed_edges.insert(*return_edge_index) {
+                                // Only process and add the return signal if this specific
+                                // return edge hasn't been processed yet (to avoid duplicates if the
+                                // same function return path is hit multiple times via different calls).
+                                if processed_return_edges.insert(*return_edge_index) {
                                     if let Some(return_edge) = graph.edges.get(*return_edge_index) {
                                         if let (Some(ret_source_node), Some(ret_target_node)) = (
                                             graph.nodes.get(return_edge.source_node_id),
@@ -227,81 +229,76 @@ impl MermaidGenerator {
                     } // End EdgeType::Call
                     EdgeType::Require => {
                         // --- Handle Require Statement as Note ---
-                        if processed_edges.insert(edge_index) {
-                            let source_participant_id = Self::get_participant_id(
-                                &source_node.name,
-                                source_node.contract_name.as_ref(),
-                            );
-                            let condition = edge
-                                .argument_names
-                                .as_ref()
-                                .and_then(|args| args.get(0)) // Get the first argument (condition)
-                                .map(|s| s.as_str())
-                                .unwrap_or("?");
-                            let message = edge
-                                .argument_names
-                                .as_ref()
-                                .and_then(|args| args.get(1)) // Get the second argument (message)
-                                .map(|s| format!(" ({})", s)) // Add parentheses if message exists
-                                .unwrap_or_default();
-                            let condition_text = format!("require({}){}", condition, message);
+                        let source_participant_id = Self::get_participant_id(
+                            &source_node.name,
+                            source_node.contract_name.as_ref(),
+                        );
+                        let condition = edge
+                            .argument_names
+                            .as_ref()
+                            .and_then(|args| args.get(0)) // Get the first argument (condition)
+                            .map(|s| s.as_str())
+                            .unwrap_or("?");
+                        let message = edge
+                            .argument_names
+                            .as_ref()
+                            .and_then(|args| args.get(1)) // Get the second argument (message)
+                            .map(|s| format!(" ({})", s)) // Add parentheses if message exists
+                            .unwrap_or_default();
+                        let condition_text = format!("require({}){}", condition, message);
 
-                            // Represent the require check as an alt block
-                            builder.alt_start(condition_text);
-                            // Add the success note
-                            builder.note_over(
-                                vec![source_participant_id.clone()], // Note is over the target participant
-                                "Continue processing".to_string(),
-                            );
-                            builder.alt_else("");
-                            builder.note_over(
-                                vec![source_participant_id], // Note is over the target participant
-                                "Revert transaction".to_string(),
-                            );
-                            builder.alt_end();
-                        }
+                        // Represent the require check as an alt block
+                        builder.alt_start(condition_text);
+                        // Add the success note
+                        builder.note_over(
+                            vec![source_participant_id.clone()], // Note is over the target participant
+                            "Continue processing".to_string(),
+                        );
+                        builder.alt_else("");
+                        builder.note_over(
+                            vec![source_participant_id], // Note is over the target participant
+                            "Revert transaction".to_string(),
+                        );
+                        builder.alt_end();
                         // Do not recurse for require path.
                     }
                     EdgeType::Return => {
                         // Return edges are handled implicitly after their corresponding Call edge recursion returns.
-                        // We mark them processed there. So, if we encounter one here directly,
-                        // it means it wasn't associated with a processed call, which might indicate an issue
-                        // or it's a return from an entry point handled separately.
-                        // We can optionally log this, but don't add a signal here.
-                        // processed_edges.insert(edge_index); // Mark as processed if needed, though likely already done.
+                        // We mark them processed there using `processed_edges.insert(*return_edge_index)`.
+                        // If we encounter one here directly, it means its Call was not processed in this path
+                        // (e.g., skipped due to cycle detection, or it's a return from an entry point).
+                        // We do nothing here.
                     }
                     EdgeType::StorageRead | EdgeType::StorageWrite => {
                         // --- Handle Storage Read/Write ---
-                        if processed_edges.insert(edge_index) {
-                            // Source node is the function performing the action
-                            let source_participant_id = Self::get_participant_id(
-                                &source_node.name,
-                                source_node.contract_name.as_ref(),
-                            );
-                            // Target node is the storage variable
-                            let var_name = &target_node.name;
-                            // Use the target node's contract name for the variable's scope
-                            let var_contract_name =
-                                target_node.contract_name.as_deref().unwrap_or("<Global>"); // Should ideally always have a contract
+                        // Only add the note if this specific storage edge hasn't been processed.
+                        // Source node is the function performing the action
+                        let source_participant_id = Self::get_participant_id(
+                            &source_node.name,
+                            source_node.contract_name.as_ref(),
+                        );
+                        // Target node is the storage variable
+                        let var_name = &target_node.name;
+                        // Use the target node's contract name for the variable's scope
+                        let var_contract_name =
+                            target_node.contract_name.as_deref().unwrap_or("<Global>"); // Should ideally always have a contract
 
-                            let action = if edge.edge_type == EdgeType::StorageRead {
-                                "Read"
-                            } else {
-                                "Write"
-                            };
-                            let note_text =
-                                format!("{} {}.{}", action, var_contract_name, var_name);
+                        let action = if edge.edge_type == EdgeType::StorageRead {
+                            "Read"
+                        } else {
+                            "Write"
+                        };
+                        let note_text = format!("{} {}.{}", action, var_contract_name, var_name);
 
-                            // Add note over the participant performing the action
-                            builder.note_over(vec![source_participant_id], note_text);
-                        }
+                        // Add note over the participant performing the action
+                        builder.note_over(vec![source_participant_id], note_text);
                         // Do not recurse into storage variable nodes
                     }
                 } // End match edge.edge_type
             } // End if let Some(source/target_node)
         } // End for loop over sorted_edges
 
-        // Backtrack: remove from visiting set
+        // Backtrack: remove from visiting set for this specific path
         visiting.remove(&current_node_id);
     }
 }
@@ -310,7 +307,8 @@ impl ToSequenceDiagram for MermaidGenerator {
     fn to_sequence_diagram(&self, graph: &CallGraph) -> SequenceDiagram {
         let mut builder = SequenceDiagramBuilder::new();
         let mut declared_participants: HashSet<String> = HashSet::new();
-        let mut processed_edges: HashSet<usize> = HashSet::new(); // Track processed edge indices
+        // This set now *only* tracks Return edges to prevent their duplication.
+        let mut processed_return_edges: HashSet<usize> = HashSet::new();
 
         // 1. Add Title
         builder.title("Solidity Call Graph Sequence Diagram (Contract Level)");
@@ -370,15 +368,20 @@ impl ToSequenceDiagram for MermaidGenerator {
                     })
             })
             .collect();
-        for entry_node in entry_points {
+
+        // Sort entry points by name for deterministic output order
+        let mut sorted_entry_points = entry_points;
+        sorted_entry_points.sort_by_key(|node| &node.name);
+
+        for entry_node in sorted_entry_points {
             // Emit initial User call signal
             let target_contract_id =
                 Self::get_participant_id(&entry_node.name, entry_node.contract_name.as_ref());
             let message_content = format!("call {}()", entry_node.name);
             builder.signal(
                 Self::USER_ID.to_string(),
-                target_contract_id,
-                "->>", // Solid line for call
+                target_contract_id.clone(), // Clone here for potential use in return
+                "->>",                      // Solid line for call
                 Some(message_content),
             );
 
@@ -387,7 +390,7 @@ impl ToSequenceDiagram for MermaidGenerator {
             self.process_flow(
                 entry_node.id,
                 graph,
-                &mut processed_edges,
+                &mut processed_return_edges,
                 &mut builder,
                 &return_edge_lookup,
                 &mut visiting,
@@ -396,11 +399,10 @@ impl ToSequenceDiagram for MermaidGenerator {
             // --- Add synthetic return edge from entry point back to User ---
             // Check the pre-calculated flag on the entry node
             if entry_node.has_explicit_return {
-                let source_contract_id =
-                    Self::get_participant_id(&entry_node.name, entry_node.contract_name.as_ref());
+                // Use the target_contract_id captured before the process_flow call
                 let message_content = format!("ret from {}()", entry_node.name); // Simple return message
                 builder.signal(
-                    source_contract_id,
+                    target_contract_id, // Source is the contract participant
                     Self::USER_ID.to_string(),
                     "-->>", // Dashed line for return
                     Some(message_content),
@@ -458,7 +460,7 @@ mod tests {
             EdgeType::Call,
             (5, 8),
             None,
-            1,
+            1, // Sequence number 1
             None,
             None,
             None,
@@ -470,7 +472,7 @@ mod tests {
             EdgeType::Call,
             (25, 28),
             None,
-            2,
+            2, // Sequence number 2
             None,
             None,
             None,
@@ -499,6 +501,35 @@ mod tests {
             None,
             None,
         );
+
+        // Add a second call site: A -> C (seq 3)
+        graph.add_edge(
+            node_a_id,
+            node_c_id,
+            EdgeType::Call,
+            (9, 9), // Different location in A
+            None,
+            3, // New sequence number 3
+            None,
+            None,
+            None,
+        );
+        // Return: C -> A (seq 3)
+        graph.add_edge(
+            node_c_id,
+            node_a_id,
+            EdgeType::Return,
+            (40, 50),                   // func def span
+            Some((48, 49)),             // return statement span (same return as before)
+            3,                          // Corresponds to call seq 3
+            Some("result".to_string()), // Same return value for simplicity
+            None,
+            None,
+        );
+
+        // Mark funcA and funcC as having explicit returns for testing synthetic returns
+        graph.nodes[node_a_id].has_explicit_return = true;
+        graph.nodes[node_c_id].has_explicit_return = true;
 
         graph
     }
@@ -565,8 +596,10 @@ mod tests {
     }
 
     #[test]
-    fn test_to_sequence_diagram_conversion() {
+    fn test_to_sequence_diagram_conversion_multiple_calls() {
         let graph = create_test_graph(); // funcA (Pub), funcB (Priv), funcC (Pub)
+                                         // funcA calls funcB, funcB calls funcC
+                                         // funcA also calls funcC directly
         let generator = MermaidGenerator::new();
         let diagram = generator.to_sequence_diagram(&graph);
 
@@ -591,34 +624,48 @@ mod tests {
         // Order of A and B might vary based on node iteration order in graph, check presence
         let mut found_a = false;
         let mut found_b = false;
-        for stmt in diagram.statements.iter().skip(2) {
-            // Skip title and user
+        let mut participant_count = 0;
+        for stmt in diagram.statements.iter().skip(1) {
+            // Skip title
             if let Statement::Participant(p) = stmt {
+                participant_count += 1;
                 if p.id == id_a && p.alias.as_deref() == Some(alias_a) {
                     found_a = true;
                 }
                 if p.id == id_b && p.alias.as_deref() == Some(alias_b) {
                     found_b = true;
                 }
+            } else {
+                // Stop checking participants once we hit other statements
+                break;
             }
         }
         assert!(found_a, "ContractA participant missing");
         assert!(found_b, "ContractB participant missing");
+        assert_eq!(participant_count, 3, "Expected 3 participants (User, A, B)");
 
-        // Check Signals (Order based on traversal from public entry points)
+        // Check Signals (Order based on traversal from public entry points, sorted: funcA, funcC)
         // Entry points: funcA (ContractA), funcC (ContractB)
         // Expected Flow 1 (from funcA):
         // 1. User -> ContractA (call funcA)
-        // 2. ContractA -> ContractA (call funcB) - Internal call within A
-        // 3. ContractA -> ContractB (call funcC) - Call from A's funcB to B's funcC
-        // 4. ContractB -> ContractA (ret from funcC) - Return from C to B (within A)
-        // 5. ContractA -> ContractA (ret from funcB) - Return from B to A (within A)
+        // --- Inside funcA (sorted by seq num) ---
+        // 2. ContractA -> ContractA (call funcB) [seq 1]
+        // --- Inside funcB ---
+        // 3. ContractA -> ContractB (call funcC) [seq 2]
+        // --- Inside funcC (returns) ---
+        // 4. ContractB -> ContractA (ret from funcC) [seq 2]
+        // --- Back in funcB (returns) ---
+        // 5. ContractA -> ContractA (ret from funcB) [seq 1]
+        // --- Back in funcA ---
+        // 6. ContractA -> ContractB (call funcC) [seq 3]
+        // --- Inside funcC (returns) ---
+        // 7. ContractB -> ContractA (ret from funcC) [seq 3]
+        // --- Back in funcA (returns to user) ---
+        // 8. ContractA -> User (ret from funcA) [synthetic]
         // Expected Flow 2 (from funcC):
-        // 6. User -> ContractB (call funcC)
-        // Note: The internal calls/returns (2-5) might be processed during Flow 1 and marked,
-        // so they won't be repeated when processing Flow 2 if funcC is called directly by user.
-        // The exact order depends on which entry point (funcA or funcC) is processed first.
-        // Let's assume funcA is processed first based on node order in create_test_graph.
+        // 9. User -> ContractB (call funcC)
+        // --- Inside funcC (returns) ---
+        // 10. ContractB -> User (ret from funcC) [synthetic]
 
         let signal_statements: Vec<&SignalStatement> = diagram
             .statements
@@ -632,11 +679,11 @@ mod tests {
             })
             .collect();
 
-        // Expected signals: User->A, A->A(B), A->B(C), B->A(ret C), A->A(ret B), User->C
+        // Expected signals: User->A, A->A(B), A->B(C), B->A(ret C), A->A(ret B), A->B(C), B->A(ret C), A->User(ret A), User->B(C), B->User(ret C)
         assert_eq!(
             signal_statements.len(),
-            6,
-            "Should have 6 signal statements (2 user calls + 2 internal calls + 2 returns)"
+            10, // Updated count
+            "Should have 10 signal statements"
         );
 
         // --- Assertions based on funcA being the first entry point processed ---
@@ -652,7 +699,7 @@ mod tests {
             "Signal 1 Message"
         );
 
-        // 2. ContractA -> ContractA (call funcB) - Triggered by funcA flow
+        // 2. ContractA -> ContractA (call funcB) [seq 1]
         let sig2 = &signal_statements[1];
         assert_eq!(sig2.from, id_a, "Signal 2 From (ContractA)");
         assert_eq!(sig2.to, id_a, "Signal 2 To (ContractA)"); // Internal call
@@ -663,7 +710,7 @@ mod tests {
             "Signal 2 Message"
         );
 
-        // 3. ContractA -> ContractB (call funcC) - Triggered by funcB flow
+        // 3. ContractA -> ContractB (call funcC) [seq 2] - Triggered by funcB flow
         let sig3 = &signal_statements[2];
         assert_eq!(sig3.from, id_a, "Signal 3 From (ContractA)"); // From funcB in ContractA
         assert_eq!(sig3.to, id_b, "Signal 3 To (ContractB)");
@@ -674,7 +721,7 @@ mod tests {
             "Signal 3 Message"
         );
 
-        // 4. ContractB -> ContractA (ret from funcC) - Return corresponding to call in sig3
+        // 4. ContractB -> ContractA (ret from funcC) [seq 2] - Return corresponding to call in sig3
         let sig4 = &signal_statements[3];
         assert_eq!(sig4.from, id_b, "Signal 4 From (ContractB)"); // Return from funcC in B
         assert_eq!(sig4.to, id_a, "Signal 4 To (ContractA)"); // Return to funcB in A
@@ -685,7 +732,7 @@ mod tests {
             "Signal 4 Message"
         );
 
-        // 5. ContractA -> ContractA (ret from funcB) - Return corresponding to call in sig2
+        // 5. ContractA -> ContractA (ret from funcB) [seq 1] - Return corresponding to call in sig2
         let sig5 = &signal_statements[4];
         assert_eq!(sig5.from, id_a, "Signal 5 From (ContractA)"); // Return from funcB in A
         assert_eq!(sig5.to, id_a, "Signal 5 To (ContractA)"); // Return to funcA in A
@@ -696,19 +743,67 @@ mod tests {
             "Signal 5 Message"
         );
 
-        // 6. User -> ContractB (call funcC) - Processing the second entry point
+        // 6. ContractA -> ContractB (call funcC) [seq 3] - Second call site in funcA
         let sig6 = &signal_statements[5];
-        assert_eq!(sig6.from, user_id, "Signal 6 From (User)");
+        assert_eq!(sig6.from, id_a, "Signal 6 From (ContractA)"); // From funcA in ContractA
         assert_eq!(sig6.to, id_b, "Signal 6 To (ContractB)");
         assert_eq!(sig6.arrow.sequence, "->>", "Signal 6 Arrow");
         assert_eq!(
             sig6.message.as_ref().map(|m| m.content.as_str()),
-            Some("call funcC()"),
+            Some("funcC()"), // Call to funcC
             "Signal 6 Message"
         );
-        // Note: No further signals after sig6 because the internal calls/returns
-        // originating from funcC (if any) would have been processed and marked
-        // during the funcA flow traversal (specifically steps 3 & 4).
+
+        // 7. ContractB -> ContractA (ret from funcC) [seq 3] - Return corresponding to call in sig6
+        let sig7 = &signal_statements[6];
+        assert_eq!(sig7.from, id_b, "Signal 7 From (ContractB)"); // Return from funcC in B
+        assert_eq!(sig7.to, id_a, "Signal 7 To (ContractA)"); // Return to funcA in A
+        assert_eq!(sig7.arrow.sequence, "-->>", "Signal 7 Arrow");
+        assert_eq!(
+            sig7.message.as_ref().map(|m| m.content.as_str()),
+            Some("ret result from funcC"),
+            "Signal 7 Message"
+        );
+
+        // 8. ContractA -> User (ret from funcA) [synthetic]
+        let sig8 = &signal_statements[7];
+        assert_eq!(sig8.from, id_a, "Signal 8 From (ContractA)");
+        assert_eq!(sig8.to, user_id, "Signal 8 To (User)");
+        assert_eq!(sig8.arrow.sequence, "-->>", "Signal 8 Arrow");
+        assert_eq!(
+            sig8.message.as_ref().map(|m| m.content.as_str()),
+            Some("ret from funcA()"),
+            "Signal 8 Message"
+        );
+
+        // --- Assertions for funcC being the second entry point processed ---
+
+        // 9. User -> ContractB (call funcC)
+        let sig9 = &signal_statements[8];
+        assert_eq!(sig9.from, user_id, "Signal 9 From (User)");
+        assert_eq!(sig9.to, id_b, "Signal 9 To (ContractB)");
+        assert_eq!(sig9.arrow.sequence, "->>", "Signal 9 Arrow");
+        assert_eq!(
+            sig9.message.as_ref().map(|m| m.content.as_str()),
+            Some("call funcC()"),
+            "Signal 9 Message"
+        );
+
+        // 10. ContractB -> User (ret from funcC) [synthetic]
+        let sig10 = &signal_statements[9];
+        assert_eq!(sig10.from, id_b, "Signal 10 From (ContractB)");
+        assert_eq!(sig10.to, user_id, "Signal 10 To (User)");
+        assert_eq!(sig10.arrow.sequence, "-->>", "Signal 10 Arrow");
+        assert_eq!(
+            sig10.message.as_ref().map(|m| m.content.as_str()),
+            Some("ret from funcC()"),
+            "Signal 10 Message"
+        );
+
+        // Verify that the internal call B->C and its return C->B were NOT repeated
+        // when processing the User->C entry point, because those specific *return* edges
+        // (associated with seq 2) were marked processed during the funcA flow.
+        // The count of 10 signals confirms this.
     }
 
     #[test]
@@ -727,5 +822,268 @@ mod tests {
         assert!(
             matches!(&diagram.statements[1], Statement::Participant(p) if p.id == MermaidGenerator::USER_ID)
         );
+    }
+
+    // Test for simple recursion A -> A
+    #[test]
+    fn test_simple_recursion() {
+        let mut graph = CallGraph::new();
+        let node_a_id = graph.add_node(
+            "recursiveFunc".to_string(),
+            NodeType::Function,
+            Some("RecurContract".to_string()),
+            Visibility::Public,
+            (0, 10),
+        );
+        graph.nodes[node_a_id].has_explicit_return = true; // Add synthetic return
+
+        // Call: A -> A (seq 1)
+        graph.add_edge(
+            node_a_id,
+            node_a_id,
+            EdgeType::Call,
+            (5, 8),
+            None,
+            1,
+            None,
+            None,
+            None,
+        );
+        // Return: A -> A (seq 1)
+        graph.add_edge(
+            node_a_id,
+            node_a_id,
+            EdgeType::Return,
+            (0, 10),
+            Some((9, 9)),
+            1,
+            None,
+            None,
+            None,
+        );
+
+        let generator = MermaidGenerator::new();
+        let diagram = generator.to_sequence_diagram(&graph);
+
+        let id_a = "RecurContract";
+        let user_id = MermaidGenerator::USER_ID;
+
+        let signal_statements: Vec<&SignalStatement> = diagram
+            .statements
+            .iter()
+            .filter_map(|stmt| {
+                if let Statement::Signal(s) = stmt {
+                    Some(s)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Expected: User->A, A->A (call), A->A (return), A->User (synthetic return)
+        assert_eq!(
+            signal_statements.len(),
+            4,
+            "Expected 4 signals for simple recursion"
+        );
+
+        // 1. User -> A
+        assert_eq!(signal_statements[0].from, user_id);
+        assert_eq!(signal_statements[0].to, id_a);
+        assert_eq!(signal_statements[0].arrow.sequence, "->>");
+        assert!(signal_statements[0]
+            .message
+            .as_ref()
+            .unwrap()
+            .content
+            .contains("call recursiveFunc()"));
+
+        // 2. A -> A (call)
+        assert_eq!(signal_statements[1].from, id_a);
+        assert_eq!(signal_statements[1].to, id_a);
+        assert_eq!(signal_statements[1].arrow.sequence, "->>");
+        assert!(signal_statements[1]
+            .message
+            .as_ref()
+            .unwrap()
+            .content
+            .contains("recursiveFunc()"));
+
+        // 3. A -> A (return) - This return corresponds to the recursive call A->A
+        // Because the recursive call is stopped by the `visiting` set, the return edge
+        // associated with sequence 1 (A->A) might not be added by the standard mechanism
+        // which relies on the recursion returning. Let's check if it's present.
+        // *Correction*: The cycle detection prevents *further* recursion, but the return
+        // for the *first* recursive call should still be processed when the outer call returns.
+        assert_eq!(signal_statements[2].from, id_a);
+        assert_eq!(signal_statements[2].to, id_a);
+        assert_eq!(signal_statements[2].arrow.sequence, "-->>");
+        assert!(signal_statements[2]
+            .message
+            .as_ref()
+            .unwrap()
+            .content
+            .contains("ret from recursiveFunc"));
+
+        // 4. A -> User (synthetic return)
+        assert_eq!(signal_statements[3].from, id_a);
+        assert_eq!(signal_statements[3].to, user_id);
+        assert_eq!(signal_statements[3].arrow.sequence, "-->>");
+        assert!(signal_statements[3]
+            .message
+            .as_ref()
+            .unwrap()
+            .content
+            .contains("ret from recursiveFunc()"));
+    }
+
+    // Test for mutual recursion A -> B -> A
+    #[test]
+    fn test_mutual_recursion() {
+        let mut graph = CallGraph::new();
+        let node_a_id = graph.add_node(
+            "funcA".to_string(),
+            NodeType::Function,
+            Some("ContractM".to_string()),
+            Visibility::Public,
+            (0, 10),
+        );
+        let node_b_id = graph.add_node(
+            "funcB".to_string(),
+            NodeType::Function,
+            Some("ContractM".to_string()), // Same contract
+            Visibility::Private,
+            (20, 30),
+        );
+        graph.nodes[node_a_id].has_explicit_return = true; // Add synthetic return for A
+
+        // Call: A -> B (seq 1)
+        graph.add_edge(
+            node_a_id,
+            node_b_id,
+            EdgeType::Call,
+            (5, 8),
+            None,
+            1,
+            None,
+            None,
+            None,
+        );
+        // Call: B -> A (seq 2) - Recursive step
+        graph.add_edge(
+            node_b_id,
+            node_a_id,
+            EdgeType::Call,
+            (25, 28),
+            None,
+            2,
+            None,
+            None,
+            None,
+        );
+        // Return: A -> B (seq 2)
+        graph.add_edge(
+            node_a_id,
+            node_b_id,
+            EdgeType::Return,
+            (0, 10),
+            Some((9, 9)),
+            2,
+            None,
+            None,
+            None,
+        );
+        // Return: B -> A (seq 1)
+        graph.add_edge(
+            node_b_id,
+            node_a_id,
+            EdgeType::Return,
+            (20, 30),
+            Some((29, 29)),
+            1,
+            None,
+            None,
+            None,
+        );
+
+        let generator = MermaidGenerator::new();
+        let diagram = generator.to_sequence_diagram(&graph);
+
+        let id_m = "ContractM";
+        let user_id = MermaidGenerator::USER_ID;
+
+        let signal_statements: Vec<&SignalStatement> = diagram
+            .statements
+            .iter()
+            .filter_map(|stmt| {
+                if let Statement::Signal(s) = stmt {
+                    Some(s)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Expected: User->M(A), M(A)->M(B), M(B)->M(A) [call, stopped by cycle detection], M(A)->M(B) [return], M(B)->M(A) [return], M(A)->User [synthetic return]
+        assert_eq!(
+            signal_statements.len(),
+            6,
+            "Expected 6 signals for mutual recursion"
+        );
+
+        // 1. User -> M (call funcA)
+        assert_eq!(signal_statements[0].from, user_id);
+        assert_eq!(signal_statements[0].to, id_m);
+        assert_eq!(signal_statements[0].arrow.sequence, "->>");
+        // 2. M -> M (call funcB from funcA)
+        assert_eq!(signal_statements[1].from, id_m);
+        assert_eq!(signal_statements[1].to, id_m);
+        assert_eq!(signal_statements[1].arrow.sequence, "->>");
+        assert!(signal_statements[1]
+            .message
+            .as_ref()
+            .unwrap()
+            .content
+            .contains("funcB()"));
+        // 3. M -> M (call funcA from funcB) - This call happens, but recursion stops here
+        assert_eq!(signal_statements[2].from, id_m);
+        assert_eq!(signal_statements[2].to, id_m);
+        assert_eq!(signal_statements[2].arrow.sequence, "->>");
+        assert!(signal_statements[2]
+            .message
+            .as_ref()
+            .unwrap()
+            .content
+            .contains("funcA()"));
+        // 4. M -> M (ret from funcA to funcB) - Corresponds to seq 2 call
+        assert_eq!(signal_statements[3].from, id_m);
+        assert_eq!(signal_statements[3].to, id_m);
+        assert_eq!(signal_statements[3].arrow.sequence, "-->>");
+        assert!(signal_statements[3]
+            .message
+            .as_ref()
+            .unwrap()
+            .content
+            .contains("ret from funcA"));
+        // 5. M -> M (ret from funcB to funcA) - Corresponds to seq 1 call
+        assert_eq!(signal_statements[4].from, id_m);
+        assert_eq!(signal_statements[4].to, id_m);
+        assert_eq!(signal_statements[4].arrow.sequence, "-->>");
+        assert!(signal_statements[4]
+            .message
+            .as_ref()
+            .unwrap()
+            .content
+            .contains("ret from funcB"));
+        // 6. M -> User (ret from funcA) - Synthetic return for initial user call
+        assert_eq!(signal_statements[5].from, id_m);
+        assert_eq!(signal_statements[5].to, user_id);
+        assert_eq!(signal_statements[5].arrow.sequence, "-->>");
+        assert!(signal_statements[5]
+            .message
+            .as_ref()
+            .unwrap()
+            .content
+            .contains("ret from funcA()"));
     }
 }
