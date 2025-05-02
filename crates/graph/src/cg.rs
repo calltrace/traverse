@@ -440,6 +440,47 @@ impl CallGraph {
 
         Ok(())
     }
+
+    /// Retrieves the list of ancestor contracts for a given contract name,
+    /// including the contract itself, ordered from most specific to most general.
+    /// Uses the inheritance information stored in the context.
+    pub(crate) fn get_ancestor_contracts(
+        &self,
+        contract_name: &str,
+        ctx: &CallGraphGeneratorContext,
+    ) -> Vec<String> {
+        let mut ancestors = Vec::new();
+        let mut queue = std::collections::VecDeque::new();
+        let mut visited = HashSet::new(); // Prevent cycles and redundant lookups
+
+        queue.push_back(contract_name.to_string());
+        visited.insert(contract_name.to_string());
+
+        while let Some(current_contract) = queue.pop_front() {
+            // Add the current contract to the front of the ancestors list
+            // to maintain the order from specific to general after reversal.
+            ancestors.push(current_contract.clone());
+
+            // Look up direct parents (contracts and interfaces)
+            if let Some(parents) = ctx.contract_inherits.get(&current_contract) {
+                for parent_name in parents {
+                    if visited.insert(parent_name.clone()) {
+                        queue.push_back(parent_name.clone());
+                    }
+                }
+            }
+            // Also consider inherited interfaces if necessary, though storage vars are usually in contracts.
+            // If interfaces could define constants used in storage access, this might be needed.
+            // if let Some(parents) = ctx.interface_inherits.get(&current_contract) { ... }
+        }
+
+        // The queue processing naturally explores breadth-first, but the order
+        // we add to `ancestors` and the final reversal ensures linearization
+        // (though Solidity's C3 linearization is more complex, this provides
+        // a reasonable lookup order: self -> parents -> grandparents...).
+        ancestors.reverse(); // Reverse to get the order: self, parent, grandparent...
+        ancestors
+    }
 }
 
 #[derive(Debug)]

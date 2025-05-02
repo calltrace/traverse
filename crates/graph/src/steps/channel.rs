@@ -222,7 +222,8 @@ impl CallGraphGeneratorStep for CallsHandling {
                     let capture_index = capture.index;
                     let node = capture.node;
                     let span = (node.start_byte(), node.end_byte());
-                    let current_type: Option<&str> = if capture_index == require_call_capture_index {
+                    let current_type: Option<&str> = if capture_index == require_call_capture_index
+                    {
                         Some("require")
                     } else if capture_index == emit_capture_index {
                         Some("emit") // Prioritize emit over generic call if applicable
@@ -239,32 +240,35 @@ impl CallGraphGeneratorStep for CallsHandling {
                     };
 
                     if let Some(node_type) = current_type {
-                        collected_nodes_map.entry(span).and_modify(|existing| {
-                            // Prioritization logic: require > emit > new > call > write > read
-                            let existing_priority = match existing.1 {
-                                "require" => 5,
-                                "emit" => 4,
-                                "new" => 3,
-                                "call" => 2,
-                                "write" => 1,
-                                "read" => 0,
-                                _ => -1,
-                            };
-                            let new_priority = match node_type {
-                                "require" => 5,
-                                "emit" => 4,
-                                "new" => 3,
-                                "call" => 2,
-                                "write" => 1,
-                                "read" => 0,
-                                _ => -1,
-                            };
-                            // Only update if the new type has higher or equal priority
-                            // (equal priority case handles potential multiple captures of same type for same node)
-                            if new_priority >= existing_priority {
-                                *existing = (node, node_type);
-                            }
-                        }).or_insert((node, node_type));
+                        collected_nodes_map
+                            .entry(span)
+                            .and_modify(|existing| {
+                                // Prioritization logic: require > emit > new > call > write > read
+                                let existing_priority = match existing.1 {
+                                    "require" => 5,
+                                    "emit" => 4,
+                                    "new" => 3,
+                                    "call" => 2,
+                                    "write" => 1,
+                                    "read" => 0,
+                                    _ => -1,
+                                };
+                                let new_priority = match node_type {
+                                    "require" => 5,
+                                    "emit" => 4,
+                                    "new" => 3,
+                                    "call" => 2,
+                                    "write" => 1,
+                                    "read" => 0,
+                                    _ => -1,
+                                };
+                                // Only update if the new type has higher or equal priority
+                                // (equal priority case handles potential multiple captures of same type for same node)
+                                if new_priority >= existing_priority {
+                                    *existing = (node, node_type);
+                                }
+                            })
+                            .or_insert((node, node_type));
                     }
                 }
             }
@@ -274,7 +278,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                 .into_iter() // Iterate over key-value pairs (span, (node, type))
                 .map(|(span, (node, node_type))| (node, span, node_type)) // Map to (node, span, type)
                 .collect();
-            potential_nodes.sort_by_key(|k| (k.1.0, k.1.1)); // Sort by span start (k.1.0), then end (k.1.1)
+            potential_nodes.sort_by_key(|k| (k.1 .0, k.1 .1)); // Sort by span start (k.1.0), then end (k.1.1)
 
             // --- Second Pass: Process sorted, deduplicated nodes and collect GraphModifications ---
             for (node, span, node_type) in potential_nodes {
@@ -533,7 +537,9 @@ impl CallGraphGeneratorStep for CallsHandling {
                                                                         event_name: None,
                                                                         // Use the sort span start of the call step that triggered this internal analysis
                                                                         // This groups the internal 'new' logically with the call that caused it.
-                                                                        sort_span_start: step.call_expr_span.0,
+                                                                        sort_span_start: step
+                                                                            .call_expr_span
+                                                                            .0,
                                                                     },
                                                                 );
                                                             } else {
@@ -578,33 +584,37 @@ impl CallGraphGeneratorStep for CallsHandling {
 
                             if let Some(write_target_node) = target_identifier_node {
                                 let var_name = get_node_text(&write_target_node, &input.source);
-                                let var_key =
-                                    (caller_contract_name_opt.clone(), var_name.to_string());
-
-                                if let Some(var_node_id) = graph.node_lookup.get(&var_key).copied()
-                                {
-                                    if graph
-                                        .nodes
-                                        .get(var_node_id)
-                                        .map_or(false, |n| n.node_type == NodeType::StorageVariable)
-                                    {
-                                        eprintln!("[Storage DEBUG Deferred] Collecting WRITE modification: CallerID={}, VarID={}, VarName='{}', AssignmentSpan={:?}", caller_node_id, var_node_id, var_name, assignment_span);
-                                        modifications.push(GraphModification {
-                                            source_node_id: caller_node_id,
-                                            target_node_id: var_node_id,
-                                            edge_type: EdgeType::StorageWrite,
-                                            span: assignment_span, // Span of the whole assignment
-                                            modifier: None,
-                                            return_value: None,
-                                            arguments: None,
-                                            event_name: None,
-                                            sort_span_start: assignment_span.0, // Use assignment start for sorting
-                                        });
-                                    } else {
-                                        eprintln!("[Storage DEBUG Deferred] Write target '{}' (NodeID {}) is not a StorageVariable.", var_name, var_node_id);
-                                    }
+                                // --- Use inheritance-aware resolution ---
+                                if let Some(var_node_id) = resolve_storage_variable(
+                                    &caller_contract_name_opt,
+                                    &var_name,
+                                    graph,
+                                    ctx,
+                                ) {
+                                    // --- End inheritance-aware
+                                    // The check for NodeType::StorageVariable is now inside resolve_storage_variable
+                                    // if graph
+                                    //     .nodes
+                                    //     .get(var_node_id)
+                                    //     .map_or(false, |n| n.node_type == NodeType::StorageVariable)
+                                    // {
+                                    eprintln!("[Storage DEBUG Deferred] Collecting WRITE modification: CallerID={}, VarID={}, VarName='{}', AssignmentSpan={:?}", caller_node_id, var_node_id, var_name, assignment_span);
+                                    modifications.push(GraphModification {
+                                        source_node_id: caller_node_id,
+                                        target_node_id: var_node_id,
+                                        edge_type: EdgeType::StorageWrite,
+                                        span: assignment_span, // Span of the whole assignment
+                                        modifier: None,
+                                        return_value: None,
+                                        arguments: None,
+                                        event_name: None,
+                                        sort_span_start: assignment_span.0, // Use assignment start for sorting
+                                    });
+                                    // } else {
+                                    //     eprintln!("[Storage DEBUG Deferred] Write target '{}' (NodeID {}) is not a StorageVariable.", var_name, var_node_id);
+                                    // }
                                 } else {
-                                    eprintln!("[Storage DEBUG Deferred] Write target '{}' could not be resolved.", var_name);
+                                    eprintln!("[Storage DEBUG Deferred] Write target '{}' could not be resolved via inheritance.", var_name);
                                 }
                             }
                         }
@@ -614,15 +624,23 @@ impl CallGraphGeneratorStep for CallsHandling {
                         let read_candidate_node = node;
                         let read_span = span;
                         let var_name = get_node_text(&read_candidate_node, &input.source);
-                        let var_key = (caller_contract_name_opt.clone(), var_name.to_string());
-
-                        if let Some(var_node_id) = graph.node_lookup.get(&var_key).copied() {
-                            if graph
-                                .nodes
-                                .get(var_node_id)
-                                .map_or(false, |n| n.node_type == NodeType::StorageVariable)
-                            {
+                        // --- Use inheritance-aware resolution ---
+                        if let Some(var_node_id) = resolve_storage_variable(
+                            &caller_contract_name_opt,
+                            &var_name,
+                            graph,
+                            ctx,
+                        ) {
+                        // --- End inheritance-aware resolution ---
+                            // The check for NodeType::StorageVariable is now inside resolve_storage_variable
+                            // if graph
+                            //     .nodes
+                            //     .get(var_node_id)
+                            //     .map_or(false, |n| n.node_type == NodeType::StorageVariable)
+                            // {
                                 // --- Filtering Logic ---
+                                let mut skip_read_edge = false;
+                                if let Some(parent) = read_candidate_node.parent() {
                                 let mut skip_read_edge = false;
                                 if let Some(parent) = read_candidate_node.parent() {
                                     let parent_kind = parent.kind();
@@ -776,7 +794,8 @@ impl CallGraphGeneratorStep for CallsHandling {
                         // --- BEGIN REQUIRE DEBUG ---
                         eprintln!(
                             "[Require DEBUG] Found require call at span {:?}. Node text: '{}'",
-                            require_span, get_node_text(&require_node, &input.source)
+                            require_span,
+                            get_node_text(&require_node, &input.source)
                         );
                         // --- END REQUIRE DEBUG ---
                         eprintln!(
@@ -944,15 +963,19 @@ impl CallGraphGeneratorStep for CallsHandling {
             modifications.dedup();
             let deduped_len = modifications.len();
             if original_len != deduped_len {
-                eprintln!("[CallsHandling DEBUG] Deduplicated {} modifications for Caller Node ID: {}", original_len - deduped_len, caller_node_id);
+                eprintln!(
+                    "[CallsHandling DEBUG] Deduplicated {} modifications for Caller Node ID: {}",
+                    original_len - deduped_len,
+                    caller_node_id
+                );
             }
             // --- End Deduplication ---
 
-
             let mut call_sequence_counter: usize = 0; // Reset sequence counter for each function body
-            for modification in modifications { // Iterate over the deduplicated list
+            for modification in modifications {
+                // Iterate over the deduplicated list
                 call_sequence_counter += 1; // Increment sequence number for each edge added
-                // --- BEGIN ADD EDGE DEBUG ---
+                                            // --- BEGIN ADD EDGE DEBUG ---
                 eprintln!("[Add Edge DEBUG] Adding Edge (Seq: {}): Source={}, Target={}, Type={:?}, Span={:?}, OrigSpanStart={}",
                     call_sequence_counter,
                     modification.source_node_id,
@@ -986,6 +1009,54 @@ impl CallGraphGeneratorStep for CallsHandling {
 
         Ok(())
     }
+}
+
+/// Resolves a storage variable name to its node ID, considering inheritance.
+/// It searches the current contract and then its ancestors.
+fn resolve_storage_variable(
+    current_contract_name_opt: &Option<String>,
+    variable_name: &str,
+    graph: &CallGraph,
+    ctx: &CallGraphGeneratorContext,
+) -> Option<usize> {
+    let contract_name = match current_contract_name_opt {
+        Some(name) => name,
+        None => {
+            // Storage variables cannot exist outside a contract scope
+            eprintln!("[Storage Resolve DEBUG] Attempted to resolve variable '{}' outside contract scope.", variable_name);
+            return None;
+        }
+    };
+
+    let ancestors = graph.get_ancestor_contracts(contract_name, ctx);
+    eprintln!(
+        "[Storage Resolve DEBUG] Resolving variable '{}' in contract '{}'. Ancestors: {:?}",
+        variable_name, contract_name, ancestors
+    );
+
+    for ancestor_name in ancestors {
+        let key = (Some(ancestor_name.clone()), variable_name.to_string());
+        eprintln!("[Storage Resolve DEBUG]   Checking key: {:?}", key);
+        if let Some(node_id) = graph.node_lookup.get(&key) {
+            // Verify it's actually a storage variable node
+            if graph
+                .nodes
+                .get(*node_id)
+                .map_or(false, |n| n.node_type == NodeType::StorageVariable)
+            {
+                eprintln!("[Storage Resolve DEBUG]     Found storage variable node ID {} in contract '{}'", *node_id, ancestor_name);
+                return Some(*node_id);
+            } else {
+                eprintln!("[Storage Resolve DEBUG]     Found node ID {} for key {:?} but it's not a StorageVariable.", *node_id, key);
+            }
+        }
+    }
+
+    eprintln!(
+        "[Storage Resolve DEBUG] Variable '{}' not found in contract '{}' or its ancestors.",
+        variable_name, contract_name
+    );
+    None
 }
 
 // Helper function to resolve ResolvedTarget to a node ID in the graph

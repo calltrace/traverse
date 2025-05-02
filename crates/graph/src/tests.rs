@@ -3078,6 +3078,105 @@ fn test_library_call_on_return_value() -> Result<()> {
 }
 
 #[test]
+fn test_inherited_storage_access() -> Result<()> {
+    let source = r#"
+        pragma solidity ^0.8.20;
+
+        contract BaseStorage {
+            uint256 public baseVar; // Inherited variable
+        }
+
+        contract DerivedStorage is BaseStorage {
+            // Reads the inherited variable
+            function readBase() public view returns (uint256) {
+                return baseVar; // Read inherited baseVar
+            }
+
+            // Writes to the inherited variable
+            function writeBase(uint256 newValue) public {
+                baseVar = newValue; // Write inherited baseVar
+            }
+        }
+        "#;
+    let ast = parse_solidity(source)?;
+    let solidity_lang = Solidity.get_tree_sitter_language();
+
+    let input = CallGraphGeneratorInput {
+        source: source.to_string(),
+        tree: ast.tree,
+        solidity_lang,
+    };
+    let mut ctx = CallGraphGeneratorContext::default();
+    let mut graph = CallGraph::new();
+    let config: HashMap<String, String> = HashMap::new(); // Empty config
+
+    // Run the full pipeline
+    let mut pipeline = CallGraphGeneratorPipeline::new();
+    pipeline.add_step(Box::new(ContractHandling::default()));
+    pipeline.add_step(Box::new(CallsHandling::default()));
+    pipeline.run(input, &mut ctx, &mut graph, &config)?;
+
+    // --- Assertions ---
+
+    // Nodes:
+    // 1. BaseStorage.baseVar (StorageVariable)
+    // 2. BaseStorage (default constructor)
+    // 3. DerivedStorage.readBase (Function)
+    // 4. DerivedStorage.writeBase (Function)
+    // 5. DerivedStorage (default constructor)
+    assert_eq!(
+        graph.nodes.len(),
+        5,
+        "Should find 5 nodes (base var, base ctor, derived read, derived write, derived ctor)"
+    );
+
+    // Find relevant nodes
+    let base_var_node = find_node(&graph, "baseVar", Some("BaseStorage"))
+        .expect("BaseStorage.baseVar node missing");
+    let derived_read_node = find_node(&graph, "readBase", Some("DerivedStorage"))
+        .expect("DerivedStorage.readBase node missing");
+    let derived_write_node = find_node(&graph, "writeBase", Some("DerivedStorage"))
+        .expect("DerivedStorage.writeBase node missing");
+
+    // Verify node types
+    assert_eq!(base_var_node.node_type, NodeType::StorageVariable);
+    assert_eq!(derived_read_node.node_type, NodeType::Function);
+    assert_eq!(derived_write_node.node_type, NodeType::Function);
+
+    // Edges:
+    // 1. DerivedStorage.readBase -> BaseStorage.baseVar (StorageRead)
+    // 2. DerivedStorage.writeBase -> BaseStorage.baseVar (StorageWrite)
+    assert_eq!(graph.edges.len(), 2, "Should find 2 edges (1 read, 1 write)");
+
+    // Verify Edge 1: readBase -> baseVar (StorageRead)
+    let read_edge = graph
+        .edges
+        .iter()
+        .find(|e| {
+            e.source_node_id == derived_read_node.id
+                && e.target_node_id == base_var_node.id
+                && e.edge_type == EdgeType::StorageRead
+        })
+        .expect("StorageRead edge from readBase to baseVar missing");
+    assert_eq!(read_edge.sequence_number, 1, "StorageRead sequence should be 1");
+
+    // Verify Edge 2: writeBase -> baseVar (StorageWrite)
+    let write_edge = graph
+        .edges
+        .iter()
+        .find(|e| {
+            e.source_node_id == derived_write_node.id
+                && e.target_node_id == base_var_node.id
+                && e.edge_type == EdgeType::StorageWrite
+        })
+        .expect("StorageWrite edge from writeBase to baseVar missing");
+    assert_eq!(write_edge.sequence_number, 1, "StorageWrite sequence should be 1");
+
+    Ok(())
+}
+
+
+#[test]
 fn test_require_statement() -> Result<()> {
     let source = r#"
         pragma solidity ^0.8.20;
