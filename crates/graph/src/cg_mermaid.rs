@@ -114,32 +114,34 @@ impl MermaidGenerator {
                     EdgeType::Call => {
                         // --- Handle Emit (Self-Signal) ---
                         if target_node.name == crate::cg::EVM_NODE_NAME {
-                                // Process the original Caller -> EVM edge as a self-signal on the caller.
-                                // No need to check processed_return_edges here, emits should show every time.
-                                let source_participant_id = Self::get_participant_id(
-                                    &source_node.name, // Use source node (the emitter)
-                                    source_node.contract_name.as_ref(),
-                                );
-                                let event_name =
-                                    edge.event_name.as_deref().unwrap_or("UnknownEvent");
-                                let args_str = edge
-                                    .argument_names
-                                    .as_ref()
-                                    .map(|args| args.join(", "))
-                                    .unwrap_or_default();
-                                let message_content = format!("emit {}({})", event_name, args_str);
-                                // Signal from source participant to itself
-                                builder.signal(
-                                    source_participant_id.clone(), // From self
-                                    source_participant_id,         // To self
-                                    "->>",
-                                    Some(message_content),
-                                );
-                                // Do NOT process the EVM -> Listener edge.
-                                // Do NOT recurse for emit path.
-                                continue; // Move to the next edge
-                            } else {
-                           // --- Handle Regular Call ---
+                            // Process the original Caller -> EVM edge as a self-signal on the caller.
+                            // No need to check processed_return_edges here, emits should show every time.
+                            let source_participant_id = Self::get_participant_id(
+                                &source_node.name, // Use source node (the emitter)
+                                source_node.contract_name.as_ref(),
+                            );
+                            let event_name = edge.event_name.as_deref().unwrap_or("UnknownEvent");
+                            let args_str = edge
+                                .argument_names
+                                .as_ref()
+                                .map(|args| args.join(", "))
+                                .unwrap_or_default();
+                            let message_content = format!("emit {}({})", event_name, args_str);
+                            // Signal from source participant to itself
+                            builder.signal(
+                                source_participant_id.clone(), // From self
+                                source_participant_id,         // To self
+                                "->>",
+                                Some(message_content),
+                            );
+                            // Do NOT process the EVM -> Listener edge.
+                            // Do NOT recurse for emit path.
+                            continue; // Move to the next edge
+                        }
+                        // --- Handle Regular Call ---
+                        // Removed the specific 'else if edge.source_node_id == edge.target_node_id' block
+                        // as BuiltIns are now handled like regular calls if they resolve to a node.
+                        else {
                             // Note: We do NOT insert the call edge_index into processed_edges here.
                             // This allows the call and its subsequent flow to be processed every time.
 
@@ -151,13 +153,23 @@ impl MermaidGenerator {
                             let target_participant_id = Self::get_participant_id(
                                 &target_node.name,
                                 target_node.contract_name.as_ref(),
-                            );
+                                );
                             let args_str = edge
                                 .argument_names
                                 .as_ref()
                                 .map(|args| args.join(", "))
                                 .unwrap_or_default();
                             let message_content = format!("{}({})", target_node.name, args_str);
+                            // --- MERMAID DEBUG ---
+                            eprintln!(
+                                "[Mermaid Signal DEBUG] Adding Call Signal: \
+                                SourceNode='{}.{}' (ID {}), TargetNode='{}.{}' (ID {}), \
+                                SourceParticipant='{}', TargetParticipant='{}', Message='{}'",
+                                source_node.contract_name.as_deref().unwrap_or("Global"), source_node.name, source_node.id,
+                                target_node.contract_name.as_deref().unwrap_or("Global"), target_node.name, target_node.id,
+                                source_participant_id, target_participant_id, message_content
+                            );
+                            // --- END MERMAID DEBUG ---
                             builder.signal(
                                 source_participant_id,
                                 target_participant_id,

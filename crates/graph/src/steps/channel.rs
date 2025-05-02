@@ -31,7 +31,8 @@ struct GraphModification {
     return_value: Option<String>,
     arguments: Option<Vec<String>>,
     event_name: Option<String>,
-    sort_span_start: usize, // Span start of the *originating* source element (call, emit, assignment, etc.)
+    sort_span_start: usize, // Span start of the *outermost* originating source element (call, emit, assignment, etc.)
+    chain_index: Option<usize>, // Index within a call chain from analyze_chained_call
 }
 
 #[derive(Default)] // Add Default derive
@@ -318,33 +319,37 @@ impl CallGraphGeneratorStep for CallsHandling {
                                     "[CallsHandling DEBUG]         analyze_chained_call returned {} steps.",
                                     steps.len()
                                 );
-                                if steps.is_empty() {
-                                    eprintln!("[CallsHandling DEBUG]         analyze_chained_call returned 0 steps for node: {}", get_node_text(&node, &input.source));
-                                }
+                                if steps.is_empty() {}
 
                                 // Collect modifications for the main call chain steps
-                                for step in &steps {
-                                    eprintln!("[CallsHandling DEBUG]           Processing Step: Target={:?}, Args={:?}", step.target, step.arguments);
+                                // Use enumerate to get the index within the chain returned by analyze_chained_call
+                                for (chain_index, step) in steps.iter().enumerate() {
+                                    eprintln!("[CallsHandling DEBUG]           Processing Step (Chain Index {}): Target={:?}, Args={:?}", chain_index, step.target, step.arguments);
+
+                                    // --- Handle Regular Targets (including those previously treated as BuiltIn) ---
                                     if let Some(target_node_id) =
                                         resolve_target_to_node_id(&step.target, graph, ctx)
                                     {
-                                        eprintln!("[CallsHandling DEBUG]             >>> Collecting modification (from chain step): CallerID={}, TargetID={}, StepSpan={:?}", caller_node_id, target_node_id, step.call_expr_span);
+                                        eprintln!("[CallsHandling DEBUG]             >>> Collecting modification (Regular Call): CallerID={}, TargetID={}, StepSpan={:?}, ChainIndex={}", caller_node_id, target_node_id, step.call_expr_span, chain_index);
                                         modifications.push(GraphModification {
-                                            source_node_id: caller_node_id,
-                                            target_node_id,
-                                            edge_type: EdgeType::Call, // Or ConstructorCall if target is constructor? analyze_chained_call needs refinement?
+                                            source_node_id: caller_node_id, // Source is the caller
+                                            target_node_id, // Target is the resolved node
+                                            edge_type: EdgeType::Call, // Could be ConstructorCall too, but handled by target node type later
                                             span: (
                                                 step.call_expr_span.0.into(),
                                                 step.call_expr_span.1.into(),
                                             ),
                                             modifier: None,
-                                            return_value: None, // Not tracked here
+                                            return_value: None, // Not tracked here for regular calls either
                                             arguments: Some(step.arguments.clone()),
-                                            event_name: None,
-                                            // Use the function span start for sorting chained calls correctly
-                                            sort_span_start: step.function_span.0,
+                                            event_name: None, // No special event name for regular calls
+                                            sort_span_start: span.0, // Use span start of the *outermost* node that triggered analyze_chained_call
+                                            chain_index: Some(chain_index), // Store the index within the chain
                                         });
-                                    } else {
+                                    }
+                                    // --- Handle Unresolved Targets (excluding BuiltIns) ---
+                                    // --- Handle Unresolved Targets (excluding BuiltIns) ---
+                                    else {
                                         eprintln!("[CallsHandling DEBUG]             >>> Target for step {:?} did not resolve to a node ID. Skipping modification.", step.target);
                                     }
                                 }
@@ -540,6 +545,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                                                         sort_span_start: step
                                                                             .call_expr_span
                                                                             .0,
+                                                                        chain_index: None, // Not part of the main chain index sequence
                                                                     },
                                                                 );
                                                             } else {
@@ -609,6 +615,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                         arguments: None,
                                         event_name: None,
                                         sort_span_start: assignment_span.0, // Use assignment start for sorting
+                                        chain_index: None,
                                     });
                                     // } else {
                                     //     eprintln!("[Storage DEBUG Deferred] Write target '{}' (NodeID {}) is not a StorageVariable.", var_name, var_node_id);
@@ -631,16 +638,16 @@ impl CallGraphGeneratorStep for CallsHandling {
                             graph,
                             ctx,
                         ) {
-                        // --- End inheritance-aware resolution ---
+                            // --- End inheritance-aware resolution ---
                             // The check for NodeType::StorageVariable is now inside resolve_storage_variable
                             // if graph
                             //     .nodes
                             //     .get(var_node_id)
                             //     .map_or(false, |n| n.node_type == NodeType::StorageVariable)
                             // {
-                                // --- Filtering Logic ---
-                                let mut skip_read_edge = false;
-                                if let Some(parent) = read_candidate_node.parent() {
+                            // --- Filtering Logic ---
+                            let mut skip_read_edge = false;
+                            if let Some(parent) = read_candidate_node.parent() {
                                 let mut skip_read_edge = false;
                                 if let Some(parent) = read_candidate_node.parent() {
                                     let parent_kind = parent.kind();
@@ -778,6 +785,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                         arguments: None,
                                         event_name: None,
                                         sort_span_start: read_span.0, // Use read identifier start for sorting
+                                        chain_index: None,
                                     });
                                 }
                             } else {
@@ -839,6 +847,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                             arguments: Some(argument_texts),
                             event_name: None,
                             sort_span_start: require_span.0, // Use require call start for sorting
+                            chain_index: None,
                         });
                     }
                     "emit" => {
@@ -914,6 +923,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                 arguments: Some(argument_texts.clone()),
                                 event_name: Some(event_name.clone()),
                                 sort_span_start: emit_span.0, // Use emit statement start for sorting
+                                chain_index: None,
                             });
 
                             // --- Collect Modification 2: EVM -> Event Listener ---
@@ -931,6 +941,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                 arguments: Some(argument_texts),
                                 event_name: Some(event_name),
                                 sort_span_start: emit_span.0, // Use emit statement start for sorting
+                                chain_index: None,
                             });
                         } else {
                             eprintln!("[CallsHandling DEBUG]       >>> Emit statement missing event name. Span: {:?}", emit_span);
@@ -972,11 +983,29 @@ impl CallGraphGeneratorStep for CallsHandling {
             // --- End Deduplication ---
 
             let mut call_sequence_counter: usize = 0; // Reset sequence counter for each function body
+            eprintln!("[Channel DEBUG] Modifications for Caller {} AFTER sort/dedup:", caller_node_id); // DEBUG Start
+            for (idx, m) in modifications.iter().enumerate() {
+                eprintln!(
+                    "[Channel DEBUG]   [{}] Source={}, Target={}, Type={:?}, Span=({},{}), SortSpan={}, ChainIdx={:?}",
+                    idx, m.source_node_id, m.target_node_id, m.edge_type, m.span.0, m.span.1, m.sort_span_start, m.chain_index
+                );
+            } // DEBUG End
             for modification in modifications {
                 // Iterate over the deduplicated list
                 call_sequence_counter += 1; // Increment sequence number for each edge added
-                                            // --- BEGIN ADD EDGE DEBUG ---
-                eprintln!("[Add Edge DEBUG] Adding Edge (Seq: {}): Source={}, Target={}, Type={:?}, Span={:?}, OrigSpanStart={}",
+                // --- BEGIN ADD EDGE DEBUG ---
+                // Add more detail to existing debug log
+                eprintln!("[Add Edge DEBUG] Adding Edge (Seq: {}): Source={}, Target={}, Type={:?}, Span={:?}, OrigSpanStart={}, ChainIdx={:?}",
+                    call_sequence_counter,
+                    modification.source_node_id,
+                    modification.target_node_id,
+                    modification.edge_type,
+                    modification.span,
+                    modification.sort_span_start,
+                    modification.chain_index // Add chain_index here
+                );
+                // --- END ADD EDGE DEBUG ---
+                eprintln!("[CallsHandling DEBUG]   Adding Edge (Seq: {}): {:?} -> {:?} ({:?}), Span: {:?}, OrigSpanStart: {}",
                     call_sequence_counter,
                     modification.source_node_id,
                     modification.target_node_id,

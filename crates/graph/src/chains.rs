@@ -136,8 +136,8 @@ pub(crate) fn analyze_chained_call<'a>(
     let original_start_node = original_start_node.unwrap_or(start_node);
     // Use full path to Result
     let mut steps = Vec::new();
-    let current_node = start_node; // Removed unused mut
-    let mut current_object_type: Option<String> = None; // Type of the result of the previous step
+    // let current_node = start_node; // Removed unused mut
+    //let mut current_object_type: Option<String> = None; // Type of the result of the previous step
 
     eprintln!(
         "[Analyze Chained] Starting analysis for node kind: '{}', text: '{}'",
@@ -145,20 +145,16 @@ pub(crate) fn analyze_chained_call<'a>(
         get_node_text(&start_node, source).trim()
     );
 
-    eprintln!(
-            "[Analyze Chained] Loop iteration. Current node kind: '{}', text: '{}', current object type: {:?}",
-            current_node.kind(),
-            get_node_text(&current_node, source).trim(),
-            current_object_type
-        );
-
-    match current_node.kind() {
+    match start_node.kind() {
         // --- Base Cases (Start of a chain or simple expression) ---
         "identifier" | "primitive_type" | "string_literal" | "number_literal"
         | "boolean_literal" | "hex_literal" | "address_literal" => {
             // This is not a call itself, but the start of a potential chain. Resolve its type.
-            current_object_type = resolve_expression_type_v2(
-                current_node,
+            // Resolve type, but no steps generated from here directly.
+            // The caller using this identifier/literal will handle type resolution.
+            let _resolved_type = resolve_expression_type_v2(
+                // Mark as unused for now
+                start_node, // Use start_node here
                 caller_node_id,
                 caller_contract_name_opt,
                 ctx,
@@ -168,8 +164,9 @@ pub(crate) fn analyze_chained_call<'a>(
                 input,
             )?;
             eprintln!(
-                "[Analyze Chained] Base case resolved type: {:?}",
-                current_object_type
+                "[Analyze Chained] Base case node '{}' processed. Type resolved: {:?}",
+                start_node.kind(),
+                _resolved_type // Use start_node
             );
             // If it's just an identifier/literal, there are no call steps *from* it directly.
             // The chain must continue via member access or call expression wrapping it.
@@ -177,12 +174,9 @@ pub(crate) fn analyze_chained_call<'a>(
 
         "new_expression" => {
             // Handle `new Contract(...)` as the start of a potential chain
-            let type_name_node =
-                current_node
-                    .child_by_field_name("type_name")
-                    .ok_or_else(|| {
-                        TypeError::MissingChild("new_expression missing type_name".to_string())
-                    })?;
+            let type_name_node = start_node.child_by_field_name("type_name").ok_or_else(|| {
+                TypeError::MissingChild("new_expression missing type_name".to_string())
+            })?;
             let contract_name = get_node_text(&type_name_node, source).to_string(); // Simplified
 
             // The "call" is to the constructor
@@ -192,13 +186,23 @@ pub(crate) fn analyze_chained_call<'a>(
                 node_type: NodeType::Constructor,
             };
 
-            // Arguments are tricky for `new`, they are siblings within the parent `call_expression` usually.
-            // Let's assume the caller handles argument extraction for `new` based on the parent `call_expression`.
-            // For now, pass empty args.
-            let arguments = vec![]; // Placeholder
+            // Arguments for `new` are usually in the parent `call_expression`.
+            // We need the parent node to extract them correctly.
+            // For now, assume the caller (likely the `call_expression` handler below)
+            // provides the arguments if `new` is wrapped. If `new` is standalone, args are empty.
+            // Let's refine argument extraction later if needed.
+            let arguments = if let Some(parent) = start_node.parent() {
+                if parent.kind() == "call_expression" {
+                    extract_arguments_v2(parent, source)
+                } else {
+                    vec![] // Standalone new expression
+                }
+            } else {
+                vec![]
+            };
 
             let step = ResolvedCallStep {
-                call_expr_span: (current_node.start_byte(), current_node.end_byte()), // Use start/end_byte
+                call_expr_span: (start_node.start_byte(), start_node.end_byte()), // Use start/end_byte
                 function_span: (
                     type_name_node.start_byte(), // Use start/end_byte
                     type_name_node.end_byte(),   // Use start/end_byte
@@ -208,32 +212,68 @@ pub(crate) fn analyze_chained_call<'a>(
                 result_type: Some(contract_name.clone()), // Result type is the contract itself
                 object_type: None,                        // No object for `new`
             };
+            // current_object_type = Some(contract_name); // Set by the step's result_type
             steps.push(step);
-            current_object_type = Some(contract_name);
             eprintln!(
-                "[Analyze Chained] 'new' expression processed. Result type: {:?}",
-                current_object_type
+                "[Analyze Chained] 'new' expression step added. Result type: {:?}",
+                steps.last().and_then(|s| s.result_type.as_ref())
             );
-            // A `new` expression itself doesn't chain further directly.
         }
 
         // --- Recursive / Chaining Cases ---
         "call_expression" => {
-            let function_node = current_node
+            let function_node = start_node // Use start_node
                 .child_by_field_name("function")
                 .ok_or_else(|| {
                     TypeError::MissingChild("call_expression missing function".to_string())
                 })?;
-            let arguments = extract_arguments_v2(current_node, source);
+            // Get argument expression nodes
+            let argument_nodes = find_argument_expression_nodes(start_node); // Use start_node
 
             eprintln!(
-                "[Analyze Chained] Handling call_expression. Function node kind: '{}', text: '{}'",
-                function_node.kind(),
-                get_node_text(&function_node, source).trim()
+                        "[Analyze Chained] Handling call_expression. Function node kind: '{}', text: '{}', Num args: {}",
+                        function_node.kind(),
+                        get_node_text(&function_node, source).trim(),
+                        argument_nodes.len()
+                    );
+
+            // --- 1. Recursively analyze arguments FIRST ---
+            let mut argument_steps = Vec::new(); // Initialize argument_steps here
+            let mut argument_texts = Vec::with_capacity(argument_nodes.len());
+            for arg_node in argument_nodes {
+                eprintln!(
+                    "[Analyze Chained]   Analyzing argument node kind: '{}', text: '{}'",
+                    arg_node.kind(),
+                    get_node_text(&arg_node, source).trim()
+                );
+                // Recursively call analyze_chained_call for each argument
+                let inner_steps = analyze_chained_call(
+                    arg_node,
+                    caller_node_id,
+                    caller_contract_name_opt,
+                    ctx,
+                    graph,
+                    source,
+                    solidity_lang,
+                    input,
+                    Some(original_start_node), // Pass original start node
+                )?;
+                 // Extend the separate argument_steps vector
+                 argument_steps.extend(inner_steps);
+                 // Store the original text of the argument for the outer call step
+                 argument_texts.push(get_node_text(&arg_node, source).to_string());
+            }
+            eprintln!(
+                "[Analyze Chained]   Finished analyzing arguments. Collected {} inner steps.",
+                argument_texts.len()
             );
 
+            // --- 2. Process the outer call itself ---
+            let mut object_steps = Vec::new(); // Initialize object_steps here
+            let mut outer_object_type: Option<String> = None; // Type of the object being called upon
+
             match function_node.kind() {
-                // Case 1: Simple call `foo()` or type cast `Type(arg)`
+                // Case A: Simple call `foo()` or type cast `Type(arg)`
                 "expression"
                     if function_node
                         .child(0)
@@ -242,104 +282,37 @@ pub(crate) fn analyze_chained_call<'a>(
                     let id_node = function_node.child(0).unwrap();
                     let name = get_node_text(&id_node, source).to_string();
 
-                    // Is it a constructor call `ContractName(...)` or an interface type cast `InterfaceName(...)`?
-                    if name.chars().next().map_or(false, |c| c.is_uppercase()) {
-                        if ctx.all_contracts.contains_key(&name) {
-                            // Constructor Call `ContractName(...)`
-                            eprintln!(
-                                "[Analyze Chained]   Call identified as constructor call to '{}'",
-                                name
-                            );
-                            let target = ResolvedTarget::Function {
-                                contract_name: Some(name.clone()),
-                                function_name: name.clone(), // Constructor name is contract name
-                                node_type: NodeType::Constructor,
-                            };
-                            let result_type = Some(name.clone()); // Result type is the contract itself
-
-                            let step = ResolvedCallStep {
-                                call_expr_span: (
-                                    current_node.start_byte(),
-                                    current_node.end_byte(),
-                                ),
-                                function_span: (id_node.start_byte(), id_node.end_byte()),
-                                target,
-                                arguments, // Use extracted arguments
-                                result_type: result_type.clone(),
-                                object_type: None, // No object for constructor call
-                            };
-                            steps.push(step);
-                            current_object_type = result_type;
-                            eprintln!(
-                                "[Analyze Chained]   Constructor call step added for '{}'. Result type: {:?}",
-                                name, current_object_type
-                            );
-                        } else if ctx.all_interfaces.contains_key(&name) {
-                            // Interface Type Cast `InterfaceName(...)`
-                            eprintln!(
-                                "[Analyze Chained]   Expression identified as interface type cast to '{}'",
-                                name
-                            );
-                            // Resolve the type for the next step, but DO NOT create a call step for the cast itself.
-                            current_object_type = Some(name.clone());
-                            eprintln!(
-                                "[Analyze Chained]   Interface type cast processed. Result type for next step: {:?}",
-                                current_object_type
-                            );
-                            // No step is pushed for the type cast itself.
-                        } else {
-                            // Potentially a struct constructor or simple function call starting with uppercase?
-                            // Treat as simple function call for now.
-                            eprintln!(
-                                "[Analyze Chained]   Call identified as simple function call '{}' (uppercase start)",
-                                name
-                            );
-                            // Resolve target (could be local, contract func, free func)
-                            let target = resolve_simple_call_v2(
-                                &name,
-                                caller_contract_name_opt,
-                                graph,
-                                ctx,
-                            )?;
-                            let result_type = resolve_call_return_type(
-                                &target,
-                                ctx,
-                                graph,
-                                source,
-                                solidity_lang,
-                                input,
-                            )?;
-
-                            let step = ResolvedCallStep {
-                                call_expr_span: (
-                                    current_node.start_byte(),
-                                    current_node.end_byte(),
-                                ),
-                                function_span: (id_node.start_byte(), id_node.end_byte()),
-                                target,
-                                arguments,
-                                result_type: result_type.clone(),
-                                object_type: None, // No object for simple calls
-                            };
-                            steps.push(step);
-                            current_object_type = result_type;
-                            eprintln!(
-                                "[Analyze Chained]   Simple call (uppercase) step added. Result type: {:?}",
-                                current_object_type
-                            );
-                        }
-                    } else {
-                        // Simple function call `foo()` (lowercase start)
+                    // Check for Type Cast `TypeName(...)` - these don't generate a call step themselves
+                    if name.chars().next().map_or(false, |c| c.is_uppercase())
+                        && (ctx.all_contracts.contains_key(&name)
+                            || ctx.all_interfaces.contains_key(&name)
+                            || ctx.all_libraries.contains_key(&name))
+                    // Check libraries too
+                    {
                         eprintln!(
-                            "[Analyze Chained]   Call identified as simple function call '{}'",
+                                    "[Analyze Chained]   Outer call is Type Cast/Constructor '{}'. No outer step generated.", name
+                                );
+                        // The type resolution happens via the recursive call on the argument(s).
+                        // The result type for the *overall* expression is the type name itself.
+                        // However, analyze_chained_call returns steps, not just the final type.
+                        // If this cast is the *outermost* node analyzed, we might need
+                        // a way to signal the final type without a step.
+                        // For now, if arguments generated steps, those are returned.
+                        // If no arguments or simple args, steps might be empty.
+                        // This case needs careful handling depending on how the result is used.
+                        // Let's assume for now that if it's just a cast, the caller handles it.
+                        // If it's `new Type()`, it's handled by the `new_expression` case.
+                        // If it's `Type(arg).method()`, the `member_expression` handler deals with it.
+                        // So, if we reach here, it's likely just `Type(arg)` used as a value.
+                        // We return the steps generated by analyzing `arg`.
+                    } else {
+                        // Simple function call `foo()`
+                        eprintln!(
+                            "[Analyze Chained]   Outer call is Simple Function Call '{}'",
                             name
                         );
-                        // Resolve target (could be local, contract func, free func)
-                        // Use a simplified resolution for now, assuming direct lookup works.
-                        // TODO: Enhance simple call resolution (inheritance, etc.)
                         let target =
                             resolve_simple_call_v2(&name, caller_contract_name_opt, graph, ctx)?;
-
                         let result_type = resolve_call_return_type(
                             &target,
                             ctx,
@@ -349,25 +322,25 @@ pub(crate) fn analyze_chained_call<'a>(
                             input,
                         )?;
 
-                        let step = ResolvedCallStep {
-                            call_expr_span: (current_node.start_byte(), current_node.end_byte()), // Use start/end_byte
-                            function_span: (id_node.start_byte(), id_node.end_byte()), // Use start/end_byte
+                        let outer_step = ResolvedCallStep {
+                            call_expr_span: (start_node.start_byte(), start_node.end_byte()),
+                            function_span: (id_node.start_byte(), id_node.end_byte()),
                             target,
-                            arguments,
+                            arguments: argument_texts, // Use collected texts
                             result_type: result_type.clone(),
                             object_type: None, // No object for simple calls
                         };
-                        steps.push(step);
-                        current_object_type = result_type;
+                        // Combine steps: argument_steps first, then the outer_step
+                        steps = argument_steps; // Start with argument steps
+                        steps.push(outer_step); // Add the simple call step
                         eprintln!(
-                            "[Analyze Chained]   Simple call step added. Result type: {:?}",
-                            current_object_type
+                            "[Analyze Chained]   Simple call step added. Result type: {:?}. Total steps for this branch: {}",
+                            result_type, steps.len()
                         );
-                        // Simple call is usually the end of a chain.
                     }
                 }
 
-                // Case 2: Member call `obj.method()` or `expr.method()`
+                // Case B: Member call `obj.method()` or `expr.method()`
                 "expression"
                     if function_node
                         .child(0)
@@ -397,17 +370,14 @@ pub(crate) fn analyze_chained_call<'a>(
                         )));
                     }
                     let property_name = get_node_text(&property_node, source).to_string();
-
                     eprintln!(
-                        "[Analyze Chained]   Call identified as member call '.{}'",
+                        "[Analyze Chained]   Outer call is Member Call '.{}'",
                         property_name
                     );
-
-                    // Resolve the type of the object *recursively* if needed
-                    // This is where the chaining happens: the object_node becomes the new 'start_node'
-                    // for the inner part of the chain.
-                    let inner_steps = analyze_chained_call(
-                        object_node, // Analyze the object part first
+                    // Recursively analyze the object part first
+                    object_steps = analyze_chained_call(
+                        // Assign to the outer object_steps
+                        object_node,
                         caller_node_id,
                         caller_contract_name_opt,
                         ctx,
@@ -415,38 +385,39 @@ pub(crate) fn analyze_chained_call<'a>(
                         source,
                         solidity_lang,
                         input,
-                        Some(original_start_node), // Pass the original start node
+                        Some(original_start_node),
                     )?;
+                    // --- Steps are no longer prepended here, combined later ---
 
-                    // The type of the object for *this* call step is the result type of the *last* inner step,
-                    // or the directly resolved type if the object_node was a base case.
-                    let object_type_for_this_call =
-                        if let Some(last_inner_step) = inner_steps.last() {
-                            last_inner_step.result_type.clone()
-                        } else {
-                            // If no inner steps, resolve the object_node directly
-                            resolve_expression_type_v2(
-                                object_node,
-                                caller_node_id,
-                                caller_contract_name_opt,
-                                ctx,
-                                graph,
-                                source,
-                                solidity_lang,
-                                input,
-                            )?
-                        };
+                    // Determine the type of the object for *this* call
+                    outer_object_type = if let Some(last_object_step) = object_steps.last() {
+                        // Use the collected object_steps
+                        last_object_step.result_type.clone()
+                    } else {
+                        // If object analysis yielded no steps (e.g., simple identifier)
+                        resolve_expression_type_v2(
+                            object_node,
+                            caller_node_id,
+                            caller_contract_name_opt,
+                            ctx,
+                            graph,
+                            source,
+                            solidity_lang,
+                            input,
+                        )?
+                    };
+                    eprintln!(
+                        "[Analyze Chained]     Resolved outer_object_type for member call: {:?}",
+                        outer_object_type
+                    );
 
-                    // Prepend inner steps to our main steps list
-                    // We process from outside in, so inner steps come first.
-                    steps.splice(0..0, inner_steps); // Insert inner_steps at the beginning
-
-                    if let Some(ref obj_type) = object_type_for_this_call {
+                    if let Some(ref obj_type) = outer_object_type {
                         eprintln!(
                             "[Analyze Chained]     Object type for '.{}' call resolved to: '{}'",
                             property_name, obj_type
                         );
-                        // Resolve the target method based on the object type and property name
+                        // Add logging here to see the inputs
+                        eprintln!("[Analyze Chained]     Calling resolve_member_or_library_call_v2 with obj_type='{}', property='{}'", obj_type, property_name);
                         let target = resolve_member_or_library_call_v2(
                             obj_type,
                             &property_name,
@@ -454,9 +425,8 @@ pub(crate) fn analyze_chained_call<'a>(
                             graph,
                             ctx,
                             source,
-                            (member_expr_node.start_byte(), member_expr_node.end_byte()), // Span for error reporting
+                            (member_expr_node.start_byte(), member_expr_node.end_byte()),
                         )?;
-
                         let result_type = resolve_call_return_type(
                             &target,
                             ctx,
@@ -466,19 +436,21 @@ pub(crate) fn analyze_chained_call<'a>(
                             input,
                         )?;
 
-                        let step = ResolvedCallStep {
-                            call_expr_span: (current_node.start_byte(), current_node.end_byte()), // Use start/end_byte
-                            function_span: (property_node.start_byte(), property_node.end_byte()), // Use start/end_byte
+                        let outer_step = ResolvedCallStep {
+                            call_expr_span: (start_node.start_byte(), start_node.end_byte()),
+                            function_span: (property_node.start_byte(), property_node.end_byte()),
                             target,
-                            arguments,
+                            arguments: argument_texts, // Use collected texts
                             result_type: result_type.clone(),
-                            object_type: Some(obj_type.clone()),
+                            object_type: outer_object_type.clone(),
                         };
-                        steps.push(step); // Add the current call step
-                        current_object_type = result_type;
+                        // Combine steps: object_steps first, then argument_steps, then the outer_step
+                        steps = object_steps; // Start with object steps
+                        steps.extend(argument_steps); // Add argument steps
+                        steps.push(outer_step); // Add the final member call step
                         eprintln!(
-                            "[Analyze Chained]     Member call step added. Result type: {:?}",
-                            current_object_type
+                            "[Analyze Chained]     Member call step added. Result type: {:?}. Total steps for this branch: {}",
+                            result_type, steps.len()
                         );
                     } else {
                         eprintln!("[Analyze Chained]     Failed to resolve object type for member call '.{}'", property_name);
@@ -489,117 +461,53 @@ pub(crate) fn analyze_chained_call<'a>(
                     }
                 }
 
-                // Case 3: Constructor call `new Contract(...)`
+                // Case C: Constructor call `new Contract(...)` - Handled by `new_expression` case now?
+                // Let's double-check the AST structure. `new Contract()` is often wrapped in `call_expression`.
+                // The `new_expression` case above handles the `new` node itself.
+                // If the `call_expression` handler finds a `new_expression` inside, it should delegate.
                 "expression"
                     if function_node
                         .child(0)
                         .map_or(false, |n| n.kind() == "new_expression") =>
                 {
-                    // Use ok_or_else instead of unwrap for better error context
-                    let new_expr_node = function_node.child(0).ok_or_else(|| {
-                        TypeError::Internal(format!(
-                            "Function node '{}' in constructor call pattern expected a child (new_expression) but has none.",
-                            get_node_text(&function_node, source)
-                        ))
-                    })?;
-
-                    // Add debug print for the identified new_expression node
+                    // Recursively analyze the new_expression itself to get its step(s)
+                    let new_steps = analyze_chained_call(
+                        function_node.child(0).unwrap(), // The new_expression node
+                        caller_node_id,
+                        caller_contract_name_opt,
+                        ctx,
+                        graph,
+                        source,
+                        solidity_lang,
+                        input,
+                        Some(original_start_node),
+                    )?;
+                    // Combine steps: argument_steps first, then the new_steps
+                    steps = argument_steps; // Start with argument steps
+                    steps.extend(new_steps); // Add steps from analyzing the 'new' expression
                     eprintln!(
-                        "[Analyze Chained]     Identified potential new_expression node: kind='{}', text='{}'",
-                        new_expr_node.kind(),
-                        get_node_text(&new_expr_node, source).trim()
-                    );
-
-                    // Ensure the node is actually a new_expression before proceeding
-                    if new_expr_node.kind() != "new_expression" {
-                        return Err(TypeError::Internal(format!(
-                            "Expected new_expression node within constructor call pattern, but got kind '{}' with text '{}'",
-                            new_expr_node.kind(), get_node_text(&new_expr_node, source).trim()
-                        )));
-                    }
-
-                    // --- Robust Type Name Extraction ---
-                    let mut type_name_node_opt: Option<TsNode> = None;
-                    let mut cursor = new_expr_node.walk();
-                    eprintln!(
-                        "[Analyze Chained]     Iterating children of new_expression '{}':",
-                        get_node_text(&new_expr_node, source).trim()
-                    );
-                    for child in new_expr_node.children(&mut cursor) {
-                        eprintln!(
-                            "[Analyze Chained]       Child kind: '{}', text: '{}'",
-                            child.kind(),
-                            get_node_text(&child, source).trim()
-                        );
-                        // Look for the node representing the type name
-                        // Common kinds are 'identifier' or 'type_name' itself
-                        if child.kind() == "identifier" || child.kind() == "type_name" {
-                            // Check if it's not the 'new' keyword itself if grammar is ambiguous
-                            if get_node_text(&child, source).trim() != "new" {
-                                type_name_node_opt = Some(child);
-                                break; // Found it
-                            }
-                        }
-                        // Add more kinds here if needed based on grammar inspection
-                    }
-
-                    let type_name_node = type_name_node_opt
-                        .ok_or_else(|| {
-                            // Error if no suitable child node was found
-                            TypeError::MissingChild(format!(
-                                "Could not find a type name node (identifier or type_name) as a child of the new_expression node '{}' (kind: {}). Node details: {:?}",
-                                get_node_text(&new_expr_node, source).trim(),
-                                new_expr_node.kind(),
-                                new_expr_node // Consider printing node.to_sexp() if more detail needed
-                            ))
-                        })?;
-                    // --- End Robust Type Name Extraction ---
-
-                    let contract_name = get_node_text(&type_name_node, source).to_string(); // Simplified
-
-                    eprintln!(
-                        "[Analyze Chained]   Call identified as constructor call 'new {}' (using type node kind '{}')",
-                        contract_name, type_name_node.kind() // Log the kind of node we used
-                    );
-
-                    let target = ResolvedTarget::Function {
-                        contract_name: Some(contract_name.clone()),
-                        function_name: contract_name.clone(),
-                        node_type: NodeType::Constructor,
-                    };
-
-                    let step = ResolvedCallStep {
-                        call_expr_span: (current_node.start_byte(), current_node.end_byte()), // Use start/end_byte
-                        function_span: (type_name_node.start_byte(), type_name_node.end_byte()), // Use start/end_byte
-                        target,
-                        arguments,
-                        result_type: Some(contract_name.clone()), // Result is the contract type
-                        object_type: None,
-                    };
-                    steps.push(step);
-                    current_object_type = Some(contract_name);
-                    eprintln!(
-                        "[Analyze Chained]   Constructor call step added. Result type: {:?}",
-                        current_object_type
+                        "[Analyze Chained]   'new' expression wrapped in call processed. Total steps for this branch: {}",
+                        steps.len()
                     );
                 }
-
                 _ => {
                     return Err(TypeError::UnsupportedNodeKind(format!(
                         "Unsupported function node kind in call_expression: '{}'",
                         function_node.kind()
                     )));
                 }
-            }
-        }
+            } // End match function_node.kind()
+        } // End "call_expression" case
 
         "member_expression" => {
             // Handle cases like `a.b` where `b` is accessed but not called.
             // This sets the stage for a potential *next* call in the chain.
-            let object_node = current_node.child_by_field_name("object").ok_or_else(|| {
-                TypeError::MissingChild("member_expression missing object".to_string())
-            })?;
-            let property_node = current_node
+            let object_node = start_node // Use start_node
+                .child_by_field_name("object")
+                .ok_or_else(|| {
+                    TypeError::MissingChild("member_expression missing object".to_string())
+                })?;
+            let property_node = start_node // Use start_node
                 .child_by_field_name("property")
                 .ok_or_else(|| {
                     TypeError::MissingChild("member_expression missing property".to_string())
@@ -618,8 +526,8 @@ pub(crate) fn analyze_chained_call<'a>(
                 property_name
             );
 
-            // Resolve the type of the object recursively
-            let inner_steps = analyze_chained_call(
+            // Recursively analyze the object part first
+            let object_steps = analyze_chained_call(
                 object_node,
                 caller_node_id,
                 caller_contract_name_opt,
@@ -628,64 +536,25 @@ pub(crate) fn analyze_chained_call<'a>(
                 source,
                 solidity_lang,
                 input,
-                None,
+                Some(original_start_node), // Pass original start node
             )?;
-            steps.splice(0..0, inner_steps.clone()); // Prepend inner steps
+            steps.extend(object_steps); // Prepend object steps
 
-            let object_type_for_this_access = if let Some(last_inner_step) = inner_steps.last() {
-                last_inner_step.result_type.clone()
-            } else {
-                resolve_expression_type_v2(
-                    object_node,
-                    caller_node_id,
-                    caller_contract_name_opt,
-                    ctx,
-                    graph,
-                    source,
-                    solidity_lang,
-                    input,
-                )?
-            };
-
-            if let Some(ref obj_type) = object_type_for_this_access {
-                eprintln!(
-                    "[Analyze Chained]   Object type for '.{}' access resolved to: '{}'",
-                    property_name, obj_type
-                );
-                // Resolve the type of the *property itself*
-                current_object_type = resolve_property_type(
-                    obj_type,
-                    &property_name,
-                    caller_contract_name_opt,
-                    graph,
-                    ctx,
-                    source,
-                    solidity_lang,
-                    input,
-                )?;
-                eprintln!(
-                    "[Analyze Chained]   Member access resolved. Result type for next step: {:?}",
-                    current_object_type
-                );
-                // This member access itself doesn't generate a call step.
-                // We've updated current_object_type for the *next* potential call.
-            } else {
-                eprintln!(
-                    "[Analyze Chained]   Failed to resolve object type for member access '.{}'",
-                    property_name
-                );
-                return Err(TypeError::TypeResolutionFailed {
-                    expr: get_node_text(&object_node, source).to_string(),
-                    reason: "Could not determine type for member access.".to_string(),
-                });
-            }
+            // This member access itself doesn't generate a call step.
+            // We just needed to ensure the object part was analyzed.
+            // The type resolution for the *next* step will handle this property.
+            eprintln!(
+                "[Analyze Chained]   Member access processed. {} inner steps added.",
+                steps.len()
+            );
         }
 
         "expression" => {
             // Delegate analysis to the first child of the expression node
-            if let Some(child_node) = current_node.child(0) {
+            if let Some(child_node) = start_node.child(0) {
+                // Use start_node
                 eprintln!(
-                    "[Analyze Chained] Delegating 'expression' analysis to child '{}'.", // New log
+                    "[Analyze Chained] Delegating 'expression' analysis to child '{}'.",
                     child_node.kind()
                 );
                 // Recursively call analyze_chained_call on the child.
@@ -702,9 +571,7 @@ pub(crate) fn analyze_chained_call<'a>(
                     input,
                     Some(original_start_node), // Pass the original start node
                 );
-                // Note: No steps are added for the 'expression' node itself.
             } else {
-                // Expression node with no children? Unlikely, but handle defensively.
                 eprintln!("[Analyze Chained] 'expression' node has no children.");
                 // Fall through to return the current (likely empty) steps vector.
             }
@@ -713,39 +580,45 @@ pub(crate) fn analyze_chained_call<'a>(
         _ => {
             // If the start node is an unhandled kind, try resolving its type.
             // This might be the start of a chain like `(a + b).call()`.
-            if current_node == start_node {
-                current_object_type = resolve_expression_type_v2(
-                    current_node,
-                    caller_node_id,
-                    caller_contract_name_opt,
-                    ctx,
-                    graph,
-                    source,
-                    solidity_lang,
-                    input,
-                )?;
+            // No steps generated directly from these.
+            let _resolved_type = resolve_expression_type_v2(
+                // Mark unused
+                start_node, // Use start_node
+                caller_node_id,
+                caller_contract_name_opt,
+                ctx,
+                graph,
+                source,
+                solidity_lang,
+                input,
+            )?;
+            // Only log if it's truly unhandled, not common cases like type casts or binary ops
+            if !matches!(
+                start_node.kind(),
+                "type_cast_expression"
+                    | "binary_expression"
+                    | "unary_expression"
+                    | "parenthesized_expression"
+            ) {
                 eprintln!(
-                    "[Analyze Chained] Unhandled start node kind '{}', resolved type: {:?}. No steps generated.",
-                    current_node.kind(),
-                    current_object_type
-                );
-                // No call steps generated from this node itself, steps remains empty.
+                            "[Analyze Chained] Potentially unhandled start node kind '{}', resolved type: {:?}. No steps generated.",
+                            start_node.kind(), // Use start_node
+                            _resolved_type
+                        );
             } else {
-                // If we encounter an unhandled node kind *during* chain analysis (not start node), it's an error.
-                return Err(TypeError::UnsupportedNodeKind(format!(
-                    "Unexpected node kind '{}' encountered during chained call analysis",
-                    current_node.kind()
-                )));
+                eprintln!(
+                            "[Analyze Chained] Handled base node kind '{}', resolved type: {:?}. No steps generated.",
+                            start_node.kind(), // Use start_node
+                            _resolved_type
+                        );
             }
         }
-    }
- // --- Deduplication ---
-    // Sort steps primarily by call expression start byte, then end byte.
-    // This allows dedup to remove identical steps originating from the same source location.
-    // The Ord trait derived uses all fields, but sorting by span is the main goal here.
-    steps.sort_unstable(); // Relies on the derived Ord implementation
-    steps.dedup(); // Removes consecutive duplicates
-
+    } // End match start_node.kind()
+      // --- Order Preservation ---
+      // NOTE: Removed steps.sort_unstable() and steps.dedup() here.
+      // The order is now determined by the sequence of analysis:
+      // object -> arguments -> outer call.
+      // Deduplication might need to be revisited if duplicate steps cause issues.
 
     eprintln!(
         "[Analyze Chained] Analysis finished. Total steps generated: {}",
@@ -755,6 +628,33 @@ pub(crate) fn analyze_chained_call<'a>(
 }
 
 // --- Helper Functions ---
+
+/// Finds the direct child expression nodes corresponding to arguments in a call.
+fn find_argument_expression_nodes<'a>(call_expr_node: TsNode<'a>) -> Vec<TsNode<'a>> {
+    let mut arg_nodes = Vec::new();
+    let mut cursor = call_expr_node.walk();
+    for child in call_expr_node.children(&mut cursor) {
+        // Look for 'call_argument' nodes directly under the call_expression
+        if child.kind() == "call_argument" {
+            if let Some(expr_node) = child.child(0) {
+                // Assuming expression is the first child
+                arg_nodes.push(expr_node);
+            }
+        }
+        // Also handle the case where arguments are wrapped in an 'arguments' node
+        else if child.kind() == "arguments" {
+            let mut arg_cursor = child.walk();
+            for arg_child in child.children(&mut arg_cursor) {
+                if arg_child.kind() == "call_argument" {
+                    if let Some(expr_node) = arg_child.child(0) {
+                        arg_nodes.push(expr_node);
+                    }
+                }
+            }
+        }
+    }
+    arg_nodes
+}
 
 /// Resolves the Solidity type name for a given expression node (V2).
 /// Inspired by cg::resolve_expression_type but adapted for this module.
@@ -780,6 +680,14 @@ fn resolve_expression_type_v2<'a>(
         // --- Base Cases ---
         "identifier" => {
             let name = expr_text;
+            // --- DEBUG LOG for specific identifier ---
+            if name == "Math" {
+                eprintln!(
+                    "[Resolve Type V2] Encountered identifier 'Math'. CallerScope='{:?}'",
+                    caller_contract_name_opt
+                );
+            }
+            // --- END DEBUG LOG ---
             // 1. Check state variables in current contract scope
             if let Some(contract_name) = caller_contract_name_opt {
                 if let Some(type_name) = ctx
@@ -792,20 +700,20 @@ fn resolve_expression_type_v2<'a>(
                     );
                     return Ok(Some(type_name.clone()));
                 }
-            // TODO: Check local variables/parameters within the caller_node_id's definition_ts_node
-            // This requires parsing the function parameters and local variable declarations.
-            // --- Start: Check local variables ---
-            if let Some((_, caller_node_info, _)) = ctx
-                .definition_nodes_info
-                .iter()
-                .find(|(id, _, _)| *id == caller_node_id)
-            {
-                if let Some(definition_ts_node) = input
-                    .tree
-                    .root_node()
-                    .descendant_for_byte_range(caller_node_info.span.0, caller_node_info.span.1)
+                // TODO: Check local variables/parameters within the caller_node_id's definition_ts_node
+                // This requires parsing the function parameters and local variable declarations.
+                // --- Start: Check local variables ---
+                if let Some((_, caller_node_info, _)) = ctx
+                    .definition_nodes_info
+                    .iter()
+                    .find(|(id, _, _)| *id == caller_node_id)
                 {
-                    let local_var_query_str = r#"
+                    if let Some(definition_ts_node) = input
+                        .tree
+                        .root_node()
+                        .descendant_for_byte_range(caller_node_info.span.0, caller_node_info.span.1)
+                    {
+                        let local_var_query_str = r#"
                         ; Local variable declaration statement
                         (variable_declaration_statement
                           (variable_declaration
@@ -815,66 +723,79 @@ fn resolve_expression_type_v2<'a>(
                         ) @local_var_decl_stmt
 
                     "#;
-                    // Use try_new for query creation with error handling
-                    let local_var_query = match Query::new(&input.solidity_lang, local_var_query_str) {
-                        Ok(q) => q,
-                        Err(e) => return Err(TypeError::QueryError(format!("Failed to create local var query: {}", e))),
-                    };
-
-                    let mut cursor = QueryCursor::new();
-                    let source_bytes = input.source.as_bytes(); // Needed for closure
-                    let mut matches = cursor.matches(
-                        &local_var_query,
-                        definition_ts_node, // Query within the function definition
-                        |node: TsNode| std::iter::once(&source_bytes[node.byte_range()]),
-                    );
-
-                    while let Some(match_) = matches.next() {
-                        let mut var_name_opt: Option<String> = None;
-                        let mut type_node_opt: Option<TsNode> = None;
-                        let mut decl_end_byte: usize = 0;
-
-                        for capture in match_.captures {
-                            let capture_name = &local_var_query.capture_names()[capture.index as usize];
-                            match *capture_name { // Dereference capture_name
-                                "local_var_name" | "param_name" => {
-                                    var_name_opt = Some(get_node_text(&capture.node, &input.source).to_string());
-                                    // Use the end byte of the name node for scope check
-                                    decl_end_byte = capture.node.end_byte();
+                        // Use try_new for query creation with error handling
+                        let local_var_query =
+                            match Query::new(&input.solidity_lang, local_var_query_str) {
+                                Ok(q) => q,
+                                Err(e) => {
+                                    return Err(TypeError::QueryError(format!(
+                                        "Failed to create local var query: {}",
+                                        e
+                                    )))
                                 }
-                                "local_var_type" | "param_type" => {
-                                    type_node_opt = Some(capture.node);
+                            };
+
+                        let mut cursor = QueryCursor::new();
+                        let source_bytes = input.source.as_bytes(); // Needed for closure
+                        let mut matches = cursor.matches(
+                            &local_var_query,
+                            definition_ts_node, // Query within the function definition
+                            |node: TsNode| std::iter::once(&source_bytes[node.byte_range()]),
+                        );
+
+                        while let Some(match_) = matches.next() {
+                            let mut var_name_opt: Option<String> = None;
+                            let mut type_node_opt: Option<TsNode> = None;
+                            let mut decl_end_byte: usize = 0;
+
+                            for capture in match_.captures {
+                                let capture_name =
+                                    &local_var_query.capture_names()[capture.index as usize];
+                                match *capture_name {
+                                    // Dereference capture_name
+                                    "local_var_name" | "param_name" => {
+                                        var_name_opt = Some(
+                                            get_node_text(&capture.node, &input.source).to_string(),
+                                        );
+                                        // Use the end byte of the name node for scope check
+                                        decl_end_byte = capture.node.end_byte();
+                                    }
+                                    "local_var_type" | "param_type" => {
+                                        type_node_opt = Some(capture.node);
+                                    }
+                                    "local_var_decl_stmt" => {
+                                        // Use the end byte of the whole statement for scope check
+                                        decl_end_byte = capture.node.end_byte();
+                                    }
+                                    _ => {}
                                 }
-                                "local_var_decl_stmt" => {
-                                    // Use the end byte of the whole statement for scope check
-                                    decl_end_byte = capture.node.end_byte();
-                                }
-                                _ => {}
                             }
-                        }
 
-                        if let (Some(var_name), Some(type_node)) = (var_name_opt, type_node_opt) {
-                            // Check if the declared variable name matches the identifier we are resolving
-                            // AND if the identifier usage occurs *after* the declaration
-                            if var_name == name && expr_node.start_byte() >= decl_end_byte {
-                                let type_name = get_node_text(&type_node, &input.source).to_string();
-                                eprintln!(
+                            if let (Some(var_name), Some(type_node)) = (var_name_opt, type_node_opt)
+                            {
+                                // Check if the declared variable name matches the identifier we are resolving
+                                // AND if the identifier usage occurs *after* the declaration
+                                if var_name == name && expr_node.start_byte() >= decl_end_byte {
+                                    let type_name =
+                                        get_node_text(&type_node, &input.source).to_string();
+                                    eprintln!(
                                     "[Resolve Type V2]   Identifier '{}' resolved to local var/param type '{}'",
                                     name, type_name
                                 );
-                                return Ok(Some(type_name));
+                                    return Ok(Some(type_name));
+                                }
                             }
                         }
                     }
                 }
+                // --- End: Check local variables ---
             }
-            // --- End: Check local variables ---
-        }
-        // 2. Check if it's a known contract, library, or interface name (these are types)
-        if ctx.all_contracts.contains_key(&name)
-                || ctx.all_libraries.contains_key(&name)
-                || ctx.all_interfaces.contains_key(&name)
-            {
+            // 2. Check if it's a known contract, library, or interface name (these are types)
+            let is_contract = ctx.all_contracts.contains_key(&name);
+            let is_library = ctx.all_libraries.contains_key(&name);
+            let is_interface = ctx.all_interfaces.contains_key(&name);
+            eprintln!("[Resolve Type V2]   Identifier '{}': is_contract={}, is_library={}, is_interface={}", name, is_contract, is_library, is_interface); // DEBUG LOG
+            if is_contract || is_library || is_interface {
                 eprintln!("[Resolve Type V2]   Identifier '{}' resolved to type (contract/library/interface) '{}'", name, name);
                 return Ok(Some(name));
             }
@@ -901,6 +822,18 @@ fn resolve_expression_type_v2<'a>(
             Ok(None) // Identifier not resolved
         }
         "primitive_type" => Ok(Some(expr_text)),
+        "type_cast_expression" => {
+            // Type is the type being cast to
+            let type_node = expr_node.child(0).ok_or_else(|| {
+                TypeError::MissingChild("type_cast_expression missing type node".to_string())
+            })?;
+            let type_name = get_node_text(&type_node, source).to_string();
+            eprintln!(
+                "[Resolve Type V2]   Type cast expression resolves to type '{}'",
+                type_name
+            );
+            Ok(Some(type_name))
+        }
         "string_literal" => Ok(Some("string".to_string())), // Assume string memory
         "number_literal" => Ok(Some("uint256".to_string())), // Assume uint256
         "boolean_literal" => Ok(Some("bool".to_string())),
@@ -1337,13 +1270,23 @@ fn resolve_member_or_library_call_v2<'a>(
             }
         }
     }
-
     // --- Priority 2: Direct Member Lookup (Contract/Library) ---
+    // Removed the explicit 'else if' check for Math.sqrt here.
+    // It will now fall through to direct member lookup.
     let direct_lookup_key = (
         Some(object_type_name.to_string()),
         property_name.to_string(),
     );
-    if let Some(node_id) = graph.node_lookup.get(&direct_lookup_key) {
+    // --- DEBUG LOG for direct lookup ---
+    let lookup_result = graph.node_lookup.get(&direct_lookup_key);
+    eprintln!(
+        "[Resolve Member/Lib V2]   Attempting direct lookup with key: {:?}. Found: {}",
+        direct_lookup_key,
+        lookup_result.is_some()
+    );
+    // --- END DEBUG LOG ---
+    if let Some(node_id) = lookup_result {
+        // Use the captured result
         if let Some(node) = graph.nodes.get(*node_id) {
             // Ensure it's a callable type (Function, Modifier, Constructor)
             match node.node_type {
@@ -1370,6 +1313,12 @@ fn resolve_member_or_library_call_v2<'a>(
                 }
             }
         }
+    } else {
+        // DEBUG LOG
+        eprintln!(
+            "[Resolve Member/Lib V2]   Direct lookup failed for key: {:?}",
+            direct_lookup_key
+        );
     }
 
     // --- Priority 3: 'using for' Directives ---
@@ -1458,6 +1407,10 @@ fn find_using_for_target<'a>(
             object_type_name.to_string(),
         );
         if let Some(libs) = ctx.using_for_directives.get(&specific_type_key) {
+            eprintln!(
+                "[Find UsingFor]   Found specific directive for contract '{}', type '{}': {:?}",
+                caller_contract_name, object_type_name, libs
+            );
             potential_libraries.extend(libs.iter().cloned());
         }
         // Check for wildcard type: (Some(Contract), "*")
@@ -1465,8 +1418,17 @@ fn find_using_for_target<'a>(
         if let Some(libs) = ctx.using_for_directives.get(&wildcard_key) {
             potential_libraries.extend(libs.iter().cloned());
         }
+    } else {
+        eprintln!(
+            "[Find UsingFor]   No caller contract name provided. Skipping contract-specific directives."
+        );
     }
     // TODO: Check global 'using for' directives (key: (None, Type) and (None, "*"))
+
+    eprintln!(
+        "[Find UsingFor]   All potential libraries before dedup: {:?}",
+        potential_libraries
+    );
 
     // Remove duplicates and check libraries
     potential_libraries.sort_unstable();
