@@ -97,10 +97,13 @@ pub struct ResolvedCallStep {
     /// This becomes the object type for the *next* step in the chain.
     /// None if the call returns void or resolution failed.
     pub result_type: Option<String>,
-    /// The Solidity type name resolved for the *object* being called upon in this step.
-    /// None for simple function calls or `new` expressions.
-    pub object_type: Option<String>,
-}
+        /// The Solidity type name resolved for the *object* being called upon in this step.
+        /// None for simple function calls or `new` expressions.
+        pub object_type: Option<String>,
+        /// The start byte of the original expression that initiated this chain analysis.
+        /// Used for sorting steps correctly.
+        pub originating_span_start: usize,
+    }
 
 // --- Main Analysis Function ---
 
@@ -128,12 +131,13 @@ pub(crate) fn analyze_chained_call<'a>(
     ctx: &CallGraphGeneratorContext,
     graph: &'a CallGraph, // Pass graph for lookups
     source: &'a str,
-    solidity_lang: &'a tree_sitter::Language,
-    input: &'a CallGraphGeneratorInput,
-    original_start_node: Option<TsNode<'a>>, // Track the original start node
-) -> std::result::Result<Vec<ResolvedCallStep>, TypeError> {
-    // If original_start_node is None, this is the top-level call, so use start_node
-    let original_start_node = original_start_node.unwrap_or(start_node);
+        solidity_lang: &'a tree_sitter::Language,
+        input: &'a CallGraphGeneratorInput,
+        original_start_node_for_err_reporting: Option<TsNode<'a>>, // Keep for error reporting if needed
+        originating_span_start: usize, // Pass the originating span start
+    ) -> std::result::Result<Vec<ResolvedCallStep>, TypeError> {
+        // If original_start_node is None, this is the top-level call, so use start_node
+        let _original_start_node_for_err_reporting = original_start_node_for_err_reporting.unwrap_or(start_node); // Keep if needed for errors
     // Use full path to Result
     let mut steps = Vec::new();
     // let current_node = start_node; // Removed unused mut
@@ -211,6 +215,7 @@ pub(crate) fn analyze_chained_call<'a>(
                 arguments,
                 result_type: Some(contract_name.clone()), // Result type is the contract itself
                 object_type: None,                        // No object for `new`
+                originating_span_start, // Populate the new field
             };
             // current_object_type = Some(contract_name); // Set by the step's result_type
             steps.push(step);
@@ -256,7 +261,8 @@ pub(crate) fn analyze_chained_call<'a>(
                     source,
                     solidity_lang,
                     input,
-                    Some(original_start_node), // Pass original start node
+                    Some(_original_start_node_for_err_reporting), // Use the correct parameter name
+                    originating_span_start, // Pass down the same originating span start
                 )?;
                  // Extend the separate argument_steps vector
                  argument_steps.extend(inner_steps);
@@ -329,6 +335,7 @@ pub(crate) fn analyze_chained_call<'a>(
                             arguments: argument_texts, // Use collected texts
                             result_type: result_type.clone(),
                             object_type: None, // No object for simple calls
+                            originating_span_start, // Populate the new field
                         };
                         // Combine steps: argument_steps first, then the outer_step
                         steps = argument_steps; // Start with argument steps
@@ -385,7 +392,8 @@ pub(crate) fn analyze_chained_call<'a>(
                         source,
                         solidity_lang,
                         input,
-                        Some(original_start_node),
+                        Some(_original_start_node_for_err_reporting), // Use the correct parameter name
+                        originating_span_start, // Pass down the same originating span start
                     )?;
                     // --- Steps are no longer prepended here, combined later ---
 
@@ -443,6 +451,7 @@ pub(crate) fn analyze_chained_call<'a>(
                             arguments: argument_texts, // Use collected texts
                             result_type: result_type.clone(),
                             object_type: outer_object_type.clone(),
+                            originating_span_start, // Populate the new field
                         };
                         // Combine steps: object_steps first, then argument_steps, then the outer_step
                         steps = object_steps; // Start with object steps
@@ -480,7 +489,8 @@ pub(crate) fn analyze_chained_call<'a>(
                         source,
                         solidity_lang,
                         input,
-                        Some(original_start_node),
+                        Some(_original_start_node_for_err_reporting), // Use the correct parameter name
+                        originating_span_start, // Pass down the same originating span start
                     )?;
                     // Combine steps: argument_steps first, then the new_steps
                     steps = argument_steps; // Start with argument steps
@@ -534,11 +544,12 @@ pub(crate) fn analyze_chained_call<'a>(
                 ctx,
                 graph,
                 source,
-                solidity_lang,
-                input,
-                Some(original_start_node), // Pass original start node
-            )?;
-            steps.extend(object_steps); // Prepend object steps
+                        solidity_lang,
+                        input,
+                        Some(_original_start_node_for_err_reporting), // Use the correct parameter name
+                        originating_span_start, // Pass down the same originating span start
+                    )?;
+                    steps.extend(object_steps); // Prepend object steps
 
             // This member access itself doesn't generate a call step.
             // We just needed to ensure the object part was analyzed.
@@ -569,7 +580,8 @@ pub(crate) fn analyze_chained_call<'a>(
                     source,
                     solidity_lang,
                     input,
-                    Some(original_start_node), // Pass the original start node
+                    Some(_original_start_node_for_err_reporting), // Use the correct parameter name
+                    originating_span_start, // Pass down the same originating span start
                 );
             } else {
                 eprintln!("[Analyze Chained] 'expression' node has no children.");
@@ -815,11 +827,44 @@ fn resolve_expression_type_v2<'a>(
             // 4. Check if it's the special 'super' keyword
             // TODO: Handle 'super' keyword resolution (requires inheritance info)
 
+            // --- NEW: Check if identifier resolves to a function in scope/inheritance ---
+            // This handles cases like `totalSupply.mul()` where `totalSupply` is a function call.
+            // We need its *return type* to resolve the subsequent `.mul`.
+            match resolve_simple_call_v2(&name, caller_contract_name_opt, graph, ctx) {
+                Ok(ResolvedTarget::Function { contract_name, function_name, .. }) => {
+                    eprintln!("[Resolve Type V2]   Identifier '{}' resolved to function '{:?}.{}'. Getting return type.", name, contract_name, function_name);
+                    let func_key = (contract_name.clone(), function_name.clone());
+                    if let Some(node_id) = graph.node_lookup.get(&func_key) {
+                        let def_node_info_opt = ctx.definition_nodes_info.iter().find(|(id, _, _)| *id == *node_id).map(|(_, info, _)| info.clone());
+                        if let Some(def_node_info) = def_node_info_opt {
+                            // Use the function's return type as the expression's type
+                            let return_type = get_function_return_type_v2(&def_node_info, input)?;
+                             eprintln!("[Resolve Type V2]     Function return type: {:?}", return_type);
+                            return Ok(return_type);
+                        } else {
+                             eprintln!("[Resolve Type V2]     Could not find definition NodeInfo for function ID {}", node_id);
+                        }
+                    } else {
+                         eprintln!("[Resolve Type V2]     Could not find node ID in graph lookup for function key {:?}", func_key);
+                    }
+                }
+                Ok(_) | Err(_) => {
+                    // Didn't resolve to a function, or an error occurred during resolution.
+                    // Continue with the original "not resolved" path.
+                    eprintln!(
+                        "[Resolve Type V2]   Identifier '{}' did not resolve to a function in scope.",
+                        name
+                    );
+                }
+            }
+            // --- END NEW ---
+
+
             eprintln!(
-                "[Resolve Type V2]   Identifier '{}' type not resolved (state/type/local?).",
+                "[Resolve Type V2]   Identifier '{}' type not resolved (state/type/local/function?).",
                 name
             );
-            Ok(None) // Identifier not resolved
+            Ok(None) // Identifier not resolved by any means
         }
         "primitive_type" => Ok(Some(expr_text)),
         "type_cast_expression" => {
@@ -866,13 +911,14 @@ fn resolve_expression_type_v2<'a>(
                 caller_contract_name_opt,
                 ctx,
                 graph,
-                source,
-                solidity_lang,
-                input,
-                None,
-            )?;
+                 source,
+                 solidity_lang,
+                 input,
+                 None, // original_start_node_for_err_reporting
+                 expr_node.start_byte(), // Pass the start byte of this call expression as the originating span start
+             )?;
 
-            if let Some(last_step) = steps.last() {
+             if let Some(last_step) = steps.last() {
                 eprintln!(
                     "[Resolve Type V2]   Call expression resolved. Last step result type: {:?}",
                     last_step.result_type

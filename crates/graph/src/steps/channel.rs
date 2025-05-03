@@ -33,6 +33,7 @@ struct GraphModification {
     event_name: Option<String>,
     sort_span_start: usize, // Span start of the *outermost* originating source element (call, emit, assignment, etc.)
     chain_index: Option<usize>, // Index within a call chain from analyze_chained_call
+    execution_priority: i32, // Relative execution order within the sort_span_start group
 }
 
 #[derive(Default)] // Add Default derive
@@ -312,7 +313,8 @@ impl CallGraphGeneratorStep for CallsHandling {
                             &input.source,
                             &input.solidity_lang,
                             &input,
-                            None, // Top-level call within this caller
+                            None, // Top-level call, no original node needed for error reporting here
+                            node.start_byte(), // Pass the start byte of the outermost node as originating span start
                         ) {
                             Ok(steps) => {
                                 eprintln!(
@@ -322,15 +324,16 @@ impl CallGraphGeneratorStep for CallsHandling {
                                 if steps.is_empty() {}
 
                                 // Collect modifications for the main call chain steps
-                                // Use enumerate to get the index within the chain returned by analyze_chained_call
-                                for (chain_index, step) in steps.iter().enumerate() {
+                                // Use enumerate to get the index (starting from 1) within the chain returned by analyze_chained_call
+                                for (chain_index_zero_based, step) in steps.iter().enumerate() {
+                                    let chain_index = chain_index_zero_based + 1; // Start index from 1
                                     eprintln!("[CallsHandling DEBUG]           Processing Step (Chain Index {}): Target={:?}, Args={:?}", chain_index, step.target, step.arguments);
 
                                     // --- Handle Regular Targets (including those previously treated as BuiltIn) ---
                                     if let Some(target_node_id) =
                                         resolve_target_to_node_id(&step.target, graph, ctx)
                                     {
-                                        eprintln!("[CallsHandling DEBUG]             >>> Collecting modification (Regular Call): CallerID={}, TargetID={}, StepSpan={:?}, ChainIndex={}", caller_node_id, target_node_id, step.call_expr_span, chain_index);
+                                        eprintln!("[CallsHandling DEBUG]             >>> Collecting modification (Regular Call): CallerID={}, TargetID={}, StepSpan={:?}, ChainIndex={}, Priority={}", caller_node_id, target_node_id, step.call_expr_span, chain_index, chain_index);
                                         modifications.push(GraphModification {
                                             source_node_id: caller_node_id, // Source is the caller
                                             target_node_id, // Target is the resolved node
@@ -343,8 +346,9 @@ impl CallGraphGeneratorStep for CallsHandling {
                                             return_value: None, // Not tracked here for regular calls either
                                             arguments: Some(step.arguments.clone()),
                                             event_name: None, // No special event name for regular calls
-                                            sort_span_start: step.function_span.0, // Use function_span start for sorting
-                                            chain_index: Some(chain_index), // Store the index within the chain
+                                            sort_span_start: step.originating_span_start, // Use originating span start for sorting
+                                            chain_index: Some(chain_index), // Store the 1-based index within the chain
+                                            execution_priority: chain_index as i32, // Use 1-based index as priority
                                         });
                                     }
                                     // --- Handle Unresolved Targets (excluding BuiltIns) ---
@@ -540,14 +544,14 @@ impl CallGraphGeneratorStep for CallsHandling {
                                                                         return_value: None,
                                                                         arguments: Some(new_args),
                                                                         event_name: None,
-                                                                        // Use the sort span start of the call step that triggered this internal analysis
-                                                                        // This groups the internal 'new' logically with the call that caused it.
-                                                                        sort_span_start: step
-                                                                            .call_expr_span
-                                                                            .0,
-                                                                        chain_index: None, // Not part of the main chain index sequence
-                                                                    },
-                                                                );
+                                                                          // Use the sort span start of the call step that triggered this internal analysis
+                                                                          // This groups the internal 'new' logically with the call that caused it.
+                                                                          // Use the originating span start from the step that triggered this internal analysis.
+                                                                          sort_span_start: step.originating_span_start,
+                                                                          chain_index: None, // Not part of the main chain index sequence
+                                                                          execution_priority: 0, // Default priority for internal 'new'
+                                                                      },
+                                                                  );
                                                             } else {
                                                                 eprintln!("[CallsHandling DEBUG]             >>> Constructor node not found for internal new {}", new_contract_name);
                                                             }
@@ -616,6 +620,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                         event_name: None,
                                         sort_span_start: assignment_span.0, // Use assignment start for sorting
                                         chain_index: None,
+                                        execution_priority: 0, // Default priority for writes
                                     });
                                     // } else {
                                     //     eprintln!("[Storage DEBUG Deferred] Write target '{}' (NodeID {}) is not a StorageVariable.", var_name, var_node_id);
@@ -631,6 +636,109 @@ impl CallGraphGeneratorStep for CallsHandling {
                         let read_candidate_node = node;
                         let read_span = span;
                         let var_name = get_node_text(&read_candidate_node, &input.source);
+
+                        // Determine if this read is the object of a subsequent call, handling potential type casts
+                        let mut is_read_for_call = false;
+                        let mut call_sort_span_start = read_span.0; // Default to own span start
+                        let mut current_node = read_candidate_node;
+                        let mut found_member_expr: Option<TsNode> = None;
+
+                        // Traverse upwards from the read identifier to find the relevant member_expression,
+                        // potentially passing through type_cast_expression or expression nodes.
+                        loop {
+                            if let Some(parent) = current_node.parent() {
+                                match parent.kind() {
+                                    "member_expression" => {
+                                        // Check if current_node (identifier or type_cast) is the 'object'
+                                        let object_node = parent.child_by_field_name("object");
+                                        if object_node.map_or(false, |obj| obj.id() == current_node.id()) {
+                                            found_member_expr = Some(parent);
+                                            break; // Found the relevant member expression
+                                        }
+                                        // If current_node is not the object, stop ascending this path
+                                        break;
+                                    }
+                                    "type_cast_expression" => {
+                                        // Check if current_node (identifier) is the 'value' being cast
+                                        let value_node = parent.child_by_field_name("value");
+                                        // The value might be wrapped in an expression node, e.g., Type( (expr) )
+                                        let mut is_value = value_node.map_or(false, |val| val.id() == current_node.id());
+                                        if !is_value && value_node.map_or(false, |val| val.kind() == "expression" && val.child_count() > 0 && val.child(0).unwrap().id() == current_node.id()) {
+                                            is_value = true;
+                                        }
+
+                                        if is_value {
+                                            // Continue searching upwards from the type_cast node itself
+                                            current_node = parent; // Ascend from the type_cast node
+                                            continue;
+                                        }
+                                        // If current_node is not the value, stop ascending this path
+                                        break;
+                                    }
+                                    // Allow traversing through intermediate structural nodes like expressions, arguments etc.
+                                    "expression" | "call_argument" | "arguments" | "call_expression" => {
+                                        // NEW: Allow traversing through call_expression (likely a type cast)
+                                        // We might need more specific checks here if this proves too broad,
+                                        // e.g., check if the call_expression looks like a type cast.
+                                        current_node = parent;
+                                        continue;
+                                    }
+                                    // Stop if we hit function boundaries or other non-relevant structural nodes
+                                    "function_definition" | "modifier_definition" | "contract_body" | "source_file" |
+                                    "block" | "variable_declaration_statement" | "assignment_expression" | "return_statement" => {
+                                        break;
+                                    }
+                                    // Add other potential parent kinds if needed
+                                    _ => {
+                                        // Stop ascending if we hit an unexpected node kind
+                                        eprintln!("[DEBUG Read Link] Stopping ascent at unexpected parent kind: {}", parent.kind());
+                                        break;
+                                    }
+                                }
+                            } else {
+                                break; // Reached root
+                            }
+                        }
+
+
+                        // If we found the relevant member_expression, check if it's part of a call
+                        if let Some(member_expr) = found_member_expr {
+                            // Check if the member_expression (or an expression wrapping it, or a type_cast wrapping it)
+                            // is the 'function' of a 'call_expression'
+                            let mut func_part_node = member_expr;
+                            loop {
+                                if let Some(parent) = func_part_node.parent() {
+                                    match parent.kind() {
+                                        "call_expression" => {
+                                            // Check if func_part_node is the function field of the call
+                                            let function_field_node = parent.child_by_field_name("function");
+                                            if function_field_node.map_or(false, |func_node| func_node.id() == func_part_node.id()) {
+                                                is_read_for_call = true;
+                                                call_sort_span_start = parent.start_byte(); // Use call expression's start
+                                                eprintln!("[Storage DEBUG Deferred V2] Read '{}' identified as object (via member_expr at {:?}) for call at span ({}, {}). Using call's start {} for sort_span_start.", var_name, member_expr.byte_range(), parent.start_byte(), parent.end_byte(), call_sort_span_start);
+                                                break; // Found the call
+                                            }
+                                            // If not the direct function, stop checking this call_expression path
+                                            break;
+                                        }
+                                        "expression" | "type_cast_expression" => {
+                                            // Continue upwards from the expression or type_cast node that wraps the member_expr/previous_wrapper
+                                            func_part_node = parent;
+                                            continue;
+                                        }
+                                        _ => {
+                                            // Stop if we hit something other than call_expression, expression, or type_cast_expression
+                                            eprintln!("[DEBUG Read Link] Stopping ascent towards call at unexpected parent kind: {}", parent.kind());
+                                            break;
+                                        }
+                                    }
+                                } else {
+                                    break; // Reached root
+                                }
+                             }
+                        }
+
+
                         // --- Use inheritance-aware resolution ---
                         if let Some(var_node_id) = resolve_storage_variable(
                             &caller_contract_name_opt,
@@ -784,8 +892,11 @@ impl CallGraphGeneratorStep for CallsHandling {
                                         return_value: None,
                                         arguments: None,
                                         event_name: None,
-                                        sort_span_start: read_span.0, // Use read identifier start for sorting
+                                        // Use the call's start span if linked, otherwise the read's start span
+                                        sort_span_start: call_sort_span_start,
                                         chain_index: None,
+                                        // Assign lower priority if linked to a call, default otherwise
+                                        execution_priority: if is_read_for_call { -1 } else { 0 },
                                     });
                                 }
                             } else {
@@ -848,6 +959,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                             event_name: None,
                             sort_span_start: require_span.0, // Use require call start for sorting
                             chain_index: None,
+                            execution_priority: 0, // Default priority for require
                         });
                     }
                     "emit" => {
@@ -924,6 +1036,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                 event_name: Some(event_name.clone()),
                                 sort_span_start: emit_span.0, // Use emit statement start for sorting
                                 chain_index: None,
+                                execution_priority: 0, // Default priority for emit step 1
                             });
 
                             // --- Collect Modification 2: EVM -> Event Listener ---
@@ -942,6 +1055,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                 event_name: Some(event_name),
                                 sort_span_start: emit_span.0, // Use emit statement start for sorting
                                 chain_index: None,
+                                execution_priority: 0, // Default priority for emit step 2 (same group as step 1)
                             });
                         } else {
                             eprintln!("[CallsHandling DEBUG]       >>> Emit statement missing event name. Span: {:?}", emit_span);
@@ -963,11 +1077,13 @@ impl CallGraphGeneratorStep for CallsHandling {
                 modifications.len(),
                 caller_node_id
             );
-            // Sort first by the start span of the originating source element,
-            // then by the index within a potential call chain.
-            // Use usize::MAX for chain_index if it's None (e.g., for direct reads/writes not part of a chain result)
-            // so they sort appropriately relative to chained calls from the same outer span.
-            modifications.sort_by_key(|m| (m.sort_span_start, m.chain_index.unwrap_or(usize::MAX)));
+            // Sort first by the start span of the originating source element (grouping chains/related operations),
+            // then by the actual start span of the specific modification (textual order tie-breaker),
+            // finally by the index within that chain (ordering steps within the chain).
+            // Sort first by the start span of the originating source element (grouping),
+            // then by the calculated execution priority within that group,
+            // finally by the actual start span of the specific modification (textual tie-breaker).
+            modifications.sort_by_key(|m| (m.sort_span_start, m.execution_priority, m.span.0));
 
 
             // --- Deduplicate modifications ---
@@ -990,43 +1106,29 @@ impl CallGraphGeneratorStep for CallsHandling {
             let mut call_sequence_counter: usize = 0; // Reset sequence counter for each function body
             eprintln!("[Channel DEBUG] Modifications for Caller {} AFTER sort/dedup:", caller_node_id); // DEBUG Start
             for (idx, m) in modifications.iter().enumerate() {
-                eprintln!(
-                    "[Channel DEBUG]   [{}] Source={}, Target={}, Type={:?}, Span=({},{}), SortSpan={}, ChainIdx={:?}",
-                    idx, m.source_node_id, m.target_node_id, m.edge_type, m.span.0, m.span.1, m.sort_span_start, m.chain_index
-                );
-            } // DEBUG End
+                 eprintln!(
+                     "[Channel DEBUG]   [{}] Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {})", // Updated format
+                     idx, m.source_node_id, m.target_node_id, m.edge_type, m.span.0, m.span.1,
+                     m.sort_span_start, m.execution_priority, m.span.0 // Show full sort key
+                 );
+             } // DEBUG End
             for modification in modifications {
                 // Iterate over the deduplicated list
                 call_sequence_counter += 1; // Increment sequence number for each edge added
                 // --- BEGIN ADD EDGE DEBUG ---
                 // Add more detail to existing debug log
-                eprintln!("[Add Edge DEBUG] Adding Edge (Seq: {}): Source={}, Target={}, Type={:?}, Span={:?}, OrigSpanStart={}, ChainIdx={:?}",
+                 eprintln!("[Add Edge DEBUG] Adding Edge (Seq: {}): Source={}, Target={}, Type={:?}, Span={:?}, SortKey=({}, {}, {})",
                     call_sequence_counter,
                     modification.source_node_id,
                     modification.target_node_id,
                     modification.edge_type,
                     modification.span,
                     modification.sort_span_start,
-                    modification.chain_index // Add chain_index here
+                    modification.execution_priority, // Add priority here
+                    modification.span.0 // Add secondary span sort key here
                 );
                 // --- END ADD EDGE DEBUG ---
-                eprintln!("[CallsHandling DEBUG]   Adding Edge (Seq: {}): {:?} -> {:?} ({:?}), Span: {:?}, OrigSpanStart: {}",
-                    call_sequence_counter,
-                    modification.source_node_id,
-                    modification.target_node_id,
-                    modification.edge_type, // Check this value specifically
-                    modification.span,
-                    modification.sort_span_start
-                );
-                // --- END ADD EDGE DEBUG ---
-                eprintln!("[CallsHandling DEBUG]   Adding Edge (Seq: {}): {:?} -> {:?} ({:?}), Span: {:?}, OrigSpanStart: {}",
-                    call_sequence_counter,
-                    modification.source_node_id,
-                    modification.target_node_id,
-                    modification.edge_type,
-                    modification.span,
-                    modification.sort_span_start
-                );
+                // Remove duplicate eprintn lines
                 graph.add_edge(
                     modification.source_node_id,
                     modification.target_node_id,
