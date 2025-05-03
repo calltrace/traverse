@@ -284,6 +284,8 @@ impl CallGraphGeneratorStep for CallsHandling {
 
             // --- Second Pass: Process sorted, deduplicated nodes and collect GraphModifications ---
             for (node, span, node_type) in potential_nodes {
+                // --- NEW: Find enclosing assignment start for priority/sorting ---
+                let enclosing_assignment_start = find_enclosing_assignment_start(node);
                 match node_type {
                     "call" | "new" => {
                         // --- Handle Calls and 'new' Expressions ---
@@ -346,9 +348,11 @@ impl CallGraphGeneratorStep for CallsHandling {
                                             return_value: None, // Not tracked here for regular calls either
                                             arguments: Some(step.arguments.clone()),
                                             event_name: None, // No special event name for regular calls
-                                            sort_span_start: step.originating_span_start, // Use originating span start for sorting
+                                            // --- UPDATED: Use assignment start if available, else originating span start ---
+                                            sort_span_start: enclosing_assignment_start.unwrap_or(step.originating_span_start),
                                             chain_index: Some(chain_index), // Store the 1-based index within the chain
-                                            execution_priority: chain_index as i32, // Use 1-based index as priority
+                                            // --- UPDATED: Priority 1 if part of assignment, else chain index ---
+                                            execution_priority: if enclosing_assignment_start.is_some() { 1 } else { chain_index as i32 },
                                         });
                                     }
                                     // --- Handle Unresolved Targets (excluding BuiltIns) ---
@@ -544,14 +548,15 @@ impl CallGraphGeneratorStep for CallsHandling {
                                                                         return_value: None,
                                                                         arguments: Some(new_args),
                                                                         event_name: None,
-                                                                          // Use the sort span start of the call step that triggered this internal analysis
-                                                                          // This groups the internal 'new' logically with the call that caused it.
-                                                                          // Use the originating span start from the step that triggered this internal analysis.
-                                                                          sort_span_start: step.originating_span_start,
-                                                                          chain_index: None, // Not part of the main chain index sequence
-                                                                          execution_priority: 0, // Default priority for internal 'new'
-                                                                      },
-                                                                  );
+                                                                        // --- UPDATED: Use assignment start if available, else originating span start ---
+                                                                        // Note: This internal 'new' inherits the sort context of the *outer* call step.
+                                                                        sort_span_start: enclosing_assignment_start.unwrap_or(step.originating_span_start),
+                                                                        chain_index: None, // Not part of the main chain index sequence
+                                                                        // --- UPDATED: Priority 1 if part of assignment, else 0 ---
+                                                                        // Internal 'new' gets priority 1 if the *outer* call was part of an assignment.
+                                                                        execution_priority: if enclosing_assignment_start.is_some() { 1 } else { 0 },
+                                                                    },
+                                                                );
                                                             } else {
                                                                 eprintln!("[CallsHandling DEBUG]             >>> Constructor node not found for internal new {}", new_contract_name);
                                                             }
@@ -618,9 +623,11 @@ impl CallGraphGeneratorStep for CallsHandling {
                                         return_value: None,
                                         arguments: None,
                                         event_name: None,
-                                        sort_span_start: assignment_span.0, // Use assignment start for sorting
+                                        // --- UPDATED: Use assignment start (which is assignment_span.0 here) ---
+                                        sort_span_start: assignment_span.0,
                                         chain_index: None,
-                                        execution_priority: 0, // Default priority for writes
+                                        // --- UPDATED: Priority 2 for writes within assignments ---
+                                        execution_priority: 2,
                                     });
                                     // } else {
                                     //     eprintln!("[Storage DEBUG Deferred] Write target '{}' (NodeID {}) is not a StorageVariable.", var_name, var_node_id);
@@ -892,11 +899,17 @@ impl CallGraphGeneratorStep for CallsHandling {
                                         return_value: None,
                                         arguments: None,
                                         event_name: None,
-                                        // Use the call's start span if linked, otherwise the read's start span
-                                        sort_span_start: call_sort_span_start,
+                                        // --- UPDATED: Use assignment start if available, else call/read start ---
+                                        sort_span_start: enclosing_assignment_start.unwrap_or(call_sort_span_start),
                                         chain_index: None,
-                                        // Assign lower priority if linked to a call, default otherwise
-                                        execution_priority: if is_read_for_call { -1 } else { 0 },
+                                        // --- UPDATED: Priority 0 if part of assignment call, -1 if other call, 0 otherwise ---
+                                        execution_priority: if enclosing_assignment_start.is_some() && is_read_for_call {
+                                            0 // Read for call within assignment
+                                        } else if is_read_for_call {
+                                            -1 // Read for call NOT within assignment
+                                        } else {
+                                            0 // Standalone read
+                                        },
                                     });
                                 }
                             } else {
@@ -1146,6 +1159,28 @@ impl CallGraphGeneratorStep for CallsHandling {
         Ok(())
     }
 }
+
+/// Helper function to find the start byte of the enclosing assignment expression, if any.
+fn find_enclosing_assignment_start(mut node: TsNode) -> Option<usize> {
+    loop {
+        if node.kind() == "assignment_expression" {
+            return Some(node.start_byte());
+        }
+        // Stop searching upwards if we hit common function/block boundaries
+        // or the root node, to avoid infinite loops or incorrect matches.
+        match node.kind() {
+            "function_definition" | "modifier_definition" | "constructor_definition" |
+            "block" | "source_file" => return None,
+            _ => {} // Continue searching upwards for other node kinds
+        }
+        if let Some(parent) = node.parent() {
+            node = parent;
+        } else {
+            return None; // Reached root without finding assignment
+        }
+    }
+}
+
 
 /// Resolves a storage variable name to its node ID, considering inheritance.
 /// It searches the current contract and then its ancestors.
