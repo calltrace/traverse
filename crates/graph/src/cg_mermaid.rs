@@ -154,12 +154,17 @@ impl MermaidGenerator {
                                 &target_node.name,
                                 target_node.contract_name.as_ref(),
                                 );
+                            // Restore original argument display
                             let args_str = edge
                                 .argument_names
                                 .as_ref()
-                                .map(|args| args.join(", "))
+                                .map(|args| args.join(", ")) // Join argument names/expressions
                                 .unwrap_or_default();
-                            let message_content = format!("{}({})", target_node.name, args_str);
+                            // Prepend contract/library name if available
+                            let function_display_name = target_node.contract_name.as_ref()
+                                .map_or_else(|| target_node.name.clone(), |c| format!("{}.{}", c, target_node.name));
+                            // Format with parentheses around arguments
+                            let message_content = format!("{}({})", function_display_name, args_str);
                             // --- MERMAID DEBUG ---
                             eprintln!(
                                 "[Mermaid Signal DEBUG] Adding Call Signal: \

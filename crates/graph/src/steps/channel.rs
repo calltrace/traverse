@@ -343,7 +343,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                             return_value: None, // Not tracked here for regular calls either
                                             arguments: Some(step.arguments.clone()),
                                             event_name: None, // No special event name for regular calls
-                                            sort_span_start: span.0, // Use span start of the *outermost* node that triggered analyze_chained_call
+                                            sort_span_start: step.function_span.0, // Use function_span start for sorting
                                             chain_index: Some(chain_index), // Store the index within the chain
                                         });
                                     }
@@ -963,10 +963,15 @@ impl CallGraphGeneratorStep for CallsHandling {
                 modifications.len(),
                 caller_node_id
             );
-            modifications.sort_by_key(|m| m.sort_span_start);
+            // Sort first by the start span of the originating source element,
+            // then by the index within a potential call chain.
+            // Use usize::MAX for chain_index if it's None (e.g., for direct reads/writes not part of a chain result)
+            // so they sort appropriately relative to chained calls from the same outer span.
+            modifications.sort_by_key(|m| (m.sort_span_start, m.chain_index.unwrap_or(usize::MAX)));
+
 
             // --- Deduplicate modifications ---
-            // We dedup based on all fields after sorting by the originating span start.
+            // We dedup based on all fields after sorting.
             // This ensures that if the exact same interaction (source, target, type, span, args, etc.)
             // was somehow collected multiple times, we only add it once.
             // The sorting ensures that identical items are adjacent for dedup() to work.
