@@ -165,7 +165,6 @@ impl MermaidGenerator {
                                 .map_or_else(|| target_node.name.clone(), |c| format!("{}.{}", c, target_node.name));
                             // Format with parentheses around arguments
                             let message_content = format!("{}({})", function_display_name, args_str);
-                            // --- MERMAID DEBUG ---
                             eprintln!(
                                 "[Mermaid Signal DEBUG] Adding Call Signal: \
                                 SourceNode='{}.{}' (ID {}), TargetNode='{}.{}' (ID {}), \
@@ -174,7 +173,6 @@ impl MermaidGenerator {
                                 target_node.contract_name.as_deref().unwrap_or("Global"), target_node.name, target_node.id,
                                 source_participant_id, target_participant_id, message_content
                             );
-                            // --- END MERMAID DEBUG ---
                             builder.signal(
                                 source_participant_id,
                                 target_participant_id,
@@ -425,7 +423,6 @@ impl ToSequenceDiagram for MermaidGenerator {
                     Some(message_content),
                 );
             }
-            // --- End synthetic return edge ---
         }
 
         // Note: Any edges not reachable from a public/external function called by the User
@@ -435,7 +432,6 @@ impl ToSequenceDiagram for MermaidGenerator {
     }
 }
 
-// --- Tests ---
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -147,12 +147,10 @@ impl CallGraph {
         argument_names: Option<Vec<String>>,      // Added: Argument names/texts
         event_name: Option<String>,               // Added: Event name for emits
     ) {
-        // --- DEBUG: Log every edge addition attempt ---
         eprintln!(
             "[DEBUG add_edge] Attempting to add edge: {} -> {} (Type: {:?}, Seq: {}, RetVal: {:?}, Args: {:?})", // Added Args to log
             source_node_id, target_node_id, edge_type, sequence_number, returned_value, argument_names
         );
-        // --- END DEBUG ---
         let edge = Edge {
             source_node_id,
             target_node_id,
@@ -189,7 +187,6 @@ impl CallGraph {
         input: &CallGraphGeneratorInput, // Add input parameter containing source, tree, lang
         ctx: &CallGraphGeneratorContext, // Remove 'a
     ) -> Result<()> {
-        // --- DEBUG: Check edges originating from Node 4 at the start ---
         eprintln!(
             "[Address Debug add_explicit_return_edges START] Graph: {:p}, Total Edges: {}",
             self,
@@ -219,7 +216,6 @@ impl CallGraph {
         if !found_node4_edges {
             eprintln!("[DEBUG Node 4 Edge Check START] No edges found originating from Node 4.");
         }
-        // --- END DEBUG ---
 
         // 1. Build a map of callee -> Vec<(caller_id, call_sequence_number)> from existing Call edges
         let mut callee_to_callers_and_seq: HashMap<usize, Vec<(usize, usize)>> = HashMap::new();
@@ -273,7 +269,6 @@ impl CallGraph {
             }
             // We'll get the node again inside the match block where we need it
 
-            // --- DEBUG: Log callee being processed ---
             // Use immutable borrow here for logging before potential mutable borrow
             if let Some(callee_node_for_log) = self.nodes.get(*callee_node_id) {
                 eprintln!(
@@ -287,9 +282,7 @@ impl CallGraph {
                     callee_node_for_log.node_type
                 );
             }
-            // --- END DEBUG ---
 
-            // --- DEBUG: Print S-expression for a specific node (e.g., UniswapV2Pair.mint, ID 21) ---
             if *callee_node_id == 21 {
                 eprintln!(
                     "[DEBUG AST Structure] S-expression for Node ID {}:\n{}",
@@ -297,7 +290,6 @@ impl CallGraph {
                     definition_ts_node.to_sexp() // Use retrieved node
                 );
             }
-            // --- END DEBUG ---
 
             // Check node type using an immutable borrow first
             let node_type_for_check = self.nodes[*callee_node_id].node_type.clone(); // Clone needed if used later
@@ -333,7 +325,6 @@ impl CallGraph {
                             }
                         }
                     }
-                    // --- End return flag check ---
 
                     // Find callers and their call sequences for this callee
                     if let Some(callers_info) = callee_to_callers_and_seq.get(callee_node_id) {
@@ -369,12 +360,10 @@ impl CallGraph {
                                     (return_node.start_byte(), return_node.end_byte());
                                 let return_kind = return_node.kind(); // DEBUG Get node kind
 
-                                // --- DEBUG: Log return found by query ---
                                 eprint!(
                                     "[DEBUG Returns]   Found return statement within definition: Kind='{}', Span={:?}. ",
                                     return_kind, return_span
                                 );
-                                // --- END DEBUG ---
 
                                 // Query is scoped, so it's accepted
                                 eprintln!(" => ACCEPTED (within definition node)");

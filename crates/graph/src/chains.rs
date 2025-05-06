@@ -3,21 +3,16 @@
 use crate::builtin;
 use crate::cg::{
     CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, NodeInfo, NodeType,
-}; // Keep only used items from cg
-use crate::parser::get_node_text; // Import the new builtin module
-                                  // Removed anyhow imports
-use std::collections::VecDeque; // Keep only VecDeque
-                                // Removed unused std::error::Error import
-use streaming_iterator::StreamingIterator; // Import the trait for .next()
-use tree_sitter::{Node as TsNode, Query, QueryCursor}; // Remove unused Point and Tree
-                                                       //
-
-// --- Error Handling ---
+}; 
+use crate::parser::get_node_text; 
+use std::collections::VecDeque; 
+use streaming_iterator::StreamingIterator; 
+use tree_sitter::{Node as TsNode, Query, QueryCursor}; 
 
 #[derive(Debug, PartialEq, Eq, Clone, thiserror::Error)]
 pub enum TypeError {
     #[error("Query error: {0}")]
-    QueryError(String), // Store String to avoid tree-sitter dep in error type if possible
+    QueryError(String), 
 
     #[error("Missing child: {0}")]
     MissingChild(String),
@@ -35,23 +30,19 @@ pub enum TypeError {
     AmbiguousInterfaceImplementation {
         interface_name: String,
         method_name: String,
-        implementations: Vec<String>, // List contract names
+        implementations: Vec<String>, 
     },
 
     #[error("Internal error: {0}")]
     Internal(String),
-    // Removed Other(String) variant used for anyhow
 }
 
-// Convert tree-sitter QueryError to our TypeError
 impl From<tree_sitter::QueryError> for TypeError {
     fn from(error: tree_sitter::QueryError) -> Self {
         // Convert the tree-sitter error to a string representation
         TypeError::QueryError(error.to_string())
     }
 }
-
-// Note: `thiserror` automatically implements `std::error::Error` and `Display`
 
 // --- Data Structures ---
 
@@ -149,8 +140,6 @@ pub(crate) fn analyze_chained_call<'a>(
         original_start_node_for_err_reporting.unwrap_or(start_node); // Keep if needed for errors
                                                                      // Use full path to Result
     let mut steps = Vec::new();
-    // let current_node = start_node; // Removed unused mut
-    //let mut current_object_type: Option<String> = None; // Type of the result of the previous step
 
     eprintln!(
         "[Analyze Chained] Starting analysis for node kind: '{}', text: '{}'",
@@ -166,8 +155,7 @@ pub(crate) fn analyze_chained_call<'a>(
             // Resolve type, but no steps generated from here directly.
             // The caller using this identifier/literal will handle type resolution.
             let _resolved_type = resolve_expression_type_v2(
-                // Mark as unused for now
-                start_node, // Use start_node here
+                start_node, 
                 caller_node_id,
                 caller_contract_name_opt,
                 ctx,
@@ -179,7 +167,7 @@ pub(crate) fn analyze_chained_call<'a>(
             eprintln!(
                 "[Analyze Chained] Base case node '{}' processed. Type resolved: {:?}",
                 start_node.kind(),
-                _resolved_type // Use start_node
+                _resolved_type 
             );
             // If it's just an identifier/literal, there are no call steps *from* it directly.
             // The chain must continue via member access or call expression wrapping it.
@@ -228,7 +216,6 @@ pub(crate) fn analyze_chained_call<'a>(
                 originating_span_start,                   // Populate the new field
                 base_object_identifier_for_builtin: None, // Added: No base object for 'new'
             };
-            // current_object_type = Some(contract_name); // Set by the step's result_type
             steps.push(step);
             eprintln!(
                 "[Analyze Chained] 'new' expression step added. Result type: {:?}",
@@ -254,7 +241,7 @@ pub(crate) fn analyze_chained_call<'a>(
                     );
 
             // --- 1. Recursively analyze arguments FIRST ---
-            let mut argument_steps = Vec::new(); // Initialize argument_steps here
+            let mut argument_steps = Vec::new();
             let mut argument_texts = Vec::with_capacity(argument_nodes.len());
             for arg_node in argument_nodes {
                 eprintln!(
@@ -272,10 +259,10 @@ pub(crate) fn analyze_chained_call<'a>(
                     source,
                     solidity_lang,
                     input,
-                    Some(_original_start_node_for_err_reporting), // Use the correct parameter name
+                    Some(_original_start_node_for_err_reporting), 
                     originating_span_start, // Pass down the same originating span start
                 )?;
-                // Extend the separate argument_steps vector
+
                 argument_steps.extend(inner_steps);
                 // Store the original text of the argument for the outer call step
                 argument_texts.push(get_node_text(&arg_node, source).to_string());
@@ -286,8 +273,8 @@ pub(crate) fn analyze_chained_call<'a>(
             );
 
             // --- 2. Process the outer call itself ---
-            let mut object_steps = Vec::new(); // Initialize object_steps here
-            let mut outer_object_type: Option<String> = None; // Type of the object being called upon
+            let mut object_steps = Vec::new();
+            let mut outer_object_type: Option<String> = None; 
 
             match function_node.kind() {
                 // Case A: Simple call `foo()` or type cast `Type(arg)`
@@ -405,12 +392,10 @@ pub(crate) fn analyze_chained_call<'a>(
                         source,
                         solidity_lang,
                         input,
-                        Some(_original_start_node_for_err_reporting), // Use the correct parameter name
+                        Some(_original_start_node_for_err_reporting), 
                         originating_span_start, // Pass down the same originating span start
                     )?;
-                    // --- Steps are no longer prepended here, combined later ---
-
-                    // --- NEW: Try to capture the base identifier if the object is simple ---
+                    // --- Try to capture the base identifier if the object is simple ---
                     let base_identifier_name = if object_node.kind() == "identifier" {
                         Some(get_node_text(&object_node, source).to_string())
                     } else {
@@ -418,14 +403,9 @@ pub(crate) fn analyze_chained_call<'a>(
                         // For now, only capture direct identifiers like `allPairs`.
                         None
                     };
-                    // --- END NEW ---
-
-                    // Determine the type of the object for *this* call
-                    // --- Steps are no longer prepended here, combined later ---
 
                     // Determine the type of the object for *this* call
                     outer_object_type = if let Some(last_object_step) = object_steps.last() {
-                        // Use the collected object_steps
                         last_object_step.result_type.clone()
                     } else {
                         // If object analysis yielded no steps (e.g., simple identifier)
@@ -450,7 +430,6 @@ pub(crate) fn analyze_chained_call<'a>(
                             "[Analyze Chained]     Object type for '.{}' call resolved to: '{}'",
                             property_name, obj_type
                         );
-                        // Add logging here to see the inputs
                         eprintln!("[Analyze Chained]     Calling resolve_member_or_library_call_v2 with obj_type='{}', property='{}'", obj_type, property_name);
                         let target = resolve_member_or_library_call_v2(
                             obj_type,
@@ -526,8 +505,8 @@ pub(crate) fn analyze_chained_call<'a>(
                         source,
                         solidity_lang,
                         input,
-                        Some(_original_start_node_for_err_reporting), // Use the correct parameter name
-                        originating_span_start, // Pass down the same originating span start
+                        Some(_original_start_node_for_err_reporting), 
+                        originating_span_start, 
                     )?;
                     // Combine steps: argument_steps first, then the new_steps
                     steps = argument_steps; // Start with argument steps
@@ -543,8 +522,8 @@ pub(crate) fn analyze_chained_call<'a>(
                         function_node.kind()
                     )));
                 }
-            } // End match function_node.kind()
-        } // End "call_expression" case
+            } 
+        } 
 
         "member_expression" => {
             // Handle cases like `a.b` where `b` is accessed but not called.
@@ -617,7 +596,7 @@ pub(crate) fn analyze_chained_call<'a>(
                     source,
                     solidity_lang,
                     input,
-                    Some(_original_start_node_for_err_reporting), // Use the correct parameter name
+                    Some(_original_start_node_for_err_reporting), 
                     originating_span_start, // Pass down the same originating span start
                 );
             } else {
@@ -713,9 +692,8 @@ pub(crate) fn analyze_chained_call<'a>(
                         );
             }
         }
-    } // End match start_node.kind()
+    } 
       // --- Order Preservation ---
-      // NOTE: Removed steps.sort_unstable() and steps.dedup() here.
       // The order is now determined by the sequence of analysis:
       // object -> arguments -> outer call.
       // Deduplication might need to be revisited if duplicate steps cause issues.
@@ -780,14 +758,12 @@ fn resolve_expression_type_v2<'a>(
         // --- Base Cases ---
         "identifier" => {
             let name = expr_text;
-            // --- DEBUG LOG for specific identifier ---
             if name == "Math" {
                 eprintln!(
                     "[Resolve Type V2] Encountered identifier 'Math'. CallerScope='{:?}'",
                     caller_contract_name_opt
                 );
             }
-            // --- END DEBUG LOG ---
             // 1. Check state variables in current contract scope
             if let Some(contract_name) = caller_contract_name_opt {
                 if let Some(type_name) = ctx
@@ -888,7 +864,6 @@ fn resolve_expression_type_v2<'a>(
                         }
                     }
                 }
-                // --- End: Check local variables ---
             }
             // 2. Check if it's a known contract, library, or interface name (these are types)
             let is_contract = ctx.all_contracts.contains_key(&name);
@@ -915,7 +890,7 @@ fn resolve_expression_type_v2<'a>(
             // 4. Check if it's the special 'super' keyword
             // TODO: Handle 'super' keyword resolution (requires inheritance info)
 
-            // --- NEW: Check if identifier resolves to a function in scope/inheritance ---
+            // Check if identifier resolves to a function in scope/inheritance ---
             // This handles cases like `totalSupply.mul()` where `totalSupply` is a function call.
             // We need its *return type* to resolve the subsequent `.mul`.
             match resolve_simple_call_v2(&name, caller_contract_name_opt, graph, ctx) {
@@ -956,7 +931,6 @@ fn resolve_expression_type_v2<'a>(
                     );
                 }
             }
-            // --- END NEW ---
 
             eprintln!(
                 "[Resolve Type V2]   Identifier '{}' type not resolved (state/type/local/function?).",
@@ -977,10 +951,10 @@ fn resolve_expression_type_v2<'a>(
             );
             Ok(Some(type_name))
         }
-        "string_literal" => Ok(Some("string".to_string())), // Assume string memory
-        "number_literal" => Ok(Some("uint256".to_string())), // Assume uint256
+        "string_literal" => Ok(Some("string".to_string())), 
+        "number_literal" => Ok(Some("uint256".to_string())), 
         "boolean_literal" => Ok(Some("bool".to_string())),
-        "hex_literal" => Ok(Some("bytes".to_string())), // Assume bytes
+        "hex_literal" => Ok(Some("bytes".to_string())), 
         "address_literal" => Ok(Some("address".to_string())),
 
         // --- Recursive Cases ---
@@ -1076,7 +1050,89 @@ fn resolve_expression_type_v2<'a>(
                 Ok(None) // Expression node with no children has no type
             }
         }
-            // TODO: Handle tuple_expression, array_access, etc.
+            // TODO: Handle tuple_expression, etc.
+            "array_access" => {
+                let base_node = expr_node.child_by_field_name("base").ok_or_else(|| {
+                    TypeError::MissingChild(format!(
+                        "array_access missing base for node: {}",
+                        get_node_text(&expr_node, source)
+                    ))
+                })?;
+                eprintln!(
+                    "[Resolve Type V2]   Array access: base kind '{}', text '{}'",
+                    base_node.kind(),
+                    get_node_text(&base_node, source)
+                );
+
+                let base_type_opt = resolve_expression_type_v2(
+                    base_node,
+                    caller_node_id,
+                    caller_contract_name_opt,
+                    ctx,
+                    graph,
+                    source,
+                    solidity_lang,
+                    input,
+                )?;
+
+                if let Some(base_type_str) = base_type_opt {
+                    eprintln!(
+                        "[Resolve Type V2]     Base type of array_access resolved to: '{}'",
+                        base_type_str
+                    );
+
+                    if base_type_str.starts_with("mapping(") && base_type_str.ends_with(')') {
+                        // mapping(KeyType => ValueType)
+                        if let Some(arrow_index) = base_type_str.find("=>") {
+                            let value_type_part = base_type_str
+                                [arrow_index + 2..base_type_str.len() - 1]
+                                .trim();
+                            if !value_type_part.is_empty() {
+                                eprintln!(
+                                    "[Resolve Type V2]       Mapping value type: '{}'",
+                                    value_type_part
+                                );
+                                return Ok(Some(value_type_part.to_string()));
+                            }
+                        }
+                        eprintln!(
+                            "[Resolve Type V2]       Could not parse mapping type: {}",
+                            base_type_str
+                        );
+                        Ok(None)
+                    } else if base_type_str.ends_with("[]") {
+                        // ArrayType[]
+                        let element_type = base_type_str[0..base_type_str.len() - 2].trim();
+                        if !element_type.is_empty() {
+                            eprintln!(
+                                "[Resolve Type V2]       Array element type: '{}'",
+                                element_type
+                            );
+                            return Ok(Some(element_type.to_string()));
+                        }
+                        eprintln!(
+                            "[Resolve Type V2]       Could not parse array type: {}",
+                            base_type_str
+                        );
+                        Ok(None)
+                    } else if base_type_str == "bytes" {
+                        // Indexing bytes returns bytes1
+                        eprintln!("[Resolve Type V2]       Bytes indexed, returning 'bytes1'");
+                        return Ok(Some("bytes1".to_string()));
+                    }
+                    // Add other special cases if needed (e.g., string)
+                    else {
+                        eprintln!(
+                            "[Resolve Type V2]     Base type '{}' is not a mapping, array, or bytes. Cannot determine indexed type.",
+                            base_type_str
+                        );
+                        Ok(None)
+                    }
+                } else {
+                    eprintln!("[Resolve Type V2]     Could not resolve base type of array_access.");
+                    Ok(None)
+                }
+            }
             "binary_expression" => {
                 // --- Determine result type based on operator ---
                 // We don't need to analyze operands recursively here, just determine the result type.
@@ -1411,29 +1467,21 @@ fn resolve_member_or_library_call_v2<'a>(
                         method_name: method_name.to_string(),
                         implementations: implementing_contracts,
                     });
-                    // Or return unresolved:
-                    // return Ok(ResolvedTarget::NotCallable {
-                    //     reason: format!("Ambiguous implementation: {} contracts implement {}.{}", potential_targets.len(), interface_name, method_name)
-                    // });
                 }
             }
         }
     }
     // --- Priority 2: Direct Member Lookup (Contract/Library) ---
-    // Removed the explicit 'else if' check for Math.sqrt here.
-    // It will now fall through to direct member lookup.
     let direct_lookup_key = (
         Some(object_type_name.to_string()),
         property_name.to_string(),
     );
-    // --- DEBUG LOG for direct lookup ---
     let lookup_result = graph.node_lookup.get(&direct_lookup_key);
     eprintln!(
         "[Resolve Member/Lib V2]   Attempting direct lookup with key: {:?}. Found: {}",
         direct_lookup_key,
         lookup_result.is_some()
     );
-    // --- END DEBUG LOG ---
     if let Some(node_id) = lookup_result {
         // Use the captured result
         if let Some(node) = graph.nodes.get(*node_id) {
@@ -1463,7 +1511,6 @@ fn resolve_member_or_library_call_v2<'a>(
             }
         }
     } else {
-        // DEBUG LOG
         eprintln!(
             "[Resolve Member/Lib V2]   Direct lookup failed for key: {:?}",
             direct_lookup_key
@@ -1523,13 +1570,11 @@ fn find_using_for_target<'a>(
     let mut potential_libraries = Vec::new();
     let mut types_to_check = vec![object_type_name.to_string()];
 
-    // --- NEW: Handle uint/uint256 alias ---
     if object_type_name == "uint" {
         types_to_check.push("uint256".to_string());
     } else if object_type_name == "uint256" {
         types_to_check.push("uint".to_string());
     }
-    // --- END NEW ---
 
     // Check contract-specific directives first
     if let Some(caller_contract_name) = caller_contract_name_opt {
@@ -1662,7 +1707,6 @@ fn resolve_simple_call_v2<'a>(
                 }
             }
         }
-        // --- End: Check inherited contracts ---
     }
 
     // 2. Look for a free function (no contract scope)
@@ -1738,11 +1782,8 @@ fn extract_arguments_v2<'a>(node: TsNode<'a>, source: &'a str) -> Vec<String> {
     argument_texts
 }
 
-// crates/graph/src/chains.rs
-
 /// Attempts to parse the return type string from a function definition node (V2).
 /// Handles single types, basic tuples, and named return parameters.
-// Remove 'a, change first param to NodeInfo, add input param
 fn get_function_return_type_v2(
     definition_node_info: &NodeInfo,
     input: &CallGraphGeneratorInput, // Add input
@@ -1901,7 +1942,6 @@ fn resolve_call_return_type<'a>(
     }
 }
 
-// --- Unit Tests ---
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1910,8 +1950,8 @@ mod tests {
     }; // Import necessary items
     use crate::steps::CallsHandling;
     use crate::steps::ContractHandling;
-    use anyhow::{Context, Result}; // Add anyhow imports
-    use language::{Language, Solidity}; // Assuming Language trait and Solidity struct exist
+    use anyhow::{Context, Result}; 
+    use language::{Language, Solidity}; 
     use std::collections::{HashMap, HashSet};
     use tree_sitter::{Parser, Tree};
 

@@ -1,10 +1,15 @@
 use std::{collections::HashMap, iter};
 
-use crate::{cg::{CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorStep, NodeInfo, NodeType, Visibility}, parser::get_node_text};
+use crate::{
+    cg::{
+        CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorStep,
+        NodeInfo, NodeType, Visibility,
+    },
+    parser::get_node_text,
+};
 use anyhow::{anyhow, Context, Result};
-use tree_sitter::{Node as TsNode, Query, QueryCursor};
 use streaming_iterator::StreamingIterator;
-
+use tree_sitter::{Node as TsNode, Query, QueryCursor};
 
 #[derive(Default)] // Add Default derive
 pub struct ContractHandling {
@@ -335,20 +340,23 @@ impl CallGraphGeneratorStep for ContractHandling {
                     );
                     // Create NodeInfo from TsNode
                     let node_info = NodeInfo {
-                        span: (interface_def_node.start_byte(), interface_def_node.end_byte()),
+                        span: (
+                            interface_def_node.start_byte(),
+                            interface_def_node.end_byte(),
+                        ),
                         kind: interface_def_node.kind().to_string(),
                     };
                     // Add interface to the context
                     ctx.all_interfaces
                         .insert(interface_name.clone(), node_info.clone()); // Store NodeInfo clone
-                    // Initialize empty vector for interface functions
+                                                                            // Initialize empty vector for interface functions
                     ctx.interface_functions
                         .entry(interface_name.clone())
                         .or_default();
                     // Add interface definition node info
                     ctx.definition_nodes_info.push((
                         node_id,
-                        node_info, // Store NodeInfo
+                        node_info,            // Store NodeInfo
                         Some(interface_name), // Pass interface name as scope context
                     ));
                 }
@@ -406,12 +414,10 @@ impl CallGraphGeneratorStep for ContractHandling {
                     ctx.state_var_types
                         .insert((contract_name.clone(), var_name.clone()), var_type);
 
-                    // --- DEBUG: Log state variable processing ---
                     eprintln!(
                         "[ContractHandling DEBUG] Processing State Var: Contract='{}', Var='{}', Type='{}'",
                         contract_name, var_name, var_name
                     );
-                    // --- END DEBUG ---
 
                     // Add the StorageVariable node to the graph
                     let span = (
@@ -427,7 +433,6 @@ impl CallGraphGeneratorStep for ContractHandling {
                         span,
                     );
 
-                    // --- DEBUG: Log node creation and expected lookup key ---
                     let expected_lookup_key = (Some(contract_name.clone()), var_name.clone());
                     eprintln!(
                         "[ContractHandling DEBUG]   Added Node ID: {}, Expected Lookup Key: {:?}",
@@ -435,18 +440,18 @@ impl CallGraphGeneratorStep for ContractHandling {
                     );
                     // Verify if the key exists immediately after adding
                     if graph.node_lookup.contains_key(&expected_lookup_key) {
-                         eprintln!("[ContractHandling DEBUG]   VERIFIED: Key {:?} exists in node_lookup.", expected_lookup_key);
+                        eprintln!(
+                            "[ContractHandling DEBUG]   VERIFIED: Key {:?} exists in node_lookup.",
+                            expected_lookup_key
+                        );
                     } else {
-                         eprintln!("[ContractHandling DEBUG]   FAILED VERIFICATION: Key {:?} DOES NOT exist in node_lookup immediately after add_node!", expected_lookup_key);
+                        eprintln!("[ContractHandling DEBUG]   FAILED VERIFICATION: Key {:?} DOES NOT exist in node_lookup immediately after add_node!", expected_lookup_key);
                     }
-                    // --- END DEBUG ---
-
 
                     // Store the node ID in the context for lookup during read/write detection
                     // Note: ctx.storage_var_nodes is not used by CallsHandling for lookup, graph.node_lookup is.
                     let storage_var_key = (Some(contract_name), var_name);
                     ctx.storage_var_nodes.insert(storage_var_key, node_id);
-
                 } else {
                     eprintln!(
                         "Warning: Incomplete capture for state variable definition: {:?}",
@@ -512,9 +517,12 @@ impl CallGraphGeneratorStep for ContractHandling {
                         kind: lib_def_node.kind().to_string(),
                     };
                     // Add library definition node info
-                    ctx.definition_nodes_info
-                        .push((node_id, node_info.clone(), Some(lib_name.clone()))); // Store NodeInfo clone
-                    // Add library to the context map
+                    ctx.definition_nodes_info.push((
+                        node_id,
+                        node_info.clone(),
+                        Some(lib_name.clone()),
+                    )); // Store NodeInfo clone
+                        // Add library to the context map
                     ctx.all_libraries.insert(lib_name, node_info); // Store NodeInfo
                 } else {
                     eprintln!(
@@ -554,7 +562,9 @@ impl CallGraphGeneratorStep for ContractHandling {
                     NodeType::Library
                     | NodeType::Interface
                     | NodeType::Evm
-                    | NodeType::EventListener | NodeType::StorageVariable | NodeType::RequireCondition => Visibility::Default, // Should not happen here
+                    | NodeType::EventListener
+                    | NodeType::StorageVariable
+                    | NodeType::RequireCondition => Visibility::Default, // Should not happen here
                 });
 
                 let span = (def_node.start_byte(), def_node.end_byte());
@@ -573,7 +583,7 @@ impl CallGraphGeneratorStep for ContractHandling {
                 // Pass the correct scope (contract or library name) to definition_nodes_info
                 ctx.definition_nodes_info
                     .push((node_id, node_info, scope_name_opt.clone())); // Store NodeInfo
-                // If this is a function in an interface, add it to the interface_functions map
+                                                                         // If this is a function in an interface, add it to the interface_functions map
                 if let Some(scope_name) = &scope_name_opt {
                     // Check all_interfaces which now stores NodeInfo
                     if ctx.all_interfaces.contains_key(scope_name) {
@@ -640,5 +650,3 @@ impl CallGraphGeneratorStep for ContractHandling {
         Ok(())
     }
 }
-
-

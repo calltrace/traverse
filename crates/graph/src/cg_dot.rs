@@ -164,9 +164,7 @@ impl CgToDot for CallGraph {
                         }
                     }
                     EdgeType::Return => {
-                        // --- DEBUG: Log when processing a Return edge for DOT generation ---
                         eprintln!("[DEBUG cg_dot] Formatting Return edge: {} -> {}", edge.source_node_id, edge.target_node_id);
-                        // --- END DEBUG ---
                         attrs.push((
                             "tooltip".to_string(),
                             escape_dot_string(&format!(
@@ -211,9 +209,7 @@ impl CgToDot for CallGraph {
                         attrs.push(("style".to_string(), "bold".to_string()));
                     }
                     EdgeType::Require => {
-                        // --- BEGIN DOT REQUIRE DEBUG ---
                         eprintln!("[DOT Require DEBUG] Formatting Require edge: {} -> {}", edge.source_node_id, edge.target_node_id);
-                        // --- END DOT REQUIRE DEBUG ---
                         let tooltip = format!("Require Check Span: {:?}", edge.call_site_span);
                         let args_str = edge.argument_names.as_ref()
                             .map(|args| {
@@ -278,7 +274,6 @@ impl CgToDot for CallGraph {
             None // No filtering needed
         };
 
-        // --- DEBUG: Log connected node IDs if filtering is active ---
         if config.exclude_isolated_nodes {
             if let Some(ref connected_ids) = connected_node_ids {
                 eprintln!("[DEBUG cg_dot Filter] Connected Node IDs: {:?}", connected_ids);
@@ -286,9 +281,6 @@ impl CgToDot for CallGraph {
                  eprintln!("[DEBUG cg_dot Filter] Filtering active, but connected_node_ids is None (unexpected).");
             }
         }
-        // --- END DEBUG ---
-
-        // --- End Node Filtering Logic ---
 
         for node in self.iter_nodes() {
             // --- Apply Filtering ---
@@ -296,18 +288,14 @@ impl CgToDot for CallGraph {
             if let Some(ref connected_ids) = connected_node_ids {
                 if !connected_ids.contains(&node.id) {
                      is_isolated = true; // DEBUG Mark as isolated
-                    // --- DEBUG: Log skipped node ---
                     eprintln!(
                         "[DEBUG cg_dot Filter] Skipping isolated node: ID={}, Name='{}', Contract='{:?}'",
                         node.id, node.name, node.contract_name
                     );
-                    // --- END DEBUG ---
                     continue; // Skip isolated node
                 }
             }
-            // --- End Filtering ---
 
-            // --- DEBUG: Log included node ---
             if config.exclude_isolated_nodes { // Only log if filtering is active
                  eprintln!(
                      "[DEBUG cg_dot Filter] Including {}node: ID={}, Name='{}', Contract='{:?}'",
@@ -315,7 +303,6 @@ impl CgToDot for CallGraph {
                      node.id, node.name, node.contract_name
                  );
             }
-            // --- END DEBUG ---
 
 
             let attrs = node_formatter(node);
@@ -361,7 +348,6 @@ pub fn escape_dot_string(s: &str) -> String {
         .replace('>', "\\>")
 }
 
-// --- Tests for cg_dot ---
 #[cfg(test)]
 mod tests {
     use super::*;
