@@ -104,6 +104,83 @@ fn test_simple_contract_call() -> Result<()> {
     Ok(())
 }
 
+
+#[test]
+fn test_delete_keyword() -> Result<()> {
+    let source = r#"
+        pragma solidity ^0.8.20;
+
+        contract DeleteTest {
+            uint256 public myVar; // State variable
+
+            // Function that deletes the state variable
+            function deleteMyVar() public {
+                delete myVar; // Delete operation
+            }
+        }
+        "#;
+    let ast = parse_solidity(source)?;
+    let solidity_lang = Solidity.get_tree_sitter_language();
+
+    let input = CallGraphGeneratorInput {
+        source: source.to_string(),
+        tree: ast.tree,
+        solidity_lang,
+    };
+    let mut ctx = CallGraphGeneratorContext::default();
+    let mut graph = CallGraph::new();
+    let config: HashMap<String, String> = HashMap::new(); // Empty config
+
+    // Run the full pipeline
+    let mut pipeline = CallGraphGeneratorPipeline::new();
+    pipeline.add_step(Box::new(ContractHandling::default()));
+    pipeline.add_step(Box::new(CallsHandling::default()));
+    pipeline.run(input, &mut ctx, &mut graph, &config)?;
+
+    // --- Assertions ---
+
+    // Nodes:
+    // 1. State Variable: DeleteTest.myVar
+    // 2. Function: DeleteTest.deleteMyVar
+    // 3. Constructor: DeleteTest (default)
+    assert_eq!(
+        graph.nodes.len(),
+        3,
+        "Should find 3 nodes (state var, delete func, default ctor)"
+    );
+
+    // Find relevant nodes
+    let var_node = find_node(&graph, "myVar", Some("DeleteTest"))
+        .expect("DeleteTest.myVar node missing");
+    let delete_func_node = find_node(&graph, "deleteMyVar", Some("DeleteTest"))
+        .expect("DeleteTest.deleteMyVar node missing");
+
+    // Verify node types
+    assert_eq!(var_node.node_type, NodeType::StorageVariable);
+    assert_eq!(delete_func_node.node_type, NodeType::Function);
+
+    // Edges:
+    // 1. deleteMyVar -> myVar (StorageWrite due to delete)
+    assert_eq!(graph.edges.len(), 1, "Should find 1 edge (1 write)");
+
+    // Verify Edge: deleteMyVar -> myVar (StorageWrite)
+    let write_edge = graph
+        .edges
+        .iter()
+        .find(|e| {
+            e.source_node_id == delete_func_node.id
+                && e.target_node_id == var_node.id
+                && e.edge_type == EdgeType::StorageWrite
+        })
+        .expect("StorageWrite edge from deleteMyVar to myVar missing");
+
+    // Sequence: 1 for the delete (treated as write)
+    assert_eq!(write_edge.sequence_number, 1, "StorageWrite (delete) sequence should be 1");
+    assert!(write_edge.call_site_span.0 > 0, "Delete call site span start should be > 0"); // Basic span check
+
+    Ok(())
+}
+
 #[test]
 fn test_interface_call_no_implementation() -> Result<()> {
     let source = r#"

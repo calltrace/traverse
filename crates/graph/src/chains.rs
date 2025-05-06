@@ -1,10 +1,11 @@
 //! Module for resolving types and analyzing chained calls in Solidity expressions.
 
+use crate::builtin;
 use crate::cg::{
     CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, NodeInfo, NodeType,
 }; // Keep only used items from cg
-use crate::parser::get_node_text;
-// Removed anyhow imports
+use crate::parser::get_node_text; // Import the new builtin module
+                                  // Removed anyhow imports
 use std::collections::VecDeque; // Keep only VecDeque
                                 // Removed unused std::error::Error import
 use streaming_iterator::StreamingIterator; // Import the trait for .next()
@@ -97,13 +98,16 @@ pub struct ResolvedCallStep {
     /// This becomes the object type for the *next* step in the chain.
     /// None if the call returns void or resolution failed.
     pub result_type: Option<String>,
-        /// The Solidity type name resolved for the *object* being called upon in this step.
-        /// None for simple function calls or `new` expressions.
-        pub object_type: Option<String>,
-        /// The start byte of the original expression that initiated this chain analysis.
-        /// Used for sorting steps correctly.
-        pub originating_span_start: usize,
-    }
+    /// The Solidity type name resolved for the *object* being called upon in this step.
+    /// None for simple function calls or `new` expressions.
+    pub object_type: Option<String>,
+    /// The start byte of the original expression that initiated this chain analysis.
+    /// Used for sorting steps correctly.
+    pub originating_span_start: usize,
+    /// If the target is BuiltIn (like push/pop), this holds the name of the base variable identifier
+    /// being acted upon (e.g., "allPairs" in "allPairs.push()").
+    pub base_object_identifier_for_builtin: Option<String>,
+}
 
 // --- Main Analysis Function ---
 
@@ -131,14 +135,15 @@ pub(crate) fn analyze_chained_call<'a>(
     ctx: &CallGraphGeneratorContext,
     graph: &'a CallGraph, // Pass graph for lookups
     source: &'a str,
-        solidity_lang: &'a tree_sitter::Language,
-        input: &'a CallGraphGeneratorInput,
-        original_start_node_for_err_reporting: Option<TsNode<'a>>, // Keep for error reporting if needed
-        originating_span_start: usize, // Pass the originating span start
-    ) -> std::result::Result<Vec<ResolvedCallStep>, TypeError> {
-        // If original_start_node is None, this is the top-level call, so use start_node
-        let _original_start_node_for_err_reporting = original_start_node_for_err_reporting.unwrap_or(start_node); // Keep if needed for errors
-    // Use full path to Result
+    solidity_lang: &'a tree_sitter::Language,
+    input: &'a CallGraphGeneratorInput,
+    original_start_node_for_err_reporting: Option<TsNode<'a>>, // Keep for error reporting if needed
+    originating_span_start: usize,                             // Pass the originating span start
+) -> std::result::Result<Vec<ResolvedCallStep>, TypeError> {
+    // If original_start_node is None, this is the top-level call, so use start_node
+    let _original_start_node_for_err_reporting =
+        original_start_node_for_err_reporting.unwrap_or(start_node); // Keep if needed for errors
+                                                                     // Use full path to Result
     let mut steps = Vec::new();
     // let current_node = start_node; // Removed unused mut
     //let mut current_object_type: Option<String> = None; // Type of the result of the previous step
@@ -215,7 +220,8 @@ pub(crate) fn analyze_chained_call<'a>(
                 arguments,
                 result_type: Some(contract_name.clone()), // Result type is the contract itself
                 object_type: None,                        // No object for `new`
-                originating_span_start, // Populate the new field
+                originating_span_start,                   // Populate the new field
+                base_object_identifier_for_builtin: None, // Added: No base object for 'new'
             };
             // current_object_type = Some(contract_name); // Set by the step's result_type
             steps.push(step);
@@ -264,10 +270,10 @@ pub(crate) fn analyze_chained_call<'a>(
                     Some(_original_start_node_for_err_reporting), // Use the correct parameter name
                     originating_span_start, // Pass down the same originating span start
                 )?;
-                 // Extend the separate argument_steps vector
-                 argument_steps.extend(inner_steps);
-                 // Store the original text of the argument for the outer call step
-                 argument_texts.push(get_node_text(&arg_node, source).to_string());
+                // Extend the separate argument_steps vector
+                argument_steps.extend(inner_steps);
+                // Store the original text of the argument for the outer call step
+                argument_texts.push(get_node_text(&arg_node, source).to_string());
             }
             eprintln!(
                 "[Analyze Chained]   Finished analyzing arguments. Collected {} inner steps.",
@@ -334,8 +340,9 @@ pub(crate) fn analyze_chained_call<'a>(
                             target,
                             arguments: argument_texts, // Use collected texts
                             result_type: result_type.clone(),
-                            object_type: None, // No object for simple calls
+                            object_type: None,      // No object for simple calls
                             originating_span_start, // Populate the new field
+                            base_object_identifier_for_builtin: None, // Added: No base object for simple calls
                         };
                         // Combine steps: argument_steps first, then the outer_step
                         steps = argument_steps; // Start with argument steps
@@ -397,6 +404,19 @@ pub(crate) fn analyze_chained_call<'a>(
                     )?;
                     // --- Steps are no longer prepended here, combined later ---
 
+                    // --- NEW: Try to capture the base identifier if the object is simple ---
+                    let base_identifier_name = if object_node.kind() == "identifier" {
+                        Some(get_node_text(&object_node, source).to_string())
+                    } else {
+                        // TODO: Handle more complex base objects if needed, e.g., struct members `myStruct.arr.push()`
+                        // For now, only capture direct identifiers like `allPairs`.
+                        None
+                    };
+                    // --- END NEW ---
+
+                    // Determine the type of the object for *this* call
+                    // --- Steps are no longer prepended here, combined later ---
+
                     // Determine the type of the object for *this* call
                     outer_object_type = if let Some(last_object_step) = object_steps.last() {
                         // Use the collected object_steps
@@ -447,11 +467,19 @@ pub(crate) fn analyze_chained_call<'a>(
                         let outer_step = ResolvedCallStep {
                             call_expr_span: (start_node.start_byte(), start_node.end_byte()),
                             function_span: (property_node.start_byte(), property_node.end_byte()),
-                            target,
+                            target: target.clone(), // Clone target here to allow reuse below
                             arguments: argument_texts, // Use collected texts
                             result_type: result_type.clone(),
                             object_type: outer_object_type.clone(),
                             originating_span_start, // Populate the new field
+                            base_object_identifier_for_builtin: if matches!(
+                                target,
+                                ResolvedTarget::BuiltIn { .. }
+                            ) {
+                                base_identifier_name // Use the captured name
+                            } else {
+                                None
+                            },
                         };
                         // Combine steps: object_steps first, then argument_steps, then the outer_step
                         steps = object_steps; // Start with object steps
@@ -544,12 +572,12 @@ pub(crate) fn analyze_chained_call<'a>(
                 ctx,
                 graph,
                 source,
-                        solidity_lang,
-                        input,
-                        Some(_original_start_node_for_err_reporting), // Use the correct parameter name
-                        originating_span_start, // Pass down the same originating span start
-                    )?;
-                    steps.extend(object_steps); // Prepend object steps
+                solidity_lang,
+                input,
+                Some(_original_start_node_for_err_reporting), // Use the correct parameter name
+                originating_span_start, // Pass down the same originating span start
+            )?;
+            steps.extend(object_steps); // Prepend object steps
 
             // This member access itself doesn't generate a call step.
             // We just needed to ensure the object part was analyzed.
@@ -587,6 +615,57 @@ pub(crate) fn analyze_chained_call<'a>(
                 eprintln!("[Analyze Chained] 'expression' node has no children.");
                 // Fall through to return the current (likely empty) steps vector.
             }
+        }
+        "binary_expression" => {
+            // Recursively analyze left and right operands to collect steps within them
+            let left_node = start_node.child_by_field_name("left").ok_or_else(|| {
+                TypeError::MissingChild("binary_expression missing left operand".to_string())
+            })?;
+            let right_node = start_node.child_by_field_name("right").ok_or_else(|| {
+                TypeError::MissingChild("binary_expression missing right operand".to_string())
+            })?;
+
+            eprintln!(
+                "[Analyze Chained]   Binary expression: Analyzing left operand kind: '{}'",
+                left_node.kind()
+            );
+            let left_steps = analyze_chained_call(
+                left_node,
+                caller_node_id,
+                caller_contract_name_opt,
+                ctx,
+                graph,
+                source,
+                solidity_lang,
+                input,
+                Some(_original_start_node_for_err_reporting), // Use the correct parameter name
+                originating_span_start, // Pass down the same originating span start
+            )?;
+            steps.extend(left_steps); // Add steps from left operand
+
+            eprintln!(
+                "[Analyze Chained]   Binary expression: Analyzing right operand kind: '{}'",
+                right_node.kind()
+            );
+            let right_steps = analyze_chained_call(
+                right_node,
+                caller_node_id,
+                caller_contract_name_opt,
+                ctx,
+                graph,
+                source,
+                solidity_lang,
+                input,
+                Some(_original_start_node_for_err_reporting), // Use the correct parameter name
+                originating_span_start, // Pass down the same originating span start
+            )?;
+            steps.extend(right_steps); // Add steps from right operand
+
+            eprintln!(
+                "[Analyze Chained]   Binary expression processed. Total steps for this branch now: {}",
+                steps.len()
+            );
+            // The type resolution for the binary expression itself happens in resolve_expression_type_v2
         }
         // Default case for other unhandled node kinds
         _ => {
@@ -831,21 +910,32 @@ fn resolve_expression_type_v2<'a>(
             // This handles cases like `totalSupply.mul()` where `totalSupply` is a function call.
             // We need its *return type* to resolve the subsequent `.mul`.
             match resolve_simple_call_v2(&name, caller_contract_name_opt, graph, ctx) {
-                Ok(ResolvedTarget::Function { contract_name, function_name, .. }) => {
+                Ok(ResolvedTarget::Function {
+                    contract_name,
+                    function_name,
+                    ..
+                }) => {
                     eprintln!("[Resolve Type V2]   Identifier '{}' resolved to function '{:?}.{}'. Getting return type.", name, contract_name, function_name);
                     let func_key = (contract_name.clone(), function_name.clone());
                     if let Some(node_id) = graph.node_lookup.get(&func_key) {
-                        let def_node_info_opt = ctx.definition_nodes_info.iter().find(|(id, _, _)| *id == *node_id).map(|(_, info, _)| info.clone());
+                        let def_node_info_opt = ctx
+                            .definition_nodes_info
+                            .iter()
+                            .find(|(id, _, _)| *id == *node_id)
+                            .map(|(_, info, _)| info.clone());
                         if let Some(def_node_info) = def_node_info_opt {
                             // Use the function's return type as the expression's type
                             let return_type = get_function_return_type_v2(&def_node_info, input)?;
-                             eprintln!("[Resolve Type V2]     Function return type: {:?}", return_type);
+                            eprintln!(
+                                "[Resolve Type V2]     Function return type: {:?}",
+                                return_type
+                            );
                             return Ok(return_type);
                         } else {
-                             eprintln!("[Resolve Type V2]     Could not find definition NodeInfo for function ID {}", node_id);
+                            eprintln!("[Resolve Type V2]     Could not find definition NodeInfo for function ID {}", node_id);
                         }
                     } else {
-                         eprintln!("[Resolve Type V2]     Could not find node ID in graph lookup for function key {:?}", func_key);
+                        eprintln!("[Resolve Type V2]     Could not find node ID in graph lookup for function key {:?}", func_key);
                     }
                 }
                 Ok(_) | Err(_) => {
@@ -858,7 +948,6 @@ fn resolve_expression_type_v2<'a>(
                 }
             }
             // --- END NEW ---
-
 
             eprintln!(
                 "[Resolve Type V2]   Identifier '{}' type not resolved (state/type/local/function?).",
@@ -911,14 +1000,14 @@ fn resolve_expression_type_v2<'a>(
                 caller_contract_name_opt,
                 ctx,
                 graph,
-                 source,
-                 solidity_lang,
-                 input,
-                 None, // original_start_node_for_err_reporting
-                 expr_node.start_byte(), // Pass the start byte of this call expression as the originating span start
-             )?;
+                source,
+                solidity_lang,
+                input,
+                None,                   // original_start_node_for_err_reporting
+                expr_node.start_byte(), // Pass the start byte of this call expression as the originating span start
+            )?;
 
-             if let Some(last_step) = steps.last() {
+            if let Some(last_step) = steps.last() {
                 eprintln!(
                     "[Resolve Type V2]   Call expression resolved. Last step result type: {:?}",
                     last_step.result_type
@@ -978,27 +1067,32 @@ fn resolve_expression_type_v2<'a>(
                 Ok(None) // Expression node with no children has no type
             }
         }
-        // TODO: Handle binary_expression, unary_expression, tuple_expression, array_access, etc.
-        "binary_expression" => {
-            // Basic heuristic: Assume numeric ops return uint256, boolean ops return bool
-            let operator = expr_node
-                .child_by_field_name("operator")
-                .map(|n| get_node_text(&n, source));
-            match operator.as_deref() {
-                Some("&&") | Some("||") | Some("<") | Some("<=") | Some("==") | Some("!=")
-                | Some(">=") | Some(">") => Ok(Some("bool".to_string())),
-                Some("+") | Some("-") | Some("*") | Some("/") | Some("%") | Some("**") => {
-                    Ok(Some("uint256".to_string()))
-                } // Assume numeric
-                _ => {
-                    eprintln!(
-                        "[Resolve Type V2]   Unhandled binary operator: {:?}",
-                        operator
-                    );
-                    Ok(None)
-                }
+            // TODO: Handle tuple_expression, array_access, etc.
+            "binary_expression" => {
+                // --- Determine result type based on operator ---
+                // We don't need to analyze operands recursively here, just determine the result type.
+                let operator_node = expr_node.child_by_field_name("operator").ok_or_else(|| {
+                    TypeError::MissingChild("binary_expression missing operator".to_string())
+                })?;
+                let operator_text = get_node_text(&operator_node, source);
+
+                let result_type = match &*operator_text { // Use &* to dereference String to &str
+                    ">" | "<" | ">=" | "<=" | "==" | "!=" => Some("bool".to_string()),
+                    "&&" | "||" => Some("bool".to_string()),
+                    "+" | "-" | "*" | "/" | "%" | "**" | "&" | "|" | "^" | "<<" | ">>" => {
+                        // Assume uint256 for arithmetic/bitwise/shift for now
+                        Some("uint256".to_string())
+                    }
+                    _ => {
+                        eprintln!(
+                            "[Resolve Type V2]   Unhandled binary operator: '{}'",
+                            operator_text
+                        );
+                        None // Unknown operator type
+                    }
+                };
+                return Ok(result_type); // Return the determined type
             }
-        }
         "unary_expression" => {
             // Basic heuristic: Assume numeric ops return uint256, boolean ops return bool
             let operator = expr_node
@@ -1379,46 +1473,19 @@ fn resolve_member_or_library_call_v2<'a>(
             "[Resolve Member/Lib V2]   Found via 'using for': {:?}",
             library_target
         );
+        // library_target is already the ResolvedTarget due to `if let Some()`
         return Ok(library_target);
     }
 
     // --- Priority 4: Built-in Members ---
-    // TODO: Check for built-ins like .push, .pop, .length, .balance etc.
-    if (object_type_name.ends_with("[]")
-        || object_type_name == "bytes"
-        || object_type_name == "string")
-        && (property_name == "push" || property_name == "pop" || property_name == "length")
-    {
+    if let Some(builtin) = builtin::get_builtin(property_name, object_type_name) {
         eprintln!(
-            "[Resolve Member/Lib V2]   Resolved to built-in array/bytes/string member '{}'",
-            property_name
+            "[Resolve Member/Lib V2]   Resolved to built-in member '{}' for type '{}'",
+            builtin.name, builtin.object_type
         );
         return Ok(ResolvedTarget::BuiltIn {
-            object_type: object_type_name.to_string(),
-            name: property_name.to_string(),
-        });
-    }
-    if object_type_name == "address" && property_name == "balance" {
-        eprintln!("[Resolve Member/Lib V2]   Resolved to built-in address member 'balance'");
-        return Ok(ResolvedTarget::BuiltIn {
-            object_type: object_type_name.to_string(),
-            name: property_name.to_string(),
-        });
-    }
-    if object_type_name == "address"
-        && (property_name == "transfer"
-            || property_name == "send"
-            || property_name == "call"
-            || property_name == "delegatecall"
-            || property_name == "staticcall")
-    {
-        eprintln!(
-            "[Resolve Member/Lib V2]   Resolved to built-in address member '{}'",
-            property_name
-        );
-        return Ok(ResolvedTarget::BuiltIn {
-            object_type: object_type_name.to_string(),
-            name: property_name.to_string(),
+            object_type: object_type_name.to_string(), // Keep the specific type (e.g., uint[])
+            name: builtin.name.to_string(),
         });
     }
 
@@ -1445,23 +1512,41 @@ fn find_using_for_target<'a>(
 ) -> std::result::Result<Option<ResolvedTarget>, TypeError> {
     // Use full path to Result
     let mut potential_libraries = Vec::new();
+    let mut types_to_check = vec![object_type_name.to_string()];
+
+    // --- NEW: Handle uint/uint256 alias ---
+    if object_type_name == "uint" {
+        types_to_check.push("uint256".to_string());
+    } else if object_type_name == "uint256" {
+        types_to_check.push("uint".to_string());
+    }
+    // --- END NEW ---
+
     // Check contract-specific directives first
     if let Some(caller_contract_name) = caller_contract_name_opt {
-        // Check for specific type: (Some(Contract), Type)
-        let specific_type_key = (
-            Some(caller_contract_name.clone()),
-            object_type_name.to_string(),
-        );
-        if let Some(libs) = ctx.using_for_directives.get(&specific_type_key) {
-            eprintln!(
-                "[Find UsingFor]   Found specific directive for contract '{}', type '{}': {:?}",
-                caller_contract_name, object_type_name, libs
+        for type_name in &types_to_check { // Iterate through original type and alias
+            // Check for specific type: (Some(Contract), Type)
+            let specific_type_key = (
+                Some(caller_contract_name.clone()),
+                type_name.clone(), // Use type_name from loop
             );
-            potential_libraries.extend(libs.iter().cloned());
+            eprintln!("[Find UsingFor] Checking specific key: {:?}", specific_type_key); // DEBUG
+            if let Some(libs) = ctx.using_for_directives.get(&specific_type_key) {
+                eprintln!(
+                    "[Find UsingFor]   Found specific directive for contract '{}', type '{}': {:?}",
+                    caller_contract_name, type_name, libs // Use type_name
+                );
+                potential_libraries.extend(libs.iter().cloned());
+            }
         }
-        // Check for wildcard type: (Some(Contract), "*")
+        // Check for wildcard type: (Some(Contract), "*") - Only check once
         let wildcard_key = (Some(caller_contract_name.clone()), "*".to_string());
+         eprintln!("[Find UsingFor] Checking wildcard key: {:?}", wildcard_key); // DEBUG
         if let Some(libs) = ctx.using_for_directives.get(&wildcard_key) {
+             eprintln!(
+                "[Find UsingFor]   Found wildcard directive for contract '{}': {:?}",
+                caller_contract_name, libs
+            );
             potential_libraries.extend(libs.iter().cloned());
         }
     } else {
@@ -1480,13 +1565,19 @@ fn find_using_for_target<'a>(
     potential_libraries.sort_unstable();
     potential_libraries.dedup();
 
+     eprintln!(
+        "[Find UsingFor]   Potential libraries after dedup: {:?}", // DEBUG
+        potential_libraries
+    );
+
     if !potential_libraries.is_empty() {
         eprintln!(
             "[Find UsingFor] Checking libraries for '{}.{}': {:?}",
-            object_type_name, property_name, potential_libraries
+            object_type_name, property_name, potential_libraries // Log original type name here
         );
         for library_name in potential_libraries {
             let library_method_key = (Some(library_name.clone()), property_name.to_string());
+             eprintln!("[Find UsingFor]   Checking library key: {:?}", library_method_key); // DEBUG
             if let Some(id) = graph.node_lookup.get(&library_method_key) {
                 if let Some(node) = graph.nodes.get(*id) {
                     // Found a match in a library
@@ -1502,9 +1593,12 @@ fn find_using_for_target<'a>(
                         node_type: node.node_type.clone(), // Should be Function
                     }));
                 }
+            } else {
+                 eprintln!("[Find UsingFor]     Lookup failed for key: {:?}", library_method_key); // DEBUG
             }
         }
     }
+     eprintln!("[Find UsingFor]   No match found via 'using for'."); // DEBUG
     Ok(None) // Not found via using for
 }
 
@@ -1774,18 +1868,19 @@ fn resolve_call_return_type<'a>(
             }
         }
         ResolvedTarget::BuiltIn { object_type, name } => {
-            // Determine return type of built-ins
-            match (object_type.as_str(), name.as_str()) {
-                (_, "length") => Ok(Some("uint256".to_string())),
-                ("address", "balance") => Ok(Some("uint256".to_string())),
-                ("address", "transfer") => Ok(None), // transfer returns nothing
-                ("address", "send") => Ok(Some("bool".to_string())),
-                ("address", "call") | ("address", "delegatecall") | ("address", "staticcall") => {
-                    Ok(Some("(bool,bytes)".to_string()))
-                } // Returns tuple
-                (_, "push") => Ok(None), // push returns nothing (in older versions) or new length (newer)? Assume None for simplicity.
-                (_, "pop") => Ok(None),  // pop returns nothing
-                _ => Ok(None),           // Unknown built-in
+            // Use the builtin module to get the return type string
+            if let Some(return_type_str) = builtin::get_builtin_return_type(name, object_type) {
+                if return_type_str == "void" {
+                    Ok(None) // Map "void" to None
+                } else {
+                    Ok(Some(return_type_str.to_string()))
+                }
+            } else {
+                eprintln!(
+                    "[Resolve Return Type] Warning: Could not find return type for known built-in {}.{}",
+                    object_type, name
+                );
+                Ok(None) // Fallback if lookup fails for some reason
             }
         }
         ResolvedTarget::NotCallable { .. } => Ok(None), // Not callable, no return type
@@ -2142,7 +2237,8 @@ mod tests {
             source,
             &lang,
             &input,
-            None, // This is the top-level call
+            None,                   // This is the top-level call
+            call_expr_node.start_byte(), // Add originating_span_start
         )?;
 
         assert_eq!(steps.len(), 1);
@@ -2218,6 +2314,7 @@ mod tests {
             &lang,
             &input,
             None,
+            call_expr_node.start_byte(), // Add originating_span_start
         )?;
 
         assert_eq!(steps.len(), 1);
@@ -2278,6 +2375,7 @@ mod tests {
             &lang,
             &input,
             None,
+            call_expr_node.start_byte(), // Add originating_span_start
         )?;
 
         assert_eq!(steps.len(), 1);
@@ -2340,6 +2438,7 @@ mod tests {
             &lang,
             &input,
             None,
+            call_expr_node.start_byte(), // Add originating_span_start
         )?;
 
         assert_eq!(steps.len(), 1);
@@ -2447,6 +2546,7 @@ mod tests {
             &lang,
             &input,
             None,
+            outer_call_expr_node.start_byte(), // Add originating_span_start
         )?;
 
         // Should have two steps: add, then sub
@@ -2528,6 +2628,7 @@ mod tests {
             &lang,
             &input,
             None,
+            call_expr_node.start_byte(), // Add originating_span_start
         )?;
 
         // Should have two steps: create, then perform
@@ -2651,6 +2752,7 @@ mod tests {
             &lang,
             &input,
             None,
+            outer_call_expr_node.start_byte(), // Add originating_span_start
         )?;
 
         // Should have three steps: new Factory(), then .create(), then .perform()
@@ -2905,6 +3007,7 @@ mod tests {
             &lang,
             &input,
             None,
+            call_expr_node.start_byte(), // Add originating_span_start
         )?;
 
         assert_eq!(steps.len(), 1);
@@ -2965,6 +3068,7 @@ mod tests {
             &lang,
             &input,
             None,
+            call_expr_node.start_byte(), // Add originating_span_start
         )?;
 
         // Should have one step: perform

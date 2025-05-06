@@ -121,6 +121,12 @@ impl CallGraphGeneratorStep for CallsHandling {
               (#eq? @require_identifier "require")
               ; Arguments are direct children (call_argument), handled by extract_arguments
             ) @require_call_node ; Capture the whole call expression for require
+
+            ; --- Delete statement (unary expression) ---
+            (unary_expression
+              operator: "delete" @delete_operator ; Identify the delete operator
+              argument: (_) @delete_target ; Capture the expression being deleted
+            ) @delete_expression_node ; Capture the whole unary expression for delete
         "#;
         let call_query = Query::new(&input.solidity_lang, call_query_str)
             .context("Failed to create call query")?;
@@ -209,6 +215,10 @@ impl CallGraphGeneratorStep for CallsHandling {
             let require_call_capture_index = call_query
                 .capture_index_for_name("require_call_node")
                 .unwrap_or(u32::MAX);
+            // --- UPDATED: Use the new capture name for delete ---
+            let delete_expression_capture_index = call_query
+                .capture_index_for_name("delete_expression_node")
+                .unwrap_or(u32::MAX);
 
             let mut call_matches =
                 call_cursor.matches(&call_query, definition_ts_node, |node: TsNode| {
@@ -237,6 +247,9 @@ impl CallGraphGeneratorStep for CallsHandling {
                         Some("write")
                     } else if capture_index == read_candidate_capture_index {
                         Some("read")
+                    // --- UPDATED: Use the new capture index for delete ---
+                    } else if capture_index == delete_expression_capture_index {
+                        Some("delete") // Add delete type
                     } else {
                         None // Ignore other captures like @call_name etc.
                     };
@@ -245,23 +258,25 @@ impl CallGraphGeneratorStep for CallsHandling {
                         collected_nodes_map
                             .entry(span)
                             .and_modify(|existing| {
-                                // Prioritization logic: require > emit > new > call > write > read
+                                // Prioritization logic: require > emit > new > call > write/delete > read
                                 let existing_priority = match existing.1 {
-                                    "require" => 5,
-                                    "emit" => 4,
-                                    "new" => 3,
-                                    "call" => 2,
-                                    "write" => 1,
-                                    "read" => 0,
+                                    "require" => 6,
+                                    "emit" => 5,
+                                    "new" => 4,
+                                    "call" => 3,
+                                    "write" => 2,
+                                    "delete" => 2, // Same priority as write
+                                    "read" => 1,
                                     _ => -1,
                                 };
                                 let new_priority = match node_type {
-                                    "require" => 5,
-                                    "emit" => 4,
-                                    "new" => 3,
-                                    "call" => 2,
-                                    "write" => 1,
-                                    "read" => 0,
+                                    "require" => 6,
+                                    "emit" => 5,
+                                    "new" => 4,
+                                    "call" => 3,
+                                    "write" => 2,
+                                    "delete" => 2, // Same priority as write
+                                    "read" => 1,
                                     _ => -1,
                                 };
                                 // Only update if the new type has higher or equal priority
@@ -352,20 +367,54 @@ impl CallGraphGeneratorStep for CallsHandling {
                                             sort_span_start: enclosing_assignment_start
                                                 .unwrap_or(step.originating_span_start),
                                             chain_index: Some(chain_index), // Store the 1-based index within the chain
-                                            // --- UPDATED: Priority 1 if part of assignment, else chain index ---
-                                            execution_priority: if enclosing_assignment_start
-                                                .is_some()
-                                            {
-                                                1
-                                            } else {
-                                                chain_index as i32
-                                            },
+                                            // --- UPDATED: Use chain_index directly as priority for call steps ---
+                                            execution_priority: chain_index as i32,
                                         });
                                     }
-                                    // --- Handle Unresolved Targets (excluding BuiltIns) ---
-                                    // --- Handle Unresolved Targets (excluding BuiltIns) ---
+                                    // --- Handle Unresolved Targets (including BuiltIns that don't resolve to nodes) ---
                                     else {
-                                        eprintln!("[CallsHandling DEBUG]             >>> Target for step {:?} did not resolve to a node ID. Skipping modification.", step.target);
+                                        // --- Check for storage-mutating built-ins on state variables ---
+                                        if let ResolvedTarget::BuiltIn { name, object_type } = &step.target {
+                                            // Use the new builtin helper to check for mutation
+                                            if crate::builtin::is_mutating_builtin(name, object_type) {
+                                                if let Some(base_var_name) = &step.base_object_identifier_for_builtin {
+                                                    // Attempt to resolve this base variable name as a storage variable
+                                                    if let Some(var_node_id) = resolve_storage_variable(
+                                                        &caller_contract_name_opt,
+                                                        base_var_name,
+                                                        graph,
+                                                        ctx,
+                                                    ) {
+                                                        // It's a storage variable! Add a StorageWrite edge.
+                                                        eprintln!("[Storage DEBUG Deferred] Collecting WRITE modification (BuiltIn Call): CallerID={}, VarID={}, VarName='{}', BuiltIn='{}', CallSpan={:?}", caller_node_id, var_node_id, base_var_name, name, step.call_expr_span);
+                                                        modifications.push(GraphModification {
+                                                            source_node_id: caller_node_id,
+                                                            target_node_id: var_node_id,
+                                                            edge_type: EdgeType::StorageWrite,
+                                                            span: step.call_expr_span, // Span of the push/pop call
+                                                            modifier: None,
+                                                            return_value: None,
+                                                            arguments: Some(step.arguments.clone()), // Include args passed to push/pop
+                                                            event_name: None,
+                                                            // Use the call's start span for sorting
+                                                            sort_span_start: step.call_expr_span.0,
+                                                            chain_index: None, // Not part of a typical call chain index
+                                                            // Priority 2, same as direct assignment writes
+                                                            execution_priority: 2,
+                                                        });
+                                                    } else {
+                                                         eprintln!("[CallsHandling DEBUG]             >>> BuiltIn '{}' called on '{}', but it did not resolve to a storage variable.", name, base_var_name);
+                                                    }
+                                                } else {
+                                                    eprintln!("[CallsHandling DEBUG]             >>> BuiltIn '{}' called, but base object identifier was not captured.", name);
+                                                }
+                                            } else {
+                                                 eprintln!("[CallsHandling DEBUG]             >>> BuiltIn '{}' is not push/pop. Skipping storage write check.", name);
+                                            }
+                                        } else {
+                                             eprintln!("[CallsHandling DEBUG]             >>> Target for step {:?} did not resolve to a node ID and is not a BuiltIn. Skipping modification.", step.target);
+                                        }
+                                        // --- END NEW ---
                                     }
                                 }
 
@@ -559,9 +608,9 @@ impl CallGraphGeneratorStep for CallsHandling {
                                                                         // Note: This internal 'new' inherits the sort context of the *outer* call step.
                                                                         sort_span_start: enclosing_assignment_start.unwrap_or(step.originating_span_start),
                                                                         chain_index: None, // Not part of the main chain index sequence
-                                                                        // --- UPDATED: Priority 1 if part of assignment, else 0 ---
-                                                                        // Internal 'new' gets priority 1 if the *outer* call was part of an assignment.
-                                                                        execution_priority: if enclosing_assignment_start.is_some() { 1 } else { 0 },
+                                                                        // --- UPDATED: Priority 0 (lowest) for internal 'new' ---
+                                                                        // Let the main chain steps take precedence.
+                                                                        execution_priority: 0,
                                                                     },
                                                                 );
                                                             } else {
@@ -884,8 +933,60 @@ impl CallGraphGeneratorStep for CallsHandling {
                                         field_name_result
                                     };
 
-                                    // Check if identifier is the function name in a call
-                                    if parent_kind == "expression" {
+                                    // --- NEW: Check if identifier is a type name in a cast used for a member call ---
+                                    // Handles cases like `TypeName(var).method()` where `TypeName` is the identifier.
+                                    if !skip_read_edge && parent_kind == "type_name" {
+                                        // Check if the type_name is part of a `new_expression` or `type_cast_expression`
+                                        if let Some(grandparent) = parent.parent() {
+                                            if grandparent.kind() == "new_expression" {
+                                                // This is `new TypeName(...)`, already handled, but good to be explicit.
+                                                skip_read_edge = true;
+                                            } else if grandparent.kind() == "type_cast_expression" {
+                                                // This is `TypeName(...)`. Check if this cast is the object of a member access.
+                                                if let Some(great_grandparent) = grandparent.parent() {
+                                                    if great_grandparent.kind() == "member_expression" {
+                                                        // Check if the type_cast_expression is the 'object' field
+                                                        let object_node = great_grandparent.child_by_field_name("object");
+                                                        if object_node.map_or(false, |obj| obj.id() == grandparent.id()) {
+                                                            // Now check if this member_expression is part of a call
+                                                            if let Some(great_great_grandparent) = great_grandparent.parent() {
+                                                                if great_great_grandparent.kind() == "call_expression" {
+                                                                    // --- More robust check for member_expression being the function ---
+                                                                    let function_field_node = great_great_grandparent.child_by_field_name("function");
+                                                                    let mut current_func_part = function_field_node;
+                                                                    let mut is_function = false;
+                                                                    // Loop to handle potential wrappers like 'expression'
+                                                                    while let Some(node) = current_func_part {
+                                                                        // Check if the current node in the function field traversal is our member_expression
+                                                                        if node.id() == great_grandparent.id() { // great_grandparent is the member_expression
+                                                                            is_function = true;
+                                                                            break;
+                                                                        }
+                                                                        // If it's a simple wrapper (like 'expression' with one child), descend
+                                                                        if (node.kind() == "expression" || node.kind() == "parenthesized_expression") && node.child_count() == 1 {
+                                                                             current_func_part = node.child(0);
+                                                                        } else {
+                                                                            break; // Not the node we are looking for, and not a simple wrapper
+                                                                        }
+                                                                    }
+                                                                    // --- End robust check ---
+
+                                                                    if is_function {
+                                                                        eprintln!("[Storage DEBUG Deferred V2] Skipping READ for type name '{}' in cast-member-call", var_name);
+                                                                        skip_read_edge = true;
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // --- END NEW ---
+
+                                    // Check if identifier is the function name in a simple call `func()`
+                                    if !skip_read_edge && parent_kind == "expression" { // Added !skip_read_edge check here
                                         if let Some(grandparent) = parent.parent() {
                                             if grandparent.kind() == "call_expression"
                                                 && grandparent
@@ -952,6 +1053,191 @@ impl CallGraphGeneratorStep for CallsHandling {
                                         }
                                         current_ancestor = ancestor;
                                     }
+
+                                    // --- Check if identifier is the property name in a member call ---
+                                    // Handles `object.propertyName()` even if wrapped in expression, e.g., `call((object.propertyName))`
+                                    if !skip_read_edge && parent_kind == "member_expression" {
+                                        let member_expr_node = parent; // Keep track of the specific member_expression node
+                                        let property_node_opt = member_expr_node.child_by_field_name("property");
+
+                                        if property_node_opt.map_or(false, |prop| prop.id() == read_candidate_node.id()) {
+                                            // Check if this member_expression (member_expr_node) is part of a call expression's function field by ascending
+                                            let mut current_ancestor = member_expr_node;
+                                            let mut is_function_of_call = false;
+
+                                            loop {
+                                                if let Some(ancestor) = current_ancestor.parent() {
+                                                    match ancestor.kind() {
+                                                        "call_expression" => {
+                                                            let function_field_node_opt = ancestor.child_by_field_name("function");
+                                                            if let Some(function_field_node) = function_field_node_opt {
+                                                                // Check if the function_field_node (or a node it wraps) is our original member_expr_node
+                                                                let mut temp_node = function_field_node;
+                                                                loop {
+                                                                    if temp_node.id() == member_expr_node.id() {
+                                                                        is_function_of_call = true;
+                                                                        break;
+                                                                    }
+                                                                    // Descend through simple wrappers like 'expression' or 'parenthesized_expression'
+                                                                    // Use named_child_count and named_child to avoid issues with anonymous nodes like '('
+                                                                    if (temp_node.kind() == "expression" || temp_node.kind() == "parenthesized_expression") && temp_node.named_child_count() == 1 {
+                                                                         if let Some(child) = temp_node.named_child(0) {
+                                                                            temp_node = child;
+                                                                            continue; // Continue descent
+                                                                         }
+                                                                    }
+                                                                    break; // Not the node we are looking for, and not a simple wrapper we can descend through
+                                                                }
+                                                            }
+                                                            if is_function_of_call {
+                                                                break; // Found the relevant call expression
+                                                            }
+                                                            // If not the function of *this* call, maybe it's nested higher? Continue ascent.
+                                                            current_ancestor = ancestor;
+                                                            continue;
+                                                        }
+                                                        // Ascend through wrappers that might contain the call
+                                                        "expression" | "parenthesized_expression" | "call_argument" | "arguments" => {
+                                                             current_ancestor = ancestor;
+                                                             continue;
+                                                        }
+                                                        // Stop at boundaries or irrelevant nodes
+                                                        "function_definition" | "modifier_definition" | "contract_body" | "source_file" | "block" | "assignment_expression" | "variable_declaration_statement" => {
+                                                            break;
+                                                        }
+                                                        _ => {
+                                                            // Stop ascent for other unexpected kinds
+                                                            eprintln!("[DEBUG Read Prop Link] Stopping ascent towards call at unexpected parent kind: {}", ancestor.kind());
+                                                            break;
+                                                        }
+                                                    }
+                                                } else {
+                                                    break; // Reached root
+                                                }
+                                            } // End loop
+
+                                            if is_function_of_call {
+                                                eprintln!("[Storage DEBUG Deferred] Skipping READ for function name in member call '{}'", var_name);
+                                                skip_read_edge = true;
+                                            }
+                                        }
+                                    }
+                                    // --- END Check for property name ---
+
+                                    // --- NEW: Check if identifier is a type name used in a cast-as-call pattern ---
+                                    // Handles `TypeName(var).method()` where TypeName(...) is parsed as a call_expression
+                                    if !skip_read_edge {
+                                        if let Some(parent_expr) = read_candidate_node.parent() {
+                                            if parent_expr.kind() == "expression" {
+                                                if let Some(cast_call_expr) = parent_expr.parent() {
+                                                    if cast_call_expr.kind() == "call_expression" && cast_call_expr.child_by_field_name("function").map_or(false, |f| f.id() == parent_expr.id()) {
+                                                        // Now check if this cast_call_expr is the object of a member_expression
+                                                        let mut current_object_part = cast_call_expr;
+                                                        let mut member_expr_node_opt : Option<TsNode> = None;
+
+                                                        // Ascend through potential wrappers to find the member_expression where cast_call_expr is the object
+                                                        loop {
+                                                            if let Some(parent_of_object_part) = current_object_part.parent() {
+                                                                if parent_of_object_part.kind() == "member_expression" {
+                                                                    let object_field = parent_of_object_part.child_by_field_name("object");
+                                                                    if object_field.map_or(false, |obj_node| obj_node.id() == current_object_part.id()) {
+                                                                        member_expr_node_opt = Some(parent_of_object_part);
+                                                                        break; // Found it
+                                                                    }
+                                                                    break; // Not the object field
+                                                                } else if parent_of_object_part.kind() == "expression" || parent_of_object_part.kind() == "parenthesized_expression" {
+                                                                    current_object_part = parent_of_object_part; // Ascend wrapper
+                                                                } else {
+                                                                    break; // Stop ascent
+                                                                }
+                                                            } else {
+                                                                break; // Reached root
+                                                            }
+                                                        }
+
+                                                        if let Some(member_expr_node) = member_expr_node_opt {
+                                                            // Now check if this member_expression is the function of an outer call
+                                                            let mut current_func_part = member_expr_node;
+                                                            let mut found_outer_call = false;
+                                                            // Ascend through potential wrappers to find the outer call_expression where member_expr_node is the function
+                                                            loop {
+                                                                if let Some(parent_of_func_part) = current_func_part.parent() {
+                                                                     if parent_of_func_part.kind() == "call_expression" {
+                                                                        let function_field = parent_of_func_part.child_by_field_name("function");
+                                                                        if function_field.map_or(false, |func_node| func_node.id() == current_func_part.id()) {
+                                                                            found_outer_call = true;
+                                                                            break; // Found it
+                                                                        }
+                                                                        break; // Not the function field
+                                                                    } else if parent_of_func_part.kind() == "expression" || parent_of_func_part.kind() == "parenthesized_expression" {
+                                                                        current_func_part = parent_of_func_part; // Ascend wrapper
+                                                                    } else {
+                                                                        break; // Stop ascent
+                                                                    }
+                                                                } else {
+                                                                    break; // Reached root
+                                                                }
+                                                            }
+
+                                                            if found_outer_call {
+                                                                eprintln!("[Storage DEBUG Deferred V4] Skipping READ for type name '{}' in cast-as-call pattern", var_name);
+                                                                skip_read_edge = true;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // --- END NEW ---
+
+
+                                    // --- Check if identifier is the argument of a delete expression ---
+                                    // Handles both `delete identifier` and `delete expression(identifier)`
+                                    if !skip_read_edge {
+                                        let mut delete_ancestor = parent; // Start with the direct parent
+                                        // If the direct parent is just an expression wrapper, check the grandparent
+                                        if parent_kind == "expression" {
+                                            if let Some(grandparent) = parent.parent() {
+                                                delete_ancestor = grandparent;
+                                            }
+                                        }
+
+                                        // Check if the relevant ancestor is a 'delete' unary expression
+                                        if delete_ancestor.kind() == "unary_expression" {
+                                            let operator = delete_ancestor.child_by_field_name("operator").map(|op| get_node_text(&op, &input.source));
+                                            let argument_node_opt = delete_ancestor.child_by_field_name("argument");
+
+                                            // Check if the operator is 'delete' and the argument node contains the read_candidate node
+                                            if operator.as_deref() == Some("delete") {
+                                                if let Some(argument_node) = argument_node_opt {
+                                                    // Check if the read_candidate node is a descendant of the argument node
+                                                    // (This handles cases like `delete a.b` where `a` is the read candidate but `a.b` is the argument)
+                                                    // Or if the argument node *is* the read_candidate node (for `delete a`)
+                                                    let mut is_descendant = false;
+                                                    let mut queue = std::collections::VecDeque::new();
+                                                    queue.push_back(argument_node);
+                                                    while let Some(current) = queue.pop_front() {
+                                                        if current.id() == read_candidate_node.id() {
+                                                            is_descendant = true;
+                                                            break;
+                                                        }
+                                                        let mut cursor = current.walk();
+                                                        for child in current.children(&mut cursor) {
+                                                            queue.push_back(child);
+                                                        }
+                                                    }
+
+                                                    if is_descendant {
+                                                        eprintln!("[Storage DEBUG Deferred] Skipping READ for delete argument '{}' (Ancestor: {}, Arg Node: {:?})", var_name, delete_ancestor.kind(), argument_node.kind());
+                                                        skip_read_edge = true;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // --- END Check for delete argument ---
+
                                     // Check other non-read contexts
                                     if !skip_read_edge
                                         && (parent_kind == "type_name"
@@ -1022,6 +1308,78 @@ impl CallGraphGeneratorStep for CallsHandling {
                             }
                         } else {
                             eprintln!("[Storage DEBUG Deferred] Read candidate '{}' could not be resolved.", var_name);
+                        }
+                    }
+                    "delete" => {
+                        // --- Handle Delete Statements ---
+                        let delete_expression_node = node; // Use the new node name
+                        let delete_span = span;
+                        eprintln!(
+                            "[Storage DEBUG Deferred] Processing Delete Statement at span {:?}",
+                            delete_span
+                        );
+
+                        // Find the expression being deleted (the 'argument' of the unary 'delete' expression)
+                        let target_expr_node_opt = delete_expression_node // Use the new node name
+                            .child_by_field_name("argument"); // 'delete' is unary, target is 'argument'
+
+                        if let Some(target_expr_node) = target_expr_node_opt {
+                            // Find the base identifier within the target expression
+                            let mut base_identifier_node: Option<TsNode> = None;
+                            let mut queue = std::collections::VecDeque::new();
+                            queue.push_back(target_expr_node);
+
+                            while let Some(current) = queue.pop_front() {
+                                if current.kind() == "identifier" {
+                                    // Found an identifier, assume it's the base for now.
+                                    // More robust logic might be needed for complex expressions like delete a.b.c[d]
+                                    base_identifier_node = Some(current);
+                                    break; // Take the first identifier found traversing down
+                                }
+                                // Only traverse children if not an identifier itself
+                                let mut cursor = current.walk();
+                                for child in current.children(&mut cursor) {
+                                    queue.push_back(child);
+                                }
+                            }
+
+
+                            if let Some(base_id_node) = base_identifier_node {
+                                let var_name = get_node_text(&base_id_node, &input.source);
+                                eprintln!(
+                                    "[Storage DEBUG Deferred]   Delete target base identifier: '{}'",
+                                    var_name
+                                );
+
+                                // Resolve the base identifier as a storage variable
+                                if let Some(var_node_id) = resolve_storage_variable(
+                                    &caller_contract_name_opt,
+                                    &var_name,
+                                    graph,
+                                    ctx,
+                                ) {
+                                    eprintln!("[Storage DEBUG Deferred] Collecting DELETE (as WRITE) modification: CallerID={}, VarID={}, VarName='{}', DeleteSpan={:?}", caller_node_id, var_node_id, var_name, delete_span);
+                                    modifications.push(GraphModification {
+                                        source_node_id: caller_node_id,
+                                        target_node_id: var_node_id,
+                                        edge_type: EdgeType::StorageWrite, // Treat delete as a write
+                                        span: delete_span, // Span of the whole delete statement
+                                        modifier: None,
+                                        return_value: None,
+                                        arguments: None, // Delete has no arguments in this sense
+                                        event_name: None,
+                                        sort_span_start: delete_span.0, // Use delete statement start for sorting
+                                        chain_index: None,
+                                        execution_priority: 2, // Same priority as assignment writes
+                                    });
+                                } else {
+                                    eprintln!("[Storage DEBUG Deferred]   Delete target base '{}' did not resolve to a storage variable.", var_name);
+                                }
+                            } else {
+                                eprintln!("[Storage DEBUG Deferred]   Could not find base identifier in delete target expression: {}", get_node_text(&target_expr_node, &input.source));
+                            }
+                        } else {
+                             eprintln!("[Storage DEBUG Deferred]   Delete expression node missing 'argument' child. Span: {:?}", delete_span);
                         }
                     }
                     "require" => {
@@ -1173,7 +1531,8 @@ impl CallGraphGeneratorStep for CallsHandling {
                                 event_name: Some(event_name),
                                 sort_span_start: emit_span.0, // Use emit statement start for sorting
                                 chain_index: None,
-                                execution_priority: 1, // Priority 2 for the listener receiving (EVM->Listener)
+                                // --- UPDATED: Increase priority slightly for EVM->Listener ---
+                                execution_priority: 2, // Priority 2 ensures it follows Caller->EVM (Priority 1)
                             });
                         } else {
                             eprintln!("[CallsHandling DEBUG]       >>> Emit statement missing event name. Span: {:?}", emit_span);
@@ -1191,10 +1550,23 @@ impl CallGraphGeneratorStep for CallsHandling {
 
             // --- Final Step: Sort modifications and add edges with sequence numbers ---
             eprintln!(
-                "[CallsHandling DEBUG] Sorting and adding {} modifications for Caller Node ID: {}",
+                "[CallsHandling DEBUG] Processing {} modifications for Caller Node ID: {}",
                 modifications.len(),
                 caller_node_id
             );
+
+            // --- Log BEFORE sorting ---
+            eprintln!("[Channel DEBUG] Modifications BEFORE sort for Caller {}:", caller_node_id);
+            for (idx, m) in modifications.iter().enumerate() {
+                 eprintln!(
+                     "[Channel DEBUG]   [{}] Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {}), ChainIdx={:?}, Args={:?}",
+                     idx, m.source_node_id, m.target_node_id, m.edge_type, m.span.0, m.span.1,
+                     m.sort_span_start, m.execution_priority, m.span.0, // Show full sort key
+                     m.chain_index, m.arguments // Log chain index and args
+                 );
+            }
+            // --- End Log BEFORE sorting ---
+
             // Sort first by the start span of the originating source element (grouping chains/related operations),
             // then by the actual start span of the specific modification (textual order tie-breaker),
             // finally by the index within that chain (ordering steps within the chain).
@@ -1202,6 +1574,19 @@ impl CallGraphGeneratorStep for CallsHandling {
             // then by the calculated execution priority within that group,
             // finally by the actual start span of the specific modification (textual tie-breaker).
             modifications.sort_by_key(|m| (m.sort_span_start, m.execution_priority, m.span.0));
+
+            // --- Log AFTER sorting ---
+            eprintln!("[Channel DEBUG] Modifications AFTER sort for Caller {}:", caller_node_id);
+            for (idx, m) in modifications.iter().enumerate() {
+                 eprintln!(
+                     "[Channel DEBUG]   [{}] Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {}), ChainIdx={:?}, Args={:?}",
+                     idx, m.source_node_id, m.target_node_id, m.edge_type, m.span.0, m.span.1,
+                     m.sort_span_start, m.execution_priority, m.span.0, // Show full sort key
+                     m.chain_index, m.arguments // Log chain index and args
+                 );
+            }
+            // --- End Log AFTER sorting ---
+
 
             // --- Deduplicate modifications ---
             // We dedup based on all fields after sorting.
@@ -1220,35 +1605,51 @@ impl CallGraphGeneratorStep for CallsHandling {
             }
             // --- End Deduplication ---
 
-            let mut call_sequence_counter: usize = 0; // Reset sequence counter for each function body
-            eprintln!(
-                "[Channel DEBUG] Modifications for Caller {} AFTER sort/dedup:",
-                caller_node_id
-            ); // DEBUG Start
+            // --- Log AFTER dedup ---
+            eprintln!("[Channel DEBUG] Modifications AFTER dedup for Caller {}:", caller_node_id);
             for (idx, m) in modifications.iter().enumerate() {
-                eprintln!(
-                     "[Channel DEBUG]   [{}] Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {})", // Updated format
+                 eprintln!(
+                     "[Channel DEBUG]   [{}] Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {}), ChainIdx={:?}, Args={:?}",
                      idx, m.source_node_id, m.target_node_id, m.edge_type, m.span.0, m.span.1,
-                     m.sort_span_start, m.execution_priority, m.span.0 // Show full sort key
+                     m.sort_span_start, m.execution_priority, m.span.0, // Show full sort key
+                     m.chain_index, m.arguments // Log chain index and args
                  );
-            } // DEBUG End
+            }
+            // --- End Log AFTER dedup ---
+
+
+            let mut call_sequence_counter: usize = 0; // Reset sequence counter for each function body
+            // eprintln!( // Remove the previous summary log here, replaced by the detailed log above
+            //     "[Channel DEBUG] Modifications for Caller {} AFTER sort/dedup:",
+            //     caller_node_id
+            // );
+            // for (idx, m) in modifications.iter().enumerate() { // Remove the previous summary log here
+            //     eprintln!( // Remove the previous summary log here
+            //          "[Channel DEBUG]   [{}] Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {})", // Updated format
+            //          idx, m.source_node_id, m.target_node_id, m.edge_type, m.span.0, m.span.1,
+            //          m.sort_span_start, m.execution_priority, m.span.0 // Show full sort key
+            //      );
+            // }
             for modification in modifications {
                 // Iterate over the deduplicated list
                 call_sequence_counter += 1; // Increment sequence number for each edge added
                                             // --- BEGIN ADD EDGE DEBUG ---
-                                            // Add more detail to existing debug log
-                eprintln!("[Add Edge DEBUG] Adding Edge (Seq: {}): Source={}, Target={}, Type={:?}, Span={:?}, SortKey=({}, {}, {})",
-                    call_sequence_counter,
+                                            // Log the modification details along with the assigned sequence number
+                eprintln!("[Add Edge DEBUG] Assigning Seq: {} to Mod: Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {}), ChainIdx={:?}, Args={:?}",
+                    call_sequence_counter, // Log the sequence number being assigned
                     modification.source_node_id,
                     modification.target_node_id,
                     modification.edge_type,
-                    modification.span,
+                    modification.span.0, modification.span.1, // Log span directly
                     modification.sort_span_start,
-                    modification.execution_priority, // Add priority here
-                    modification.span.0 // Add secondary span sort key here
+                    modification.execution_priority,
+                    modification.span.0, // Log full sort key
+                    modification.chain_index, // Log chain index
+                    modification.arguments // Log arguments
                 );
                 // --- END ADD EDGE DEBUG ---
-                // Remove duplicate eprintn lines
+                // Removed the incorrect add_edge call that was here.
+                // The correct call follows:
                 graph.add_edge(
                     modification.source_node_id,
                     modification.target_node_id,
