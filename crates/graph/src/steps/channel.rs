@@ -290,12 +290,27 @@ impl CallGraphGeneratorStep for CallsHandling {
                 }
             }
 
-            // Convert map into Vec<(TsNode, span, &str)> and sort by span start
+            // Convert map into Vec<(TsNode, span, &str)>
             potential_nodes = collected_nodes_map
                 .into_iter() // Iterate over key-value pairs (span, (node, type))
                 .map(|(span, (node, node_type))| (node, span, node_type)) // Map to (node, span, type)
                 .collect();
-            potential_nodes.sort_by_key(|k| (k.1 .0, k.1 .1)); // Sort by span start (k.1.0), then end (k.1.1)
+
+            // Define type priorities for sorting: higher values processed first.
+            // We use negative priority in sort_by_key to achieve this.
+            let type_priority = |node_type_str: &str| -> i32 {
+                match node_type_str {
+                    "require" => 6,
+                    "emit" => 5,
+                    "new" => 4,
+                    "call" => 3,
+                    "write" | "delete" => 2,
+                    "read" => 1,
+                    _ => 0, // Default for unknown types
+                }
+            };
+            // Sort by span start, then by negative type priority (so higher priority types come first), then by span end.
+            potential_nodes.sort_by_key(|k| (k.1 .0, -type_priority(k.2), k.1 .1));
 
             // --- Second Pass: Process sorted, deduplicated nodes and collect GraphModifications ---
             for (node, span, node_type) in potential_nodes {
@@ -367,24 +382,33 @@ impl CallGraphGeneratorStep for CallsHandling {
                                             sort_span_start: enclosing_assignment_start
                                                 .unwrap_or(step.originating_span_start),
                                             chain_index: Some(chain_index), // Store the 1-based index within the chain
-                                            // --- UPDATED: Use chain_index directly as priority for call steps ---
-                                            execution_priority: chain_index as i32,
+                                            // --- UPDATED: Use chain_index * 10 as priority for call steps ---
+                                            execution_priority: (chain_index as i32) * 10,
                                         });
                                     }
                                     // --- Handle Unresolved Targets (including BuiltIns that don't resolve to nodes) ---
                                     else {
                                         // --- Check for storage-mutating built-ins on state variables ---
-                                        if let ResolvedTarget::BuiltIn { name, object_type } = &step.target {
+                                        if let ResolvedTarget::BuiltIn { name, object_type } =
+                                            &step.target
+                                        {
                                             // Use the new builtin helper to check for mutation
-                                            if crate::builtin::is_mutating_builtin(name, object_type) {
-                                                if let Some(base_var_name) = &step.base_object_identifier_for_builtin {
+                                            if crate::builtin::is_mutating_builtin(
+                                                name,
+                                                object_type,
+                                            ) {
+                                                if let Some(base_var_name) =
+                                                    &step.base_object_identifier_for_builtin
+                                                {
                                                     // Attempt to resolve this base variable name as a storage variable
-                                                    if let Some(var_node_id) = resolve_storage_variable(
-                                                        &caller_contract_name_opt,
-                                                        base_var_name,
-                                                        graph,
-                                                        ctx,
-                                                    ) {
+                                                    if let Some(var_node_id) =
+                                                        resolve_storage_variable(
+                                                            &caller_contract_name_opt,
+                                                            base_var_name,
+                                                            graph,
+                                                            ctx,
+                                                        )
+                                                    {
                                                         // It's a storage variable! Add a StorageWrite edge.
                                                         eprintln!("[Storage DEBUG Deferred] Collecting WRITE modification (BuiltIn Call): CallerID={}, VarID={}, VarName='{}', BuiltIn='{}', CallSpan={:?}", caller_node_id, var_node_id, base_var_name, name, step.call_expr_span);
                                                         modifications.push(GraphModification {
@@ -399,20 +423,20 @@ impl CallGraphGeneratorStep for CallsHandling {
                                                             // Use the call's start span for sorting
                                                             sort_span_start: step.call_expr_span.0,
                                                             chain_index: None, // Not part of a typical call chain index
-                                                            // Priority 2, same as direct assignment writes
-                                                            execution_priority: 2,
+                                                            // Priority 1000 for writes
+                                                            execution_priority: 1000,
                                                         });
                                                     } else {
-                                                         eprintln!("[CallsHandling DEBUG]             >>> BuiltIn '{}' called on '{}', but it did not resolve to a storage variable.", name, base_var_name);
+                                                        eprintln!("[CallsHandling DEBUG]             >>> BuiltIn '{}' called on '{}', but it did not resolve to a storage variable.", name, base_var_name);
                                                     }
                                                 } else {
                                                     eprintln!("[CallsHandling DEBUG]             >>> BuiltIn '{}' called, but base object identifier was not captured.", name);
                                                 }
                                             } else {
-                                                 eprintln!("[CallsHandling DEBUG]             >>> BuiltIn '{}' is not push/pop. Skipping storage write check.", name);
+                                                eprintln!("[CallsHandling DEBUG]             >>> BuiltIn '{}' is not push/pop. Skipping storage write check.", name);
                                             }
                                         } else {
-                                             eprintln!("[CallsHandling DEBUG]             >>> Target for step {:?} did not resolve to a node ID and is not a BuiltIn. Skipping modification.", step.target);
+                                            eprintln!("[CallsHandling DEBUG]             >>> Target for step {:?} did not resolve to a node ID and is not a BuiltIn. Skipping modification.", step.target);
                                         }
                                         // --- END NEW ---
                                     }
@@ -608,9 +632,8 @@ impl CallGraphGeneratorStep for CallsHandling {
                                                                         // Note: This internal 'new' inherits the sort context of the *outer* call step.
                                                                         sort_span_start: enclosing_assignment_start.unwrap_or(step.originating_span_start),
                                                                         chain_index: None, // Not part of the main chain index sequence
-                                                                        // --- UPDATED: Priority 0 (lowest) for internal 'new' ---
-                                                                        // Let the main chain steps take precedence.
-                                                                        execution_priority: 0,
+                                                                        // --- UPDATED: Priority 0 for internal 'new' (base * 10) ---
+                                                                        execution_priority: 0, // (0 * 10)
                                                                     },
                                                                 );
                                                             } else {
@@ -682,8 +705,8 @@ impl CallGraphGeneratorStep for CallsHandling {
                                         // --- UPDATED: Use assignment start (which is assignment_span.0 here) ---
                                         sort_span_start: assignment_span.0,
                                         chain_index: None,
-                                        // --- UPDATED: Priority 2 for writes within assignments ---
-                                        execution_priority: 2,
+                                        // --- UPDATED: Priority 1000 for writes ---
+                                        execution_priority: 1000,
                                     });
                                     // } else {
                                     //     eprintln!("[Storage DEBUG Deferred] Write target '{}' (NodeID {}) is not a StorageVariable.", var_name, var_node_id);
@@ -943,22 +966,44 @@ impl CallGraphGeneratorStep for CallsHandling {
                                                 skip_read_edge = true;
                                             } else if grandparent.kind() == "type_cast_expression" {
                                                 // This is `TypeName(...)`. Check if this cast is the object of a member access.
-                                                if let Some(great_grandparent) = grandparent.parent() {
-                                                    if great_grandparent.kind() == "member_expression" {
+                                                if let Some(great_grandparent) =
+                                                    grandparent.parent()
+                                                {
+                                                    if great_grandparent.kind()
+                                                        == "member_expression"
+                                                    {
                                                         // Check if the type_cast_expression is the 'object' field
-                                                        let object_node = great_grandparent.child_by_field_name("object");
-                                                        if object_node.map_or(false, |obj| obj.id() == grandparent.id()) {
+                                                        let object_node = great_grandparent
+                                                            .child_by_field_name("object");
+                                                        if object_node.map_or(false, |obj| {
+                                                            obj.id() == grandparent.id()
+                                                        }) {
                                                             // Now check if this member_expression is part of a call
-                                                            if let Some(great_great_grandparent) = great_grandparent.parent() {
-                                                                if great_great_grandparent.kind() == "call_expression" {
+                                                            if let Some(great_great_grandparent) =
+                                                                great_grandparent.parent()
+                                                            {
+                                                                if great_great_grandparent.kind()
+                                                                    == "call_expression"
+                                                                {
                                                                     // --- More robust check for member_expression being the function ---
-                                                                    let function_field_node = great_great_grandparent.child_by_field_name("function");
-                                                                    let mut current_func_part = function_field_node;
+                                                                    let function_field_node =
+                                                                        great_great_grandparent
+                                                                            .child_by_field_name(
+                                                                                "function",
+                                                                            );
+                                                                    let mut current_func_part =
+                                                                        function_field_node;
                                                                     let mut is_function = false;
                                                                     // Loop to handle potential wrappers like 'expression'
-                                                                    while let Some(node) = current_func_part {
+                                                                    while let Some(node) =
+                                                                        current_func_part
+                                                                    {
                                                                         // Check if the current node in the function field traversal is our member_expression
-                                                                        if node.id() == great_grandparent.id() { // great_grandparent is the member_expression
+                                                                        if node.id()
+                                                                            == great_grandparent
+                                                                                .id()
+                                                                        {
+                                                                            // great_grandparent is the member_expression
                                                                             is_function = true;
                                                                             break;
                                                                         }
@@ -986,7 +1031,8 @@ impl CallGraphGeneratorStep for CallsHandling {
                                     // --- END NEW ---
 
                                     // Check if identifier is the function name in a simple call `func()`
-                                    if !skip_read_edge && parent_kind == "expression" { // Added !skip_read_edge check here
+                                    if !skip_read_edge && parent_kind == "expression" {
+                                        // Added !skip_read_edge check here
                                         if let Some(grandparent) = parent.parent() {
                                             if grandparent.kind() == "call_expression"
                                                 && grandparent
@@ -1058,9 +1104,12 @@ impl CallGraphGeneratorStep for CallsHandling {
                                     // Handles `object.propertyName()` even if wrapped in expression, e.g., `call((object.propertyName))`
                                     if !skip_read_edge && parent_kind == "member_expression" {
                                         let member_expr_node = parent; // Keep track of the specific member_expression node
-                                        let property_node_opt = member_expr_node.child_by_field_name("property");
+                                        let property_node_opt =
+                                            member_expr_node.child_by_field_name("property");
 
-                                        if property_node_opt.map_or(false, |prop| prop.id() == read_candidate_node.id()) {
+                                        if property_node_opt.map_or(false, |prop| {
+                                            prop.id() == read_candidate_node.id()
+                                        }) {
                                             // Check if this member_expression (member_expr_node) is part of a call expression's function field by ascending
                                             let mut current_ancestor = member_expr_node;
                                             let mut is_function_of_call = false;
@@ -1069,12 +1118,18 @@ impl CallGraphGeneratorStep for CallsHandling {
                                                 if let Some(ancestor) = current_ancestor.parent() {
                                                     match ancestor.kind() {
                                                         "call_expression" => {
-                                                            let function_field_node_opt = ancestor.child_by_field_name("function");
-                                                            if let Some(function_field_node) = function_field_node_opt {
+                                                            let function_field_node_opt = ancestor
+                                                                .child_by_field_name("function");
+                                                            if let Some(function_field_node) =
+                                                                function_field_node_opt
+                                                            {
                                                                 // Check if the function_field_node (or a node it wraps) is our original member_expr_node
-                                                                let mut temp_node = function_field_node;
+                                                                let mut temp_node =
+                                                                    function_field_node;
                                                                 loop {
-                                                                    if temp_node.id() == member_expr_node.id() {
+                                                                    if temp_node.id()
+                                                                        == member_expr_node.id()
+                                                                    {
                                                                         is_function_of_call = true;
                                                                         break;
                                                                     }
@@ -1097,12 +1152,21 @@ impl CallGraphGeneratorStep for CallsHandling {
                                                             continue;
                                                         }
                                                         // Ascend through wrappers that might contain the call
-                                                        "expression" | "parenthesized_expression" | "call_argument" | "arguments" => {
-                                                             current_ancestor = ancestor;
-                                                             continue;
+                                                        "expression"
+                                                        | "parenthesized_expression"
+                                                        | "call_argument"
+                                                        | "arguments" => {
+                                                            current_ancestor = ancestor;
+                                                            continue;
                                                         }
                                                         // Stop at boundaries or irrelevant nodes
-                                                        "function_definition" | "modifier_definition" | "contract_body" | "source_file" | "block" | "assignment_expression" | "variable_declaration_statement" => {
+                                                        "function_definition"
+                                                        | "modifier_definition"
+                                                        | "contract_body"
+                                                        | "source_file"
+                                                        | "block"
+                                                        | "assignment_expression"
+                                                        | "variable_declaration_statement" => {
                                                             break;
                                                         }
                                                         _ => {
@@ -1130,14 +1194,25 @@ impl CallGraphGeneratorStep for CallsHandling {
                                         if let Some(parent_expr) = read_candidate_node.parent() {
                                             if parent_expr.kind() == "expression" {
                                                 if let Some(cast_call_expr) = parent_expr.parent() {
-                                                    if cast_call_expr.kind() == "call_expression" && cast_call_expr.child_by_field_name("function").map_or(false, |f| f.id() == parent_expr.id()) {
+                                                    if cast_call_expr.kind() == "call_expression"
+                                                        && cast_call_expr
+                                                            .child_by_field_name("function")
+                                                            .map_or(false, |f| {
+                                                                f.id() == parent_expr.id()
+                                                            })
+                                                    {
                                                         // Now check if this cast_call_expr is the object of a member_expression
-                                                        let mut current_object_part = cast_call_expr;
-                                                        let mut member_expr_node_opt : Option<TsNode> = None;
+                                                        let mut current_object_part =
+                                                            cast_call_expr;
+                                                        let mut member_expr_node_opt: Option<
+                                                            TsNode,
+                                                        > = None;
 
                                                         // Ascend through potential wrappers to find the member_expression where cast_call_expr is the object
                                                         loop {
-                                                            if let Some(parent_of_object_part) = current_object_part.parent() {
+                                                            if let Some(parent_of_object_part) =
+                                                                current_object_part.parent()
+                                                            {
                                                                 if parent_of_object_part.kind() == "member_expression" {
                                                                     let object_field = parent_of_object_part.child_by_field_name("object");
                                                                     if object_field.map_or(false, |obj_node| obj_node.id() == current_object_part.id()) {
@@ -1155,14 +1230,19 @@ impl CallGraphGeneratorStep for CallsHandling {
                                                             }
                                                         }
 
-                                                        if let Some(member_expr_node) = member_expr_node_opt {
+                                                        if let Some(member_expr_node) =
+                                                            member_expr_node_opt
+                                                        {
                                                             // Now check if this member_expression is the function of an outer call
-                                                            let mut current_func_part = member_expr_node;
+                                                            let mut current_func_part =
+                                                                member_expr_node;
                                                             let mut found_outer_call = false;
                                                             // Ascend through potential wrappers to find the outer call_expression where member_expr_node is the function
                                                             loop {
-                                                                if let Some(parent_of_func_part) = current_func_part.parent() {
-                                                                     if parent_of_func_part.kind() == "call_expression" {
+                                                                if let Some(parent_of_func_part) =
+                                                                    current_func_part.parent()
+                                                                {
+                                                                    if parent_of_func_part.kind() == "call_expression" {
                                                                         let function_field = parent_of_func_part.child_by_field_name("function");
                                                                         if function_field.map_or(false, |func_node| func_node.id() == current_func_part.id()) {
                                                                             found_outer_call = true;
@@ -1191,12 +1271,11 @@ impl CallGraphGeneratorStep for CallsHandling {
                                     }
                                     // --- END NEW ---
 
-
                                     // --- Check if identifier is the argument of a delete expression ---
                                     // Handles both `delete identifier` and `delete expression(identifier)`
                                     if !skip_read_edge {
                                         let mut delete_ancestor = parent; // Start with the direct parent
-                                        // If the direct parent is just an expression wrapper, check the grandparent
+                                                                          // If the direct parent is just an expression wrapper, check the grandparent
                                         if parent_kind == "expression" {
                                             if let Some(grandparent) = parent.parent() {
                                                 delete_ancestor = grandparent;
@@ -1205,8 +1284,11 @@ impl CallGraphGeneratorStep for CallsHandling {
 
                                         // Check if the relevant ancestor is a 'delete' unary expression
                                         if delete_ancestor.kind() == "unary_expression" {
-                                            let operator = delete_ancestor.child_by_field_name("operator").map(|op| get_node_text(&op, &input.source));
-                                            let argument_node_opt = delete_ancestor.child_by_field_name("argument");
+                                            let operator = delete_ancestor
+                                                .child_by_field_name("operator")
+                                                .map(|op| get_node_text(&op, &input.source));
+                                            let argument_node_opt =
+                                                delete_ancestor.child_by_field_name("argument");
 
                                             // Check if the operator is 'delete' and the argument node contains the read_candidate node
                                             if operator.as_deref() == Some("delete") {
@@ -1215,10 +1297,12 @@ impl CallGraphGeneratorStep for CallsHandling {
                                                     // (This handles cases like `delete a.b` where `a` is the read candidate but `a.b` is the argument)
                                                     // Or if the argument node *is* the read_candidate node (for `delete a`)
                                                     let mut is_descendant = false;
-                                                    let mut queue = std::collections::VecDeque::new();
+                                                    let mut queue =
+                                                        std::collections::VecDeque::new();
                                                     queue.push_back(argument_node);
                                                     while let Some(current) = queue.pop_front() {
-                                                        if current.id() == read_candidate_node.id() {
+                                                        if current.id() == read_candidate_node.id()
+                                                        {
                                                             is_descendant = true;
                                                             break;
                                                         }
@@ -1290,13 +1374,59 @@ impl CallGraphGeneratorStep for CallsHandling {
                                         sort_span_start: enclosing_assignment_start
                                             .unwrap_or(parent_op_span_start),
                                         chain_index: None,
-                                        // --- UPDATED: Priority -1 if arg for call/emit/require (not in assign), 0 if in assign or standalone ---
-                                        execution_priority: if enclosing_assignment_start.is_none()
-                                            && (is_read_for_call || is_read_for_emit_or_require)
-                                        {
-                                            -1 // Read is argument for call/emit/require NOT within an assignment
-                                        } else {
-                                            0 // Read is standalone, or part of an assignment (even if it's for a call/emit/require arg)
+                                        // --- UPDATED: execution_priority for reads ---
+                                        execution_priority: {
+                                            let mut prio = 0; // Default for standalone reads or reads in unlinked contexts
+                                            if is_read_for_call || is_read_for_emit_or_require {
+                                                if let Some(op_node) = found_parent_op_node {
+                                                    // Find the parent operation's GraphModification to get its base priority
+                                                    let parent_op_mod =
+                                                        modifications.iter().find(|m| {
+                                                            m.span.0 == op_node.start_byte()
+                                                                && (m.edge_type == EdgeType::Call
+                                                                    || m.edge_type
+                                                                        == EdgeType::Require)
+                                                            // Emit might not be in modifications yet if split
+                                                        });
+                                                    if let Some(parent_mod) = parent_op_mod {
+                                                        // parent_mod.execution_priority is already scaled (e.g., C*10)
+                                                        prio = parent_mod.execution_priority - 1;
+                                                    // Read happens just before its call
+                                                    } else {
+                                                        // Fallback if parent op not found in modifications (e.g. simple emit/require not from chain)
+                                                        // This path needs to correctly identify simple emits/requires.
+                                                        // For now, let's assume simple emits/requires get a base priority.
+                                                        // If op_node is require: base_prio = 10. read_prio = 9.
+                                                        // If op_node is emit: base_prio = 10. read_prio = 9.
+                                                        // This part is tricky as 'modifications' is built iteratively.
+                                                        // A simpler approach for now: if it's for a call/emit/require, give it a generic "before call" prio.
+                                                        // Let's use a fixed low value if parent not found, to be refined.
+                                                        // For now, if parent_op_node exists, assume it's important.
+                                                        // If it's part of an assignment, it's less than the call.
+                                                        // If not in assignment, it's -1 (current logic).
+                                                        // This needs to align with the new scaled priorities.
+                                                        // If parent_op_node is a call from a chain (e.g. C*10), this read is C*10-1.
+                                                        // If parent_op_node is a simple require (EP 10), this read is 9.
+                                                        // If parent_op_node is a simple emit (EP 10), this read is 9.
+                                                        // If we can't find parent_mod, it's likely a standalone read or complex case.
+                                                        // The existing logic for -1 (not in assign) vs 0 (in assign) is a fallback.
+                                                        // Let's try to keep it simple: if we found a parent_op_node, it's related.
+                                                        // The search for parent_mod is the key.
+                                                        // If parent_mod is not found, it might be a read for an emit/require that isn't from a chain.
+                                                        // In such cases, their EPs are 10. So read EP should be 9.
+                                                        if parent_op_mod.is_none() {
+                                                            if op_node.kind() == "call_expression"
+                                                                || op_node.kind()
+                                                                    == "emit_statement"
+                                                            {
+                                                                // Approx.
+                                                                prio = 10 - 1; // Default "before simple call/emit"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            prio
                                         },
                                     });
                                 }
@@ -1320,8 +1450,9 @@ impl CallGraphGeneratorStep for CallsHandling {
                         );
 
                         // Find the expression being deleted (the 'argument' of the unary 'delete' expression)
-                        let target_expr_node_opt = delete_expression_node // Use the new node name
-                            .child_by_field_name("argument"); // 'delete' is unary, target is 'argument'
+                        let target_expr_node_opt =
+                            delete_expression_node // Use the new node name
+                                .child_by_field_name("argument"); // 'delete' is unary, target is 'argument'
 
                         if let Some(target_expr_node) = target_expr_node_opt {
                             // Find the base identifier within the target expression
@@ -1342,7 +1473,6 @@ impl CallGraphGeneratorStep for CallsHandling {
                                     queue.push_back(child);
                                 }
                             }
-
 
                             if let Some(base_id_node) = base_identifier_node {
                                 let var_name = get_node_text(&base_id_node, &input.source);
@@ -1370,7 +1500,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                         event_name: None,
                                         sort_span_start: delete_span.0, // Use delete statement start for sorting
                                         chain_index: None,
-                                        execution_priority: 2, // Same priority as assignment writes
+                                        execution_priority: 1000, // Priority 1000 for writes
                                     });
                                 } else {
                                     eprintln!("[Storage DEBUG Deferred]   Delete target base '{}' did not resolve to a storage variable.", var_name);
@@ -1379,7 +1509,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                 eprintln!("[Storage DEBUG Deferred]   Could not find base identifier in delete target expression: {}", get_node_text(&target_expr_node, &input.source));
                             }
                         } else {
-                             eprintln!("[Storage DEBUG Deferred]   Delete expression node missing 'argument' child. Span: {:?}", delete_span);
+                            eprintln!("[Storage DEBUG Deferred]   Delete expression node missing 'argument' child. Span: {:?}", delete_span);
                         }
                     }
                     "require" => {
@@ -1435,7 +1565,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                             event_name: None,
                             sort_span_start: require_span.0, // Use require call start for sorting
                             chain_index: None,
-                            execution_priority: 0, // Default priority for require
+                            execution_priority: 10, // Base priority 10 for require (1 * 10)
                         });
                     }
                     "emit" => {
@@ -1512,7 +1642,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                 event_name: Some(event_name.clone()),
                                 sort_span_start: emit_span.0, // Use emit statement start for sorting
                                 chain_index: None,
-                                execution_priority: 1, // Priority 1 for the initial emit action (Caller->EVM)
+                                execution_priority: 10, // Base priority 10 for Emit Caller->EVM (1 * 10)
                             });
 
                             // --- Collect Modification 2: EVM -> Event Listener ---
@@ -1531,8 +1661,8 @@ impl CallGraphGeneratorStep for CallsHandling {
                                 event_name: Some(event_name),
                                 sort_span_start: emit_span.0, // Use emit statement start for sorting
                                 chain_index: None,
-                                // --- UPDATED: Increase priority slightly for EVM->Listener ---
-                                execution_priority: 2, // Priority 2 ensures it follows Caller->EVM (Priority 1)
+                                // --- UPDATED: Scaled priority for EVM->Listener ---
+                                execution_priority: 20, // Base priority 20 for Emit EVM->Listener (2 * 10)
                             });
                         } else {
                             eprintln!("[CallsHandling DEBUG]       >>> Emit statement missing event name. Span: {:?}", emit_span);
@@ -1556,9 +1686,12 @@ impl CallGraphGeneratorStep for CallsHandling {
             );
 
             // --- Log BEFORE sorting ---
-            eprintln!("[Channel DEBUG] Modifications BEFORE sort for Caller {}:", caller_node_id);
+            eprintln!(
+                "[Channel DEBUG] Modifications BEFORE sort for Caller {}:",
+                caller_node_id
+            );
             for (idx, m) in modifications.iter().enumerate() {
-                 eprintln!(
+                eprintln!(
                      "[Channel DEBUG]   [{}] Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {}), ChainIdx={:?}, Args={:?}",
                      idx, m.source_node_id, m.target_node_id, m.edge_type, m.span.0, m.span.1,
                      m.sort_span_start, m.execution_priority, m.span.0, // Show full sort key
@@ -1576,9 +1709,12 @@ impl CallGraphGeneratorStep for CallsHandling {
             modifications.sort_by_key(|m| (m.sort_span_start, m.execution_priority, m.span.0));
 
             // --- Log AFTER sorting ---
-            eprintln!("[Channel DEBUG] Modifications AFTER sort for Caller {}:", caller_node_id);
+            eprintln!(
+                "[Channel DEBUG] Modifications AFTER sort for Caller {}:",
+                caller_node_id
+            );
             for (idx, m) in modifications.iter().enumerate() {
-                 eprintln!(
+                eprintln!(
                      "[Channel DEBUG]   [{}] Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {}), ChainIdx={:?}, Args={:?}",
                      idx, m.source_node_id, m.target_node_id, m.edge_type, m.span.0, m.span.1,
                      m.sort_span_start, m.execution_priority, m.span.0, // Show full sort key
@@ -1586,7 +1722,6 @@ impl CallGraphGeneratorStep for CallsHandling {
                  );
             }
             // --- End Log AFTER sorting ---
-
 
             // --- Deduplicate modifications ---
             // We dedup based on all fields after sorting.
@@ -1606,9 +1741,12 @@ impl CallGraphGeneratorStep for CallsHandling {
             // --- End Deduplication ---
 
             // --- Log AFTER dedup ---
-            eprintln!("[Channel DEBUG] Modifications AFTER dedup for Caller {}:", caller_node_id);
+            eprintln!(
+                "[Channel DEBUG] Modifications AFTER dedup for Caller {}:",
+                caller_node_id
+            );
             for (idx, m) in modifications.iter().enumerate() {
-                 eprintln!(
+                eprintln!(
                      "[Channel DEBUG]   [{}] Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {}), ChainIdx={:?}, Args={:?}",
                      idx, m.source_node_id, m.target_node_id, m.edge_type, m.span.0, m.span.1,
                      m.sort_span_start, m.execution_priority, m.span.0, // Show full sort key
@@ -1617,19 +1755,18 @@ impl CallGraphGeneratorStep for CallsHandling {
             }
             // --- End Log AFTER dedup ---
 
-
             let mut call_sequence_counter: usize = 0; // Reset sequence counter for each function body
-            // eprintln!( // Remove the previous summary log here, replaced by the detailed log above
-            //     "[Channel DEBUG] Modifications for Caller {} AFTER sort/dedup:",
-            //     caller_node_id
-            // );
-            // for (idx, m) in modifications.iter().enumerate() { // Remove the previous summary log here
-            //     eprintln!( // Remove the previous summary log here
-            //          "[Channel DEBUG]   [{}] Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {})", // Updated format
-            //          idx, m.source_node_id, m.target_node_id, m.edge_type, m.span.0, m.span.1,
-            //          m.sort_span_start, m.execution_priority, m.span.0 // Show full sort key
-            //      );
-            // }
+                                                      // eprintln!( // Remove the previous summary log here, replaced by the detailed log above
+                                                      //     "[Channel DEBUG] Modifications for Caller {} AFTER sort/dedup:",
+                                                      //     caller_node_id
+                                                      // );
+                                                      // for (idx, m) in modifications.iter().enumerate() { // Remove the previous summary log here
+                                                      //     eprintln!( // Remove the previous summary log here
+                                                      //          "[Channel DEBUG]   [{}] Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {})", // Updated format
+                                                      //          idx, m.source_node_id, m.target_node_id, m.edge_type, m.span.0, m.span.1,
+                                                      //          m.sort_span_start, m.execution_priority, m.span.0 // Show full sort key
+                                                      //      );
+                                                      // }
             for modification in modifications {
                 // Iterate over the deduplicated list
                 call_sequence_counter += 1; // Increment sequence number for each edge added

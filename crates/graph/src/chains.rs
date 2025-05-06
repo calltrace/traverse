@@ -101,6 +101,10 @@ pub struct ResolvedCallStep {
     /// The Solidity type name resolved for the *object* being called upon in this step.
     /// None for simple function calls or `new` expressions.
     pub object_type: Option<String>,
+    /// The source text of the object instance being called upon.
+    /// e.g., "myVar" in "myVar.method()", or "getStruct().field" in "getStruct().field.method()".
+    /// None for simple function calls or `new` expressions.
+    pub object_instance_text: Option<String>,
     /// The start byte of the original expression that initiated this chain analysis.
     /// Used for sorting steps correctly.
     pub originating_span_start: usize,
@@ -220,6 +224,7 @@ pub(crate) fn analyze_chained_call<'a>(
                 arguments,
                 result_type: Some(contract_name.clone()), // Result type is the contract itself
                 object_type: None,                        // No object for `new`
+                object_instance_text: None,               // No object instance for `new`
                 originating_span_start,                   // Populate the new field
                 base_object_identifier_for_builtin: None, // Added: No base object for 'new'
             };
@@ -341,6 +346,7 @@ pub(crate) fn analyze_chained_call<'a>(
                             arguments: argument_texts, // Use collected texts
                             result_type: result_type.clone(),
                             object_type: None,      // No object for simple calls
+                            object_instance_text: None, // No object instance for simple calls
                             originating_span_start, // Populate the new field
                             base_object_identifier_for_builtin: None, // Added: No base object for simple calls
                         };
@@ -464,6 +470,8 @@ pub(crate) fn analyze_chained_call<'a>(
                             input,
                         )?;
 
+                        let current_object_instance_text = Some(get_node_text(&object_node, source).to_string());
+
                         let outer_step = ResolvedCallStep {
                             call_expr_span: (start_node.start_byte(), start_node.end_byte()),
                             function_span: (property_node.start_byte(), property_node.end_byte()),
@@ -471,6 +479,7 @@ pub(crate) fn analyze_chained_call<'a>(
                             arguments: argument_texts, // Use collected texts
                             result_type: result_type.clone(),
                             object_type: outer_object_type.clone(),
+                            object_instance_text: current_object_instance_text, // Populate the instance text
                             originating_span_start, // Populate the new field
                             base_object_identifier_for_builtin: if matches!(
                                 target,
