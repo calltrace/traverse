@@ -115,6 +115,9 @@ impl CgToDot for CallGraph {
                             NodeType::Evm => "gray".to_string(), // Added color for EVM
                             NodeType::EventListener => "lightcyan".to_string(), // Added color for EventListener
                             NodeType::RequireCondition => "orange".to_string(), // Added color for RequireCondition
+                            NodeType::IfStatement => "mediumpurple1".to_string(), // Added color for IfStatement
+                            NodeType::ThenBlock => "palegreen".to_string(),    // Added color for ThenBlock
+                            NodeType::ElseBlock => "lightsalmon".to_string(),  // Added color for ElseBlock
                         },
                     ),
                 ];
@@ -226,6 +229,31 @@ impl CgToDot for CallGraph {
                         attrs.push(("color".to_string(), "orange".to_string()));
                         attrs.push(("fontcolor".to_string(), "orange".to_string()));
                         attrs.push(("style".to_string(), "dashed".to_string()));
+                    }
+                    EdgeType::IfConditionBranch => {
+                        let condition = edge.argument_names.as_ref()
+                            .and_then(|args| args.first())
+                            .map(|arg| escape_dot_string(arg))
+                            .unwrap_or_else(|| "condition".to_string());
+                        let tooltip = format!("If Condition: {}\\nSpan: {:?}", condition, edge.call_site_span);
+                        attrs.push(("label".to_string(), format!("if ({})", condition)));
+                        attrs.push(("tooltip".to_string(), escape_dot_string(&tooltip)));
+                        attrs.push(("color".to_string(), "mediumpurple4".to_string()));
+                        attrs.push(("fontcolor".to_string(), "mediumpurple4".to_string()));
+                    }
+                    EdgeType::ThenBranch => {
+                        let tooltip = format!("Then branch taken\\nSpan: {:?}", edge.call_site_span);
+                        attrs.push(("label".to_string(), "then".to_string()));
+                        attrs.push(("tooltip".to_string(), escape_dot_string(&tooltip)));
+                        attrs.push(("color".to_string(), "green4".to_string()));
+                        attrs.push(("fontcolor".to_string(), "green4".to_string()));
+                    }
+                    EdgeType::ElseBranch => {
+                        let tooltip = format!("Else branch taken\\nSpan: {:?}", edge.call_site_span);
+                        attrs.push(("label".to_string(), "else".to_string()));
+                        attrs.push(("tooltip".to_string(), escape_dot_string(&tooltip)));
+                        attrs.push(("color".to_string(), "salmon4".to_string()));
+                        attrs.push(("fontcolor".to_string(), "salmon4".to_string()));
                     }
                 }
                 // Allow overriding attributes from Edge::to_dot_attributes if needed

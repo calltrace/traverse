@@ -279,10 +279,102 @@ impl MermaidGenerator {
                     }
                     EdgeType::Return => {
                         // Return edges are handled implicitly after their corresponding Call edge recursion returns.
-                        // We mark them processed there using `processed_edges.insert(*return_edge_index)`.
+                        // We mark them processed there using `processed_return_edges.insert(*return_edge_index)`.
                         // If we encounter one here directly, it means its Call was not processed in this path
                         // (e.g., skipped due to cycle detection, or it's a return from an entry point).
                         // We do nothing here.
+                    }
+                    EdgeType::IfConditionBranch => {
+                        // The target_node_id of this edge is the synthetic IfStatementNode
+                        let if_statement_node_id = edge.target_node_id;
+
+                        // Assume condition is the first argument of the IfConditionBranch edge
+                        let condition_text = edge
+                            .argument_names
+                            .as_ref()
+                            .and_then(|args| args.get(0))
+                            .map(|s| s.as_str())
+                            .unwrap_or("condition") // Default text if not found
+                            .to_string();
+
+                        // Participant where the if condition is evaluated
+                        let containing_participant_id = Self::get_participant_id(
+                            &source_node.name, // source_node is the function/block containing the if
+                            source_node.contract_name.as_ref(),
+                        );
+
+                        builder.alt_start(condition_text);
+
+                        // Process "then" branch
+                        let then_branch_edge_opt = graph.edges.iter().find(|e| {
+                            e.source_node_id == if_statement_node_id
+                                && e.edge_type == EdgeType::ThenBranch
+                        });
+
+                        if let Some(then_edge) = then_branch_edge_opt {
+                            let stmts_before_then = builder.statement_count();
+                            // Recursively process the flow starting from the ThenBlockNode
+                            self.process_flow(
+                                then_edge.target_node_id,
+                                graph,
+                                processed_return_edges,
+                                builder,
+                                return_edge_lookup,
+                                visiting,
+                            );
+                            let stmts_after_then = builder.statement_count();
+                            if stmts_after_then == stmts_before_then {
+                                builder.note_over(
+                                    vec![containing_participant_id.clone()],
+                                    "No operations in 'then' branch".to_string(),
+                                );
+                            }
+                        } else {
+                            // No 'then' branch edge found, add a default note
+                            builder.note_over(
+                                vec![containing_participant_id.clone()],
+                                "No operations in 'then' branch".to_string(),
+                            );
+                        }
+
+                        // Process "else" branch
+                        let else_branch_edge_opt = graph.edges.iter().find(|e| {
+                            e.source_node_id == if_statement_node_id
+                                && e.edge_type == EdgeType::ElseBranch
+                        });
+
+                        if let Some(else_edge) = else_branch_edge_opt {
+                            builder.alt_else("else".to_string()); // Default "else" label
+                            let stmts_before_else = builder.statement_count();
+                            // Recursively process the flow starting from the ElseBlockNode
+                            self.process_flow(
+                                else_edge.target_node_id,
+                                graph,
+                                processed_return_edges,
+                                builder,
+                                return_edge_lookup,
+                                visiting,
+                            );
+                            let stmts_after_else = builder.statement_count();
+                            if stmts_after_else == stmts_before_else {
+                                builder.note_over(
+                                    vec![containing_participant_id.clone()],
+                                    "No operations in 'else' branch".to_string(),
+                                );
+                            }
+                        }
+                        // If else_branch_edge_opt is None, no 'else' part is added to the alt block.
+                        builder.alt_end();
+                        // This edge guides control flow structure; actual operations are within branches.
+                        // No direct recursion on if_statement_node_id from here in the main loop for this edge.
+                    }
+                    EdgeType::ThenBranch | EdgeType::ElseBranch => {
+                        // These edges are handled by the IfConditionBranch logic when it
+                        // processes the contents of the then/else blocks.
+                        // If encountered directly here, they are part of that recursive processing
+                        // or indicate a graph structure not originating from an IfConditionBranch.
+                        // We skip them to avoid duplicate processing or incorrect diagram structure.
+                        continue;
                     }
                     EdgeType::StorageRead | EdgeType::StorageWrite => {
                         // --- Handle Storage Read/Write ---

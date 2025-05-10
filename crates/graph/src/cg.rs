@@ -12,6 +12,9 @@ use tree_sitter::{Node as TsNode, Query, QueryCursor, Tree};
 pub(crate) const EVM_NODE_NAME: &str = "EVM";
 pub(crate) const EVENT_LISTENER_NODE_NAME: &str = "EventListener";
 pub(crate) const REQUIRE_NODE_NAME: &str = "Require"; // Added for require statements
+pub(crate) const IF_CONDITION_NODE_NAME: &str = "IfCondition"; // Added for if statements
+pub(crate) const THEN_BLOCK_NODE_NAME: &str = "ThenBlock"; // Added for then blocks
+pub(crate) const ELSE_BLOCK_NODE_NAME: &str = "ElseBlock"; // Added for else blocks
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum EdgeType {
@@ -20,6 +23,9 @@ pub enum EdgeType {
     StorageRead,  // Represents reading from a storage variable
     StorageWrite, // Represents writing to a storage variable
     Require,      // Represents a require check
+    IfConditionBranch, // Represents the edge to an if-condition
+    ThenBranch,   // Represents the true branch of an if statement
+    ElseBranch,   // Represents the false branch of an if statement
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -33,6 +39,9 @@ pub enum NodeType {
     Evm,           // Synthetic node for EVM interaction
     EventListener, // Synthetic node for event listeners
     RequireCondition, // Synthetic node for require checks
+    IfStatement,   // Synthetic node for an if condition
+    ThenBlock,     // Synthetic node for a then block
+    ElseBlock,     // Synthetic node for an else block
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -93,6 +102,9 @@ impl crate::cg_dot::ToDotLabel for Edge {
             EdgeType::StorageRead => "read".to_string(),
             EdgeType::StorageWrite => "write".to_string(),
             EdgeType::Require => "require".to_string(), // Add label for Require
+            EdgeType::IfConditionBranch => "if_cond".to_string(),
+            EdgeType::ThenBranch => "then".to_string(),
+            EdgeType::ElseBranch => "else".to_string(),
         }
     }
 }

@@ -74,6 +74,11 @@ impl SequenceDiagramBuilder {
         }
     }
 
+    /// Returns the current number of statements in the builder.
+    pub fn statement_count(&self) -> usize {
+        self.statements.len()
+    }
+
     /// Process a parser pair and add the corresponding statement to the builder.
     /// This is used for parsing Mermaid text into a diagram.
     pub fn process_pair(&mut self, pair: Pair<'_, Rule>) -> Result<&mut Self, BuilderError> {

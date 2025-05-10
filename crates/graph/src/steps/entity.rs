@@ -564,7 +564,7 @@ impl CallGraphGeneratorStep for ContractHandling {
                     | NodeType::Evm
                     | NodeType::EventListener
                     | NodeType::StorageVariable
-                    | NodeType::RequireCondition => Visibility::Default, // Should not happen here
+                    | NodeType::RequireCondition | NodeType::IfStatement | NodeType::ThenBlock | NodeType::ElseBlock => Visibility::Default, // Should not happen here
                 });
 
                 let span = (def_node.start_byte(), def_node.end_byte());
