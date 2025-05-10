@@ -37,17 +37,20 @@ impl MermaidGenerator {
         visiting: &mut HashSet<usize>,
     ) {
         let source_participant_id = Self::get_participant_id(&source_node.name, source_node.contract_name.as_ref());
-        let target_participant_id = Self::get_participant_id(&target_node.name, target_node.contract_name.as_ref());
+        let target_participant_id = Self::get_participant_id(&target_node.name, target_node.contract_name.as_ref()); // Callee's participant ID
         
         let args_str = call_edge.argument_names.as_ref().map(|args| args.join(", ")).unwrap_or_default();
         let function_display_name = target_node.contract_name.as_ref()
             .map_or_else(|| target_node.name.clone(), |c| format!("{}.{}", c, target_node.name));
         let message_content = format!("{}({})", function_display_name, args_str);
 
+        // Activate the target participant (callee)
+        current_builder.activate(target_participant_id.clone());
+
         current_builder.signal(
             source_participant_id,
-            target_participant_id.clone(), // Clone for potential use in return signal if target is same as source
-            "->>",
+            target_participant_id.clone(), 
+            "->>", // Solid arrow for call
             Some(message_content),
         );
 
@@ -56,24 +59,37 @@ impl MermaidGenerator {
         // After recursion, process the corresponding return edge
         let return_lookup_key = (target_node.id, source_node.id, call_edge.sequence_number);
         if let Some(return_edge_index) = return_edge_lookup.get(&return_lookup_key) {
-            if processed_return_edges.insert(*return_edge_index) {
+            if processed_return_edges.insert(*return_edge_index) { // Ensure this specific return instance hasn't been drawn yet
                 if let Some(return_edge) = graph.edges.get(*return_edge_index) {
-                    if let (Some(ret_source_node), Some(ret_target_node)) = (
+                    if let (Some(ret_source_node), Some(ret_target_node)) = ( // ret_source_node is the original target_node (callee)
                         graph.nodes.get(return_edge.source_node_id),
-                        graph.nodes.get(return_edge.target_node_id),
+                        graph.nodes.get(return_edge.target_node_id), // ret_target_node is the original source_node (caller)
                     ) {
-                        let ret_source_participant_id = Self::get_participant_id(&ret_source_node.name, ret_source_node.contract_name.as_ref());
-                        let ret_target_participant_id = Self::get_participant_id(&ret_target_node.name, ret_target_node.contract_name.as_ref());
+                        let ret_source_participant_id_for_signal = Self::get_participant_id(&ret_source_node.name, ret_source_node.contract_name.as_ref());
+                        let ret_target_participant_id_for_signal = Self::get_participant_id(&ret_target_node.name, ret_target_node.contract_name.as_ref());
                         let returned_value_str = return_edge.returned_value.as_ref().map(|v| {
                             let sanitized_v = v.replace('\n', " ").split_whitespace().collect::<Vec<&str>>().join(" ");
                             format!(" {}", sanitized_v)
                         }).unwrap_or_default();
                         let message_content_ret = format!("ret{} from {}", returned_value_str, ret_source_node.name);
-                        current_builder.signal(ret_source_participant_id, ret_target_participant_id, "-->>", Some(message_content_ret));
+                        
+                        current_builder.signal(
+                            ret_source_participant_id_for_signal, 
+                            ret_target_participant_id_for_signal, 
+                            "-->>", // Dashed arrow for return
+                            Some(message_content_ret)
+                        );
+                        // Deactivation of the callee (target_participant_id) is handled at the end of this function.
                     }
                 }
             }
         }
+        // Else: No explicit return edge was found for this call sequence in the lookup,
+        // or it was already processed (e.g., multiple calls to the same returning function).
+        // The deactivation of target_participant_id will still happen below, balancing the initial activation.
+
+        // Deactivate the target participant (callee)
+        current_builder.deactivate(target_participant_id);
     }
 
     // Define constants for participant IDs and Aliases
