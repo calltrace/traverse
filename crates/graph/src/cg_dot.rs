@@ -118,6 +118,8 @@ impl CgToDot for CallGraph {
                             NodeType::IfStatement => "mediumpurple1".to_string(), // Added color for IfStatement
                             NodeType::ThenBlock => "palegreen".to_string(),    // Added color for ThenBlock
                             NodeType::ElseBlock => "lightsalmon".to_string(),  // Added color for ElseBlock
+                            NodeType::WhileStatement => "lightsteelblue".to_string(), // Added color for WhileStatement
+                            NodeType::WhileBlock => "lightseagreen".to_string(), // Added color for WhileBlock
                         },
                     ),
                 ];
@@ -254,6 +256,8 @@ impl CgToDot for CallGraph {
                         attrs.push(("tooltip".to_string(), escape_dot_string(&tooltip)));
                         attrs.push(("color".to_string(), "salmon4".to_string()));
                         attrs.push(("fontcolor".to_string(), "salmon4".to_string()));
+                    }
+                    EdgeType::WhileConditionBranch | EdgeType::WhileBodyBranch => {
                     }
                 }
                 // Allow overriding attributes from Edge::to_dot_attributes if needed

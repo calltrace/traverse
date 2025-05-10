@@ -134,6 +134,9 @@ impl CallGraphGeneratorStep for CallsHandling {
 
             ; --- If statement ---
             (if_statement) @if_statement_node
+
+            ; --- While statement ---
+            (while_statement) @while_statement_node
         "#;
         let call_query = Query::new(&input.solidity_lang, call_query_str)
             .context("Failed to create call query")?;
@@ -170,16 +173,13 @@ impl CallGraphGeneratorStep for CallsHandling {
 
             // Collect modifications for this function body ---
             let mut modifications: Vec<GraphModification> = Vec::new();
-            let caller_node_name = graph
-                .nodes
-                .get(owner_node_id)
-                .map_or("?".to_string(), |n| {
-                    format!(
-                        "{}.{}",
-                        n.contract_name.as_deref().unwrap_or("Global"),
-                        n.name
-                    )
-                });
+            let caller_node_name = graph.nodes.get(owner_node_id).map_or("?".to_string(), |n| {
+                format!(
+                    "{}.{}",
+                    n.contract_name.as_deref().unwrap_or("Global"),
+                    n.name
+                )
+            });
             eprintln!("[CallsHandling DEBUG] Processing calls/emits within Caller Node ID: {} (Name: '{}', Contract: {:?})", owner_node_id, caller_node_name, owner_contract_name_opt);
 
             let mut call_cursor = QueryCursor::new();
@@ -219,6 +219,10 @@ impl CallGraphGeneratorStep for CallsHandling {
             let if_statement_capture_index = call_query
                 .capture_index_for_name("if_statement_node")
                 .unwrap_or(u32::MAX);
+            let while_statement_capture_index =
+                call_query // New
+                    .capture_index_for_name("while_statement_node")
+                    .unwrap_or(u32::MAX);
 
             let mut call_matches =
                 call_cursor.matches(&call_query, definition_ts_node, |node: TsNode| {
@@ -255,6 +259,8 @@ impl CallGraphGeneratorStep for CallsHandling {
                         Some("delete") // Add delete type
                     } else if capture_index == if_statement_capture_index {
                         Some("if") // Add if type
+                    } else if capture_index == while_statement_capture_index {
+                        Some("while") // Add while type
                     } else {
                         None // Ignore other captures like @call_name etc.
                     };
@@ -263,13 +269,14 @@ impl CallGraphGeneratorStep for CallsHandling {
                         collected_nodes_map
                             .entry(span)
                             .and_modify(|existing| {
-                                // Prioritization logic: require > emit > new > call > if > write/delete > read
+                                // Prioritization logic: require > emit > new > call > if/while > write/delete > read
                                 let existing_priority = match existing.1 {
                                     "require" => 7,
                                     "emit" => 6,
                                     "new" => 5,
                                     "call" => 4,
                                     "if" => 3,
+                                    "while" => 3, // Added
                                     "write" => 2,
                                     "delete" => 2, // Same priority as write
                                     "read_identifier" => 1,
@@ -282,6 +289,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                     "new" => 5,
                                     "call" => 4,
                                     "if" => 3,
+                                    "while" => 3, // Added
                                     "write" => 2,
                                     "delete" => 2, // Same priority as write
                                     "read_identifier" => 1,
@@ -314,6 +322,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                     "new" => 5,
                     "call" => 4,
                     "if" => 3,
+                    "while" => 3, // Added
                     "write" | "delete" => 2,
                     "read_identifier" | "read_subscript" => 1,
                     _ => 0, // Default for unknown types
@@ -459,6 +468,7 @@ fn process_statements_in_block(
     let mut modifications: Vec<GraphModification> = Vec::new();
     let mut call_cursor = QueryCursor::new();
     let mut processed_nested_if_nodes: HashSet<usize> = HashSet::new(); // For TsNode.id()
+    let mut processed_nested_while_nodes: HashSet<usize> = HashSet::new(); // For TsNode.id() of while stmts
 
     // --- Collect potential call, new, emit, if, etc. nodes first within this block_ts_node ---
     let mut potential_nodes: Vec<(TsNode, (usize, usize), &str)> = Vec::new();
@@ -489,6 +499,9 @@ fn process_statements_in_block(
     let if_statement_capture_index = call_query
         .capture_index_for_name("if_statement_node")
         .unwrap_or(u32::MAX);
+    let while_statement_capture_index = call_query // New
+        .capture_index_for_name("while_statement_node")
+        .unwrap_or(u32::MAX);
 
     let mut call_matches = call_cursor.matches(call_query, block_ts_node, |node: TsNode| {
         iter::once(&source_bytes[node.byte_range()])
@@ -518,6 +531,8 @@ fn process_statements_in_block(
                 Some("delete")
             } else if capture_index == if_statement_capture_index {
                 Some("if")
+            } else if capture_index == while_statement_capture_index {
+                Some("while") // Added
             } else {
                 None
             };
@@ -532,6 +547,7 @@ fn process_statements_in_block(
                             "new" => 5,
                             "call" => 4,
                             "if" => 3,
+                            "while" => 3, // Added
                             "write" => 2,
                             "delete" => 2,
                             "read_identifier" => 1,
@@ -544,6 +560,7 @@ fn process_statements_in_block(
                             "new" => 5,
                             "call" => 4,
                             "if" => 3,
+                            "while" => 3, // Added
                             "write" => 2,
                             "delete" => 2,
                             "read_identifier" => 1,
@@ -570,6 +587,7 @@ fn process_statements_in_block(
             "new" => 5,
             "call" => 4,
             "if" => 3,
+            "while" => 3, // Added
             "write" | "delete" => 2,
             "read_identifier" | "read_subscript" => 1,
             _ => 0,
@@ -587,6 +605,12 @@ fn process_statements_in_block(
         if node_type == "if" && processed_nested_if_nodes.contains(&node.id()) {
             eprintln!("[CallsHandling DEBUG] Skipping 'if' node ID: {} at span {:?} as it was part of an 'else if' chain already processed.", node.id(), span);
             // Also mark it as handled globally so it's not picked up by any other means if logic changes.
+            handled_node_ids.insert(node.id());
+            continue;
+        }
+        // Similar check for 'while' nodes that might be nested and already processed by a parent's recursive call
+        if node_type == "while" && processed_nested_while_nodes.contains(&node.id()) {
+            eprintln!("[CallsHandling DEBUG] Skipping 'while' node ID: {} at span {:?} as it was part of a nested structure already processed.", node.id(), span);
             handled_node_ids.insert(node.id());
             continue;
         }
@@ -646,7 +670,7 @@ fn process_statements_in_block(
                                 eprintln!("[CallsHandling DEBUG]             >>> Collecting modification (Regular Call): CallerID={}, TargetID={}, StepSpan={:?}, ChainIndex={}, Priority={}", owner_node_id, target_node_id, step.call_expr_span, chain_index, chain_index);
                                 modifications.push(GraphModification {
                                     source_node_id: owner_node_id, // Source is the caller
-                                    target_node_id,                 // Target is the resolved node
+                                    target_node_id,                // Target is the resolved node
                                     edge_type: EdgeType::Call, // Could be ConstructorCall too, but handled by target node type later
                                     span: (
                                         step.call_expr_span.0.into(),
@@ -2159,7 +2183,7 @@ fn process_statements_in_block(
                     // --- Add NodeInfo for this synthetic IfCondition node to definition_nodes_info ---
                     // The "definition" for an IfConditionNode is effectively its condition expression.
                     let if_condition_node_info = NodeInfo {
-                        span: condition_span, // Span of the condition expression
+                        span: condition_span,                    // Span of the condition expression
                         kind: condition_node.kind().to_string(), // Kind of the condition TsNode
                     };
                     ctx.definition_nodes_info.push((
@@ -2218,7 +2242,7 @@ fn process_statements_in_block(
                         graph.node_lookup.insert(then_key, new_id);
                         // --- Add NodeInfo for this synthetic block to definition_nodes_info ---
                         let then_block_node_info = NodeInfo {
-                            span: then_body_span, // Span of the block itself
+                            span: then_body_span,                    // Span of the block itself
                             kind: then_body_node.kind().to_string(), // Kind of the TsNode for the block
                         };
                         ctx.definition_nodes_info.push((
@@ -2281,7 +2305,9 @@ fn process_statements_in_block(
                     if else_body_node.kind() == "if_statement" {
                         // Case 1: else_body_node is directly an if_statement (e.g., `else if (...)`)
                         actual_if_node_to_mark = Some(else_body_node);
-                    } else if else_body_node.kind() == "statement" && else_body_node.named_child_count() == 1 {
+                    } else if else_body_node.kind() == "statement"
+                        && else_body_node.named_child_count() == 1
+                    {
                         // Case 2: else_body_node is a 'statement' wrapper containing an if_statement.
                         // This matches the CST: (statement (if_statement ...))
                         if let Some(child) = else_body_node.named_child(0) {
@@ -2295,7 +2321,8 @@ fn process_statements_in_block(
                         // Ensure the identified node is indeed a valid if_statement with a condition.
                         if if_node_to_mark.child_by_field_name("condition").is_some() {
                             let else_if_node_id = if_node_to_mark.id();
-                            let else_if_span = (if_node_to_mark.start_byte(), if_node_to_mark.end_byte());
+                            let else_if_span =
+                                (if_node_to_mark.start_byte(), if_node_to_mark.end_byte());
                             eprintln!("[CallsHandling DEBUG] Else branch contains an if-statement (Node ID: {}, Kind: '{}', Span: {:?}). Marking it as processed.", else_if_node_id, if_node_to_mark.kind(), else_if_span);
                             processed_nested_if_nodes.insert(else_if_node_id);
                         } else {
@@ -2332,7 +2359,7 @@ fn process_statements_in_block(
                         graph.node_lookup.insert(else_key, new_id);
                         // --- Add NodeInfo for this synthetic block to definition_nodes_info ---
                         let else_block_node_info = NodeInfo {
-                            span: else_body_span, // Span of the block itself
+                            span: else_body_span,                    // Span of the block itself
                             kind: else_body_node.kind().to_string(), // Kind of the TsNode for the block
                         };
                         ctx.definition_nodes_info.push((
@@ -2373,6 +2400,169 @@ fn process_statements_in_block(
                     modifications.extend(else_modifications);
                     handled_node_ids.extend(else_handled_ids);
                     // handled_node_ids.insert(else_body_node.id()); // Similar to then_body_node
+                }
+            }
+            "while" => {
+                let while_statement_node = node;
+                let while_span = span; // Span of the whole while_statement
+                let while_start_byte = while_statement_node.start_byte();
+
+                eprintln!(
+                    "[CallsHandling DEBUG] Processing While Statement at span {:?}",
+                    while_span
+                );
+
+                // 1. Extract Condition
+                let condition_node = while_statement_node
+                    .child_by_field_name("condition")
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "While statement missing condition node at span {:?}",
+                            while_span
+                        )
+                    })?;
+                let condition_text = get_node_text(&condition_node, &input.source);
+                let condition_span = (condition_node.start_byte(), condition_node.end_byte());
+
+                // Mark the while_statement_node itself as handled by this level.
+                handled_node_ids.insert(while_statement_node.id());
+
+                // 2. Create WhileCondition synthetic node
+                let while_condition_node_name = format!(
+                    "{}_{}",
+                    crate::cg::WHILE_CONDITION_NODE_NAME,
+                    while_start_byte
+                );
+                let while_key = (
+                    owner_contract_name_opt.clone(),
+                    while_condition_node_name.clone(),
+                );
+                let while_condition_node_id = if let Some(id) = graph.node_lookup.get(&while_key) {
+                    *id
+                } else {
+                    let new_id = graph.add_node(
+                        while_condition_node_name.clone(),
+                        NodeType::WhileStatement, // Use WhileStatement NodeType
+                        owner_contract_name_opt.clone(),
+                        Visibility::Default,
+                        condition_span, // Span of the condition itself
+                    );
+                    graph.node_lookup.insert(while_key, new_id);
+                    let while_condition_node_info = NodeInfo {
+                        span: condition_span,
+                        kind: condition_node.kind().to_string(),
+                    };
+                    ctx.definition_nodes_info.push((
+                        new_id,
+                        while_condition_node_info,
+                        owner_contract_name_opt.clone(),
+                    ));
+                    eprintln!("[CallsHandling DEBUG] Added WhileConditionNode ID {} with span {:?} to definition_nodes_info", new_id, condition_span);
+                    new_id
+                };
+
+                // 3. Add Edge: owner_node_id -> WhileConditionNode
+                modifications.push(GraphModification {
+                    source_node_id: owner_node_id,
+                    target_node_id: while_condition_node_id,
+                    edge_type: EdgeType::WhileConditionBranch,
+                    span: condition_span,
+                    modifier: None,
+                    return_value: None,
+                    arguments: Some(vec![condition_text.to_string()]),
+                    event_name: None,
+                    sort_span_start: while_start_byte,
+                    chain_index: None,
+                    execution_priority: (type_priority("while") * 10), // e.g., 30
+                });
+
+                // 4. Process While Body
+                if let Some(while_body_node) = while_statement_node.child_by_field_name("body") {
+                    let while_body_span =
+                        (while_body_node.start_byte(), while_body_node.end_byte());
+                    let while_block_node_name = format!(
+                        "{}_{}",
+                        crate::cg::WHILE_BLOCK_NODE_NAME,
+                        while_body_node.start_byte()
+                    );
+                    let while_block_key = (
+                        owner_contract_name_opt.clone(),
+                        while_block_node_name.clone(),
+                    );
+                    let while_block_node_id = if let Some(id) =
+                        graph.node_lookup.get(&while_block_key)
+                    {
+                        *id
+                    } else {
+                        let new_id = graph.add_node(
+                            while_block_node_name.clone(),
+                            NodeType::WhileBlock,
+                            owner_contract_name_opt.clone(),
+                            Visibility::Default,
+                            while_body_span,
+                        );
+                        graph.node_lookup.insert(while_block_key, new_id);
+                        let while_block_node_info = NodeInfo {
+                            span: while_body_span,
+                            kind: while_body_node.kind().to_string(),
+                        };
+                        ctx.definition_nodes_info.push((
+                            new_id,
+                            while_block_node_info,
+                            owner_contract_name_opt.clone(),
+                        ));
+                        eprintln!("[CallsHandling DEBUG] Added WhileBlock Node ID {} with span {:?} to definition_nodes_info", new_id, while_body_span);
+                        new_id
+                    };
+
+                    modifications.push(GraphModification {
+                        source_node_id: while_condition_node_id,
+                        target_node_id: while_block_node_id,
+                        edge_type: EdgeType::WhileBodyBranch,
+                        span: while_body_span,
+                        modifier: None,
+                        return_value: None,
+                        arguments: None,
+                        event_name: None,
+                        sort_span_start: while_start_byte,
+                        chain_index: None,
+                        execution_priority: (type_priority("while") * 10) + 1, // e.g., 31
+                    });
+
+                    // Recursively process statements in the while block
+                    let (while_modifications, while_handled_ids) = process_statements_in_block(
+                        while_block_node_id, // Owner is now the WhileBlock node
+                        owner_contract_name_opt,
+                        while_body_node, // Process the 'while' body
+                        input,
+                        ctx,
+                        graph,
+                        call_query,
+                        source_bytes,
+                    )?;
+                    modifications.extend(while_modifications);
+                    handled_node_ids.extend(while_handled_ids);
+
+                    // Mark nested while statements within this body as processed by the recursive call
+                    let mut inner_while_cursor = QueryCursor::new();
+                    let mut inner_while_matches = inner_while_cursor.matches(
+                        call_query, // Use the main query which includes while_statement_node
+                        while_body_node,
+                        |n: TsNode| iter::once(&source_bytes[n.byte_range()]),
+                    );
+                    while let Some(m) = inner_while_matches.next() {
+                        for cap in m.captures {
+                            if cap.index == while_statement_capture_index {
+                                processed_nested_while_nodes.insert(cap.node.id());
+                                eprintln!("[CallsHandling DEBUG] Marked nested while node ID {} as processed by recursive call.", cap.node.id());
+                            }
+                        }
+                    }
+                } else {
+                    eprintln!(
+                        "[CallsHandling WARNING] While statement at span {:?} is missing a 'body' child.",
+                        while_span
+                    );
                 }
             }
             _ => {

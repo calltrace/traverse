@@ -15,6 +15,8 @@ pub(crate) const REQUIRE_NODE_NAME: &str = "Require"; // Added for require state
 pub(crate) const IF_CONDITION_NODE_NAME: &str = "IfCondition"; // Added for if statements
 pub(crate) const THEN_BLOCK_NODE_NAME: &str = "ThenBlock"; // Added for then blocks
 pub(crate) const ELSE_BLOCK_NODE_NAME: &str = "ElseBlock"; // Added for else blocks
+pub(crate) const WHILE_CONDITION_NODE_NAME: &str = "WhileCondition"; // Added for while statements
+pub(crate) const WHILE_BLOCK_NODE_NAME: &str = "WhileBlock"; // Added for while blocks
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum EdgeType {
@@ -26,6 +28,8 @@ pub enum EdgeType {
     IfConditionBranch, // Represents the edge to an if-condition
     ThenBranch,   // Represents the true branch of an if statement
     ElseBranch,   // Represents the false branch of an if statement
+    WhileConditionBranch, // Represents the edge to a while-condition
+    WhileBodyBranch, // Represents the edge from a while-condition to its body
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -42,6 +46,8 @@ pub enum NodeType {
     IfStatement,   // Synthetic node for an if condition
     ThenBlock,     // Synthetic node for a then block
     ElseBlock,     // Synthetic node for an else block
+    WhileStatement, // Synthetic node for a while condition
+    WhileBlock,    // Synthetic node for a while block
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -105,6 +111,8 @@ impl crate::cg_dot::ToDotLabel for Edge {
             EdgeType::IfConditionBranch => "if_cond".to_string(),
             EdgeType::ThenBranch => "then".to_string(),
             EdgeType::ElseBranch => "else".to_string(),
+            EdgeType::WhileConditionBranch => "while_cond".to_string(),
+            EdgeType::WhileBodyBranch => "while_body".to_string(),
         }
     }
 }
