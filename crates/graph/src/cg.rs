@@ -17,6 +17,8 @@ pub(crate) const THEN_BLOCK_NODE_NAME: &str = "ThenBlock"; // Added for then blo
 pub(crate) const ELSE_BLOCK_NODE_NAME: &str = "ElseBlock"; // Added for else blocks
 pub(crate) const WHILE_CONDITION_NODE_NAME: &str = "WhileCondition"; // Added for while statements
 pub(crate) const WHILE_BLOCK_NODE_NAME: &str = "WhileBlock"; // Added for while blocks
+pub(crate) const FOR_CONDITION_NODE_NAME: &str = "ForCondition"; // Added for for statements
+pub(crate) const FOR_BLOCK_NODE_NAME: &str = "ForBlock"; // Added for for blocks
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum EdgeType {
@@ -30,6 +32,8 @@ pub enum EdgeType {
     ElseBranch,   // Represents the false branch of an if statement
     WhileConditionBranch, // Represents the edge to a while-condition
     WhileBodyBranch, // Represents the edge from a while-condition to its body
+    ForConditionBranch, // Represents the edge to a for-condition
+    ForBodyBranch, // Represents the edge from a for-condition to its body
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -48,6 +52,8 @@ pub enum NodeType {
     ElseBlock,     // Synthetic node for an else block
     WhileStatement, // Synthetic node for a while condition
     WhileBlock,    // Synthetic node for a while block
+    ForCondition, // Synthetic node for a for condition
+    ForBlock,     // Synthetic node for a for block
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
@@ -113,6 +119,8 @@ impl crate::cg_dot::ToDotLabel for Edge {
             EdgeType::ElseBranch => "else".to_string(),
             EdgeType::WhileConditionBranch => "while_cond".to_string(),
             EdgeType::WhileBodyBranch => "while_body".to_string(),
+            EdgeType::ForConditionBranch => "for_cond".to_string(),
+            EdgeType::ForBodyBranch => "for_body".to_string(),
         }
     }
 }

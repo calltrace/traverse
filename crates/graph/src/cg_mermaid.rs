@@ -456,6 +456,55 @@ impl MermaidGenerator {
                         // Skip them if encountered directly to avoid duplicate processing.
                         continue;
                     }
+                    EdgeType::ForConditionBranch => {
+                        let for_condition_node_id = edge.target_node_id;
+                        let condition_text = edge
+                            .argument_names
+                            .as_ref()
+                            .and_then(|args| args.first())
+                            .map(|s| s.as_str())
+                            .unwrap_or("for loop") // Default text
+                            .to_string();
+
+                        let containing_participant_id = Self::get_participant_id(
+                            &source_node.name,
+                            source_node.contract_name.as_ref(),
+                        );
+
+                        builder.loop_block(Some(condition_text), |inner_builder| {
+                            let for_body_edge_opt = graph.edges.iter().find(|e| {
+                                e.source_node_id == for_condition_node_id && e.edge_type == EdgeType::ForBodyBranch
+                            });
+
+                            if let Some(body_edge) = for_body_edge_opt {
+                                let stmts_before_body = inner_builder.statement_count();
+                                self.process_flow(
+                                    body_edge.target_node_id, // This is the ForBlockNode
+                                    graph,
+                                    processed_return_edges,
+                                    inner_builder,
+                                    return_edge_lookup,
+                                    visiting,
+                                );
+                                let stmts_after_body = inner_builder.statement_count();
+                                if stmts_after_body == stmts_before_body {
+                                     inner_builder.note_over(
+                                        vec![containing_participant_id.clone()],
+                                        "Loop body has no operations".to_string(),
+                                    );
+                                }
+                            } else {
+                                inner_builder.note_over(
+                                    vec![containing_participant_id.clone()],
+                                    "Loop body has no operations".to_string(),
+                                );
+                            }
+                        });
+                    }
+                    EdgeType::ForBodyBranch => {
+                        // Handled by ForConditionBranch logic.
+                        continue;
+                    }
                 } // End match edge.edge_type
             } // End if let Some(source/target_node)
         } // End for loop over sorted_edges

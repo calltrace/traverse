@@ -120,6 +120,8 @@ impl CgToDot for CallGraph {
                             NodeType::ElseBlock => "lightsalmon".to_string(),  // Added color for ElseBlock
                             NodeType::WhileStatement => "lightsteelblue".to_string(), // Added color for WhileStatement
                             NodeType::WhileBlock => "lightseagreen".to_string(), // Added color for WhileBlock
+                            NodeType::ForCondition => "darkseagreen1".to_string(), // Added color for ForCondition
+                            NodeType::ForBlock => "darkolivegreen1".to_string(), // Added color for ForBlock
                         },
                     ),
                 ];
@@ -258,6 +260,21 @@ impl CgToDot for CallGraph {
                         attrs.push(("fontcolor".to_string(), "salmon4".to_string()));
                     }
                     EdgeType::WhileConditionBranch | EdgeType::WhileBodyBranch => {
+                        // Placeholder for specific styling if needed, otherwise default edge style applies
+                    }
+                    EdgeType::ForConditionBranch | EdgeType::ForBodyBranch => {
+                        // Placeholder for specific styling if needed
+                        let label = if edge.edge_type == EdgeType::ForConditionBranch {
+                            edge.argument_names.as_ref()
+                                .and_then(|args| args.first())
+                                .map(|arg| escape_dot_string(arg))
+                                .unwrap_or_else(|| "for_cond".to_string())
+                        } else {
+                            "for_body".to_string()
+                        };
+                        attrs.push(("label".to_string(), label));
+                        attrs.push(("color".to_string(), "olivedrab".to_string()));
+                        attrs.push(("fontcolor".to_string(), "olivedrab".to_string()));
                     }
                 }
                 // Allow overriding attributes from Edge::to_dot_attributes if needed

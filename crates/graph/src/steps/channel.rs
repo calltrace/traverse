@@ -137,6 +137,9 @@ impl CallGraphGeneratorStep for CallsHandling {
 
             ; --- While statement ---
             (while_statement) @while_statement_node
+
+            ; --- For statement ---
+            (for_statement) @for_statement_node
         "#;
         let call_query = Query::new(&input.solidity_lang, call_query_str)
             .context("Failed to create call query")?;
@@ -223,7 +226,9 @@ impl CallGraphGeneratorStep for CallsHandling {
                 call_query // New
                     .capture_index_for_name("while_statement_node")
                     .unwrap_or(u32::MAX);
-
+            let for_statement_capture_index = call_query
+                .capture_index_for_name("for_statement_node")
+                .unwrap_or(u32::MAX);
             let mut call_matches =
                 call_cursor.matches(&call_query, definition_ts_node, |node: TsNode| {
                     // Use retrieved node
@@ -261,6 +266,8 @@ impl CallGraphGeneratorStep for CallsHandling {
                         Some("if") // Add if type
                     } else if capture_index == while_statement_capture_index {
                         Some("while") // Add while type
+                    } else if capture_index == for_statement_capture_index {
+                        Some("for") // Add for type
                     } else {
                         None // Ignore other captures like @call_name etc.
                     };
@@ -277,6 +284,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                     "call" => 4,
                                     "if" => 3,
                                     "while" => 3, // Added
+                                    "for" => 3,   // Added
                                     "write" => 2,
                                     "delete" => 2, // Same priority as write
                                     "read_identifier" => 1,
@@ -290,6 +298,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                     "call" => 4,
                                     "if" => 3,
                                     "while" => 3, // Added
+                                    "for" => 3,   // Added
                                     "write" => 2,
                                     "delete" => 2, // Same priority as write
                                     "read_identifier" => 1,
@@ -323,6 +332,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                     "call" => 4,
                     "if" => 3,
                     "while" => 3, // Added
+                    "for" => 3,   // Added
                     "write" | "delete" => 2,
                     "read_identifier" | "read_subscript" => 1,
                     _ => 0, // Default for unknown types
@@ -469,6 +479,7 @@ fn process_statements_in_block(
     let mut call_cursor = QueryCursor::new();
     let mut processed_nested_if_nodes: HashSet<usize> = HashSet::new(); // For TsNode.id()
     let mut processed_nested_while_nodes: HashSet<usize> = HashSet::new(); // For TsNode.id() of while stmts
+    let mut processed_nested_for_nodes: HashSet<usize> = HashSet::new(); // For TsNode.id() of for stmts
 
     // --- Collect potential call, new, emit, if, etc. nodes first within this block_ts_node ---
     let mut potential_nodes: Vec<(TsNode, (usize, usize), &str)> = Vec::new();
@@ -502,6 +513,9 @@ fn process_statements_in_block(
     let while_statement_capture_index = call_query // New
         .capture_index_for_name("while_statement_node")
         .unwrap_or(u32::MAX);
+    let for_statement_capture_index = call_query // New
+        .capture_index_for_name("for_statement_node")
+        .unwrap_or(u32::MAX);
 
     let mut call_matches = call_cursor.matches(call_query, block_ts_node, |node: TsNode| {
         iter::once(&source_bytes[node.byte_range()])
@@ -533,6 +547,8 @@ fn process_statements_in_block(
                 Some("if")
             } else if capture_index == while_statement_capture_index {
                 Some("while") // Added
+            } else if capture_index == for_statement_capture_index {
+                Some("for") // Added
             } else {
                 None
             };
@@ -611,6 +627,11 @@ fn process_statements_in_block(
         // Similar check for 'while' nodes that might be nested and already processed by a parent's recursive call
         if node_type == "while" && processed_nested_while_nodes.contains(&node.id()) {
             eprintln!("[CallsHandling DEBUG] Skipping 'while' node ID: {} at span {:?} as it was part of a nested structure already processed.", node.id(), span);
+            handled_node_ids.insert(node.id());
+            continue;
+        }
+        if node_type == "for" && processed_nested_for_nodes.contains(&node.id()) {
+            eprintln!("[CallsHandling DEBUG] Skipping 'for' node ID: {} at span {:?} as it was part of a nested structure already processed.", node.id(), span);
             handled_node_ids.insert(node.id());
             continue;
         }
@@ -2562,6 +2583,175 @@ fn process_statements_in_block(
                     eprintln!(
                         "[CallsHandling WARNING] While statement at span {:?} is missing a 'body' child.",
                         while_span
+                    );
+                }
+            }
+            "for" => {
+                let for_statement_node = node;
+                let for_span = span; // Span of the whole for_statement
+                let for_start_byte = for_statement_node.start_byte();
+
+                eprintln!(
+                    "[CallsHandling DEBUG] Processing For Statement at span {:?}",
+                    for_span
+                );
+
+                // 1. Extract Condition (and optionally init/update for the label)
+                let init_node_opt = for_statement_node.child_by_field_name("initial");
+                let condition_node_opt = for_statement_node.child_by_field_name("condition");
+                let update_node_opt = for_statement_node.child_by_field_name("update");
+
+                let init_text = init_node_opt
+                    .map(|n| get_node_text(&n, &input.source))
+                    .unwrap_or_default();
+                let condition_text = condition_node_opt
+                    .map(|n| get_node_text(&n, &input.source))
+                    .unwrap_or_else(|| "true"); // Default to "true" if no condition
+                let update_text = update_node_opt
+                    .map(|n| get_node_text(&n, &input.source))
+                    .unwrap_or_default();
+
+                let loop_label = format!(
+                    "for ({}; {}; {})",
+                    init_text.trim(),
+                    condition_text.trim(),
+                    update_text.trim()
+                );
+                let condition_span = condition_node_opt
+                    .map(|n| (n.start_byte(), n.end_byte()))
+                    .unwrap_or(for_span); // Fallback to whole statement span
+
+                handled_node_ids.insert(for_statement_node.id());
+
+                // 2. Create ForCondition synthetic node
+                let for_condition_node_name =
+                    format!("{}_{}", crate::cg::FOR_CONDITION_NODE_NAME, for_start_byte);
+                let for_key = (
+                    owner_contract_name_opt.clone(),
+                    for_condition_node_name.clone(),
+                );
+                let for_condition_node_id = if let Some(id) = graph.node_lookup.get(&for_key) {
+                    *id
+                } else {
+                    let new_id = graph.add_node(
+                        for_condition_node_name.clone(),
+                        NodeType::ForCondition, // Use ForCondition NodeType
+                        owner_contract_name_opt.clone(),
+                        Visibility::Default,
+                        condition_span, // Span of the condition part
+                    );
+                    graph.node_lookup.insert(for_key, new_id);
+                    let for_condition_node_info = NodeInfo {
+                        span: condition_span,
+                        kind: condition_node_opt
+                            .map(|n| n.kind().to_string())
+                            .unwrap_or_else(|| "for_condition_expr".to_string()),
+                    };
+                    ctx.definition_nodes_info.push((
+                        new_id,
+                        for_condition_node_info,
+                        owner_contract_name_opt.clone(),
+                    ));
+                    eprintln!("[CallsHandling DEBUG] Added ForConditionNode ID {} with span {:?} to definition_nodes_info", new_id, condition_span);
+                    new_id
+                };
+
+                // 3. Add Edge: owner_node_id -> ForConditionNode
+                modifications.push(GraphModification {
+                    source_node_id: owner_node_id,
+                    target_node_id: for_condition_node_id,
+                    edge_type: EdgeType::ForConditionBranch,
+                    span: condition_span, // Use condition span or whole for span
+                    modifier: None,
+                    return_value: None,
+                    arguments: Some(vec![condition_text.to_string()]), // Use only the condition text as argument
+                    event_name: None,
+                    sort_span_start: for_start_byte,
+                    chain_index: None,
+                    execution_priority: (type_priority("for") * 10), // e.g., 30
+                });
+
+                // 4. Process For Body
+                if let Some(for_body_node) = for_statement_node.child_by_field_name("body") {
+                    let for_body_span = (for_body_node.start_byte(), for_body_node.end_byte());
+                    let for_block_node_name = format!(
+                        "{}_{}",
+                        crate::cg::FOR_BLOCK_NODE_NAME,
+                        for_body_node.start_byte()
+                    );
+                    let for_block_key =
+                        (owner_contract_name_opt.clone(), for_block_node_name.clone());
+                    let for_block_node_id = if let Some(id) = graph.node_lookup.get(&for_block_key)
+                    {
+                        *id
+                    } else {
+                        let new_id = graph.add_node(
+                            for_block_node_name.clone(),
+                            NodeType::ForBlock,
+                            owner_contract_name_opt.clone(),
+                            Visibility::Default,
+                            for_body_span,
+                        );
+                        graph.node_lookup.insert(for_block_key, new_id);
+                        let for_block_node_info = NodeInfo {
+                            span: for_body_span,
+                            kind: for_body_node.kind().to_string(),
+                        };
+                        ctx.definition_nodes_info.push((
+                            new_id,
+                            for_block_node_info,
+                            owner_contract_name_opt.clone(),
+                        ));
+                        eprintln!("[CallsHandling DEBUG] Added ForBlock Node ID {} with span {:?} to definition_nodes_info", new_id, for_body_span);
+                        new_id
+                    };
+
+                    modifications.push(GraphModification {
+                        source_node_id: for_condition_node_id,
+                        target_node_id: for_block_node_id,
+                        edge_type: EdgeType::ForBodyBranch,
+                        span: for_body_span,
+                        modifier: None,
+                        return_value: None,
+                        arguments: None,
+                        event_name: None,
+                        sort_span_start: for_start_byte,
+                        chain_index: None,
+                        execution_priority: (type_priority("for") * 10) + 1, // e.g., 31
+                    });
+
+                    // Recursively process statements in the for block
+                    let (for_modifications, for_handled_ids) = process_statements_in_block(
+                        for_block_node_id, // Owner is now the ForBlock node
+                        owner_contract_name_opt,
+                        for_body_node, // Process the 'for' body
+                        input,
+                        ctx,
+                        graph,
+                        call_query,
+                        source_bytes,
+                    )?;
+                    modifications.extend(for_modifications);
+                    handled_node_ids.extend(for_handled_ids);
+
+                    // Mark nested for statements within this body as processed
+                    let mut inner_for_cursor = QueryCursor::new();
+                    let mut inner_for_matches =
+                        inner_for_cursor.matches(call_query, for_body_node, |n: TsNode| {
+                            iter::once(&source_bytes[n.byte_range()])
+                        });
+                    while let Some(m) = inner_for_matches.next() {
+                        for cap in m.captures {
+                            if cap.index == for_statement_capture_index {
+                                processed_nested_for_nodes.insert(cap.node.id());
+                                eprintln!("[CallsHandling DEBUG] Marked nested for node ID {} as processed by recursive call.", cap.node.id());
+                            }
+                        }
+                    }
+                } else {
+                    eprintln!(
+                        "[CallsHandling WARNING] For statement at span {:?} is missing a 'body' child.",
+                        for_span
                     );
                 }
             }
