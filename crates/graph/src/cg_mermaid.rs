@@ -24,6 +24,58 @@ impl MermaidGenerator {
         Default::default()
     }
 
+    /// Emits the sequence of a call, its recursive processing, and its return.
+    fn emit_call_and_return_sequence(
+        &self,
+        current_builder: &mut SequenceDiagramBuilder,
+        source_node: &Node,
+        target_node: &Node,
+        call_edge: &Edge, // This is the call edge
+        graph: &CallGraph,
+        processed_return_edges: &mut HashSet<usize>,
+        return_edge_lookup: &HashMap<(usize, usize, usize), usize>,
+        visiting: &mut HashSet<usize>,
+    ) {
+        let source_participant_id = Self::get_participant_id(&source_node.name, source_node.contract_name.as_ref());
+        let target_participant_id = Self::get_participant_id(&target_node.name, target_node.contract_name.as_ref());
+        
+        let args_str = call_edge.argument_names.as_ref().map(|args| args.join(", ")).unwrap_or_default();
+        let function_display_name = target_node.contract_name.as_ref()
+            .map_or_else(|| target_node.name.clone(), |c| format!("{}.{}", c, target_node.name));
+        let message_content = format!("{}({})", function_display_name, args_str);
+
+        current_builder.signal(
+            source_participant_id,
+            target_participant_id.clone(), // Clone for potential use in return signal if target is same as source
+            "->>",
+            Some(message_content),
+        );
+
+        self.process_flow(target_node.id, graph, processed_return_edges, current_builder, return_edge_lookup, visiting);
+
+        // After recursion, process the corresponding return edge
+        let return_lookup_key = (target_node.id, source_node.id, call_edge.sequence_number);
+        if let Some(return_edge_index) = return_edge_lookup.get(&return_lookup_key) {
+            if processed_return_edges.insert(*return_edge_index) {
+                if let Some(return_edge) = graph.edges.get(*return_edge_index) {
+                    if let (Some(ret_source_node), Some(ret_target_node)) = (
+                        graph.nodes.get(return_edge.source_node_id),
+                        graph.nodes.get(return_edge.target_node_id),
+                    ) {
+                        let ret_source_participant_id = Self::get_participant_id(&ret_source_node.name, ret_source_node.contract_name.as_ref());
+                        let ret_target_participant_id = Self::get_participant_id(&ret_target_node.name, ret_target_node.contract_name.as_ref());
+                        let returned_value_str = return_edge.returned_value.as_ref().map(|v| {
+                            let sanitized_v = v.replace('\n', " ").split_whitespace().collect::<Vec<&str>>().join(" ");
+                            format!(" {}", sanitized_v)
+                        }).unwrap_or_default();
+                        let message_content_ret = format!("ret{} from {}", returned_value_str, ret_source_node.name);
+                        current_builder.signal(ret_source_participant_id, ret_target_participant_id, "-->>", Some(message_content_ret));
+                    }
+                }
+            }
+        }
+    }
+
     // Define constants for participant IDs and Aliases
     const GLOBAL_SCOPE_ID: &str = "_GlobalScope_";
     const GLOBAL_SCOPE_ALIAS: &str = "Global Scope";
@@ -112,135 +164,80 @@ impl MermaidGenerator {
             ) {
                 match edge.edge_type {
                     EdgeType::Call => {
-                        // --- Handle Emit (Self-Signal) ---
                         if target_node.name == crate::cg::EVM_NODE_NAME {
                             // Process the original Caller -> EVM edge as a self-signal on the caller.
-                            // No need to check processed_return_edges here, emits should show every time.
-                            let source_participant_id = Self::get_participant_id(
-                                &source_node.name, // Use source node (the emitter)
-                                source_node.contract_name.as_ref(),
-                            );
-                            let event_name = edge.event_name.as_deref().unwrap_or("UnknownEvent");
-                            let args_str = edge
-                                .argument_names
-                                .as_ref()
-                                .map(|args| args.join(", "))
-                                .unwrap_or_default();
-                            let message_content = format!("emit {}({})", event_name, args_str);
-                            // Signal from source participant to itself
-                            builder.signal(
-                                source_participant_id.clone(), // From self
-                                source_participant_id,         // To self
-                                "->>",
-                                Some(message_content),
-                            );
-                            // Do NOT process the EVM -> Listener edge.
-                            // Do NOT recurse for emit path.
-                            continue; // Move to the next edge
-                        }
-                        // --- Handle Regular Call ---
-                        // Removed the specific 'else if edge.source_node_id == edge.target_node_id' block
-                        // as BuiltIns are now handled like regular calls if they resolve to a node.
-                        else {
-                            // Note: We do NOT insert the call edge_index into processed_edges here.
-                            // This allows the call and its subsequent flow to be processed every time.
-
-                            // Add the call signal
                             let source_participant_id = Self::get_participant_id(
                                 &source_node.name,
                                 source_node.contract_name.as_ref(),
                             );
-                            let target_participant_id = Self::get_participant_id(
-                                &target_node.name,
-                                target_node.contract_name.as_ref(),
-                                );
-                            // Restore original argument display
-                            let args_str = edge
-                                .argument_names
-                                .as_ref()
-                                .map(|args| args.join(", ")) // Join argument names/expressions
-                                .unwrap_or_default();
-                            // Prepend contract/library name if available
-                            let function_display_name = target_node.contract_name.as_ref()
-                                .map_or_else(|| target_node.name.clone(), |c| format!("{}.{}", c, target_node.name));
-                            // Format with parentheses around arguments
-                            let message_content = format!("{}({})", function_display_name, args_str);
-                            eprintln!(
-                                "[Mermaid Signal DEBUG] Adding Call Signal: \
-                                SourceNode='{}.{}' (ID {}), TargetNode='{}.{}' (ID {}), \
-                                SourceParticipant='{}', TargetParticipant='{}', Message='{}'",
-                                source_node.contract_name.as_deref().unwrap_or("Global"), source_node.name, source_node.id,
-                                target_node.contract_name.as_deref().unwrap_or("Global"), target_node.name, target_node.id,
-                                source_participant_id, target_participant_id, message_content
-                            );
-                            builder.signal(
-                                source_participant_id,
-                                target_participant_id,
-                                "->>",
-                                Some(message_content),
-                            );
+                            let event_name = edge.event_name.as_deref().unwrap_or("UnknownEvent");
+                            let args_str = edge.argument_names.as_ref().map(|args| args.join(", ")).unwrap_or_default();
+                            let message_content = format!("emit {}({})", event_name, args_str);
+                            builder.signal(source_participant_id.clone(), source_participant_id, "->>", Some(message_content));
+                            continue; // Move to the next edge for emits
+                        }
 
-                            self.process_flow(
-                                target_node_id,
-                                graph,
-                                processed_return_edges, // Pass the set along
-                                builder,
-                                return_edge_lookup,
-                                visiting, // Pass the cycle detection set
-                            );
+                        let opt_label: Option<String>;
+                        let source_is_user = source_node.name == Self::USER_ID;
 
-                            // After recursion, process the corresponding return edge
-                            let return_lookup_key =
-                                (target_node_id, current_node_id, edge.sequence_number);
-                            if let Some(return_edge_index) =
-                                return_edge_lookup.get(&return_lookup_key)
-                            {
-                                // Only process and add the return signal if this specific
-                                // return edge hasn't been processed yet (to avoid duplicates if the
-                                // same function return path is hit multiple times via different calls).
-                                if processed_return_edges.insert(*return_edge_index) {
-                                    if let Some(return_edge) = graph.edges.get(*return_edge_index) {
-                                        if let (Some(ret_source_node), Some(ret_target_node)) = (
-                                            graph.nodes.get(return_edge.source_node_id),
-                                            graph.nodes.get(return_edge.target_node_id),
-                                        ) {
-                                            let ret_source_participant_id =
-                                                Self::get_participant_id(
-                                                    &ret_source_node.name,
-                                                    ret_source_node.contract_name.as_ref(),
-                                                );
-                                            let ret_target_participant_id =
-                                                Self::get_participant_id(
-                                                    &ret_target_node.name,
-                                                    ret_target_node.contract_name.as_ref(),
-                                                );
-                                            let returned_value_str = return_edge
-                                                .returned_value
-                                                .as_ref()
-                                                .map(|v| {
-                                                    let sanitized_v = v
-                                                        .replace('\n', " ")
-                                                        .split_whitespace()
-                                                        .collect::<Vec<&str>>()
-                                                        .join(" ");
-                                                    format!(" {}", sanitized_v)
-                                                })
-                                                .unwrap_or_default();
-                                            let message_content = format!(
-                                                "ret{} from {}",
-                                                returned_value_str, ret_source_node.name
-                                            );
-                                            builder.signal(
-                                                ret_source_participant_id,
-                                                ret_target_participant_id,
-                                                "-->>",
-                                                Some(message_content),
-                                            );
-                                        }
-                                    }
+                        if source_is_user {
+                            opt_label = None; // Don't wrap calls from User
+                        } else {
+                            let source_contract_name_opt = source_node.contract_name.as_deref();
+                            let target_contract_name_opt = target_node.contract_name.as_deref();
+
+                            if source_contract_name_opt.is_some() &&
+                               target_contract_name_opt.is_some() &&
+                               source_contract_name_opt == target_contract_name_opt {
+                                // Call within the same contract
+                                if target_node.node_type == NodeType::Function || target_node.node_type == NodeType::Modifier {
+                                    opt_label = Some(format!("Internal: {}.{}", source_contract_name_opt.unwrap_or("?"), target_node.name));
+                                } else {
+                                    opt_label = None; 
                                 }
-                            } // End return edge processing
-                        } // End else (regular call)
+                            } else if target_contract_name_opt.is_some() &&
+                                      (target_node.node_type == NodeType::Function ||
+                                       target_node.node_type == NodeType::Constructor ||
+                                       target_node.node_type == NodeType::Modifier) {
+                                // Call to a function/constructor/modifier in a different contract (or from global to contract)
+                                opt_label = Some(format!("External: {}.{}", target_contract_name_opt.unwrap_or("?"), target_node.name));
+                            } else if target_node.node_type == NodeType::Interface ||
+                                      (target_contract_name_opt.is_some() &&
+                                       graph.nodes.iter().any(|n| n.node_type == NodeType::Interface && Some(n.name.as_str()) == target_contract_name_opt) &&
+                                       target_node.node_type == NodeType::Function) {
+                                // Call to an interface method
+                                opt_label = Some(format!("Interface: {}.{}", target_contract_name_opt.unwrap_or_else(|| target_node.name.as_str()), target_node.name));
+                            }
+                            else {
+                                opt_label = None; // Global functions, or other unclassified calls
+                            }
+                        }
+
+                        if let Some(label) = opt_label {
+                            builder.opt_block(Some(label), |inner_builder| {
+                                self.emit_call_and_return_sequence(
+                                    inner_builder,
+                                    source_node,
+                                    target_node,
+                                    edge,
+                                    graph,
+                                    processed_return_edges,
+                                    return_edge_lookup,
+                                    visiting,
+                                );
+                            });
+                        } else {
+                            self.emit_call_and_return_sequence(
+                                builder, // Use the main builder if no opt block
+                                source_node,
+                                target_node,
+                                edge,
+                                graph,
+                                processed_return_edges,
+                                return_edge_lookup,
+                                visiting,
+                            );
+                        }
                     } // End EdgeType::Call
                     EdgeType::Require => {
                         // --- Handle Require Statement as Note ---
