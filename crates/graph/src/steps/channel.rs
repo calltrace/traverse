@@ -453,6 +453,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                     modification.return_value,
                     modification.arguments,
                     modification.event_name,
+                    None, // declared_return_type is None for non-Return edges
                 );
             }
         }

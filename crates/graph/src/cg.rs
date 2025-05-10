@@ -74,6 +74,7 @@ pub struct Node {
     pub visibility: Visibility,
     pub span: (usize, usize),
     pub has_explicit_return: bool, // Added flag
+    pub declared_return_type: Option<String>, // Added: Store declared return type of the function
 }
 
 // --- DOT Label Implementation ---
@@ -103,6 +104,7 @@ pub struct Edge {
     pub returned_value: Option<String>,
     pub argument_names: Option<Vec<String>>, // Added: Store argument names/texts
     pub event_name: Option<String>,          // Added: Store event name for emits
+    pub declared_return_type: Option<String>, // Added: Store declared return type for Return edges
 }
 
 impl crate::cg_dot::ToDotLabel for Edge {
@@ -156,6 +158,7 @@ impl CallGraph {
             visibility,
             span,
             has_explicit_return: false,
+            declared_return_type: None, // Initialize with None
         };
         self.nodes.push(node);
 
@@ -174,10 +177,11 @@ impl CallGraph {
         returned_value: Option<String>,           // Added returned value
         argument_names: Option<Vec<String>>,      // Added: Argument names/texts
         event_name: Option<String>,               // Added: Event name for emits
+        declared_return_type: Option<String>,     // Added: Declared return type
     ) {
         eprintln!(
-            "[DEBUG add_edge] Attempting to add edge: {} -> {} (Type: {:?}, Seq: {}, RetVal: {:?}, Args: {:?})", // Added Args to log
-            source_node_id, target_node_id, edge_type, sequence_number, returned_value, argument_names
+            "[DEBUG add_edge] Attempting to add edge: {} -> {} (Type: {:?}, Seq: {}, RetVal: {:?}, Args: {:?}, DeclRetType: {:?})",
+            source_node_id, target_node_id, edge_type, sequence_number, returned_value, argument_names, declared_return_type
         );
         let edge = Edge {
             source_node_id,
@@ -189,6 +193,7 @@ impl CallGraph {
             returned_value, // Store returned value
             argument_names, // Store argument names
             event_name,
+            declared_return_type, // Store declared return type
         };
         self.edges.push(edge);
     }
@@ -286,7 +291,6 @@ impl CallGraph {
                 .ok_or_else(|| anyhow!("Failed to find definition TsNode for span {:?} in add_explicit_return_edges", callee_node_info.span))?;
 
             // Retrieve the corresponding Node struct from the graph
-            // Need mutable access to set the flag
             let callee_node_exists = self.nodes.get(*callee_node_id).is_some();
             if !callee_node_exists {
                 eprintln!(
@@ -295,7 +299,6 @@ impl CallGraph {
                 );
                 continue; // Skip if node not found in graph
             }
-            // We'll get the node again inside the match block where we need it
 
             // Use immutable borrow here for logging before potential mutable borrow
             if let Some(callee_node_for_log) = self.nodes.get(*callee_node_id) {
@@ -315,63 +318,66 @@ impl CallGraph {
                 eprintln!(
                     "[DEBUG AST Structure] S-expression for Node ID {}:\n{}",
                     callee_node_id,
-                    definition_ts_node.to_sexp() // Use retrieved node
+                    definition_ts_node.to_sexp()
                 );
             }
 
-            // Check node type using an immutable borrow first
-            let node_type_for_check = self.nodes[*callee_node_id].node_type.clone(); // Clone needed if used later
-
-            // Only look for returns inside functions/modifiers/constructors/libraries
+            // Check node type and update Node struct (has_explicit_return and declared_return_type)
+            let node_type_for_check = self.nodes[*callee_node_id].node_type.clone();
             match node_type_for_check {
-                // Use the cloned type
                 NodeType::Function
                 | NodeType::Modifier
                 | NodeType::Constructor
                 | NodeType::Library => {
-                    // Interfaces don't have implementation/returns
+                    // Get declared return type ONCE for this callee, ONLY if it's a callable type
+                    // This is used to update the Node and also for any Return Edges created later.
+                    let actual_declared_ret_type = get_function_return_type(*callee_node_id, ctx, input);
 
-                    // --- Check for *any* return statement to set the flag ---
-                    // This check runs regardless of whether there are callers
-                    let mut return_check_matches = return_cursor.matches(
-                        &return_query,
-                        definition_ts_node, // Use retrieved node
-                        |node: TsNode| iter::once(&source_bytes[node.byte_range()]),
-                    );
-                    return_check_matches.advance(); // Advance once
-                    if let Some(_) = return_check_matches.get() {
-                        // Found at least one return statement, set the flag
-                        if let Some(node_mut) = self.nodes.get_mut(*callee_node_id) {
-                            if !node_mut.has_explicit_return {
-                                // Avoid redundant writes/logs
+                    // Update the Node struct in the graph
+                    if let Some(node_mut) = self.nodes.get_mut(*callee_node_id) {
+                        // Set has_explicit_return
+                        if !node_mut.has_explicit_return {
+                            let mut return_check_matches = return_cursor.matches(
+                                &return_query,
+                                definition_ts_node,
+                                |node: TsNode| iter::once(&source_bytes[node.byte_range()]),
+                            );
+                            return_check_matches.advance(); // Advance once
+                            if return_check_matches.get().is_some() {
                                 node_mut.has_explicit_return = true;
-                                _nodes_with_explicit_return_set += 1; // DEBUG - Use underscore prefix
+                                _nodes_with_explicit_return_set += 1;
                                 eprintln!(
                                      "[DEBUG Returns Flag] Set has_explicit_return=true for Node ID {}",
                                      *callee_node_id
                                 );
                             }
                         }
+                        // Set declared_return_type (clone from the one fetched above)
+                        node_mut.declared_return_type = actual_declared_ret_type.clone();
+                        if actual_declared_ret_type.is_some() {
+                             eprintln!(
+                                "[DEBUG Returns Type] Set declared_return_type='{:?}' for Node ID {}",
+                                actual_declared_ret_type,
+                                *callee_node_id
+                            );
+                        }
                     }
 
                     // Find callers and their call sequences for this callee
                     if let Some(callers_info) = callee_to_callers_and_seq.get(callee_node_id) {
-                        // Use callee_node_id directly
-                        // Query for returns *only within this definition_ts_node*.
                         let mut matches = return_cursor.matches(
                             &return_query,
-                            definition_ts_node, // Use retrieved node
+                            definition_ts_node,
                             |node: TsNode| iter::once(&source_bytes[node.byte_range()]),
                         );
                         matches.advance(); // Need to advance once initially
 
                         while let Some(match_) = matches.get() {
-                            total_returns_found_by_query += 1; // DEBUG Increment count for each match found
+                            total_returns_found_by_query += 1;
 
                             let mut return_node_opt: Option<TsNode> = None;
                             let mut return_value_node_opt: Option<TsNode> = None;
 
-                            // Find the @return and @return_value captures for this match
                             for capture in match_.captures {
                                 let capture_name =
                                     &return_query.capture_names()[capture.index as usize];
@@ -383,30 +389,26 @@ impl CallGraph {
                             }
 
                             if let Some(return_node) = return_node_opt {
-                                total_returns_processed += 1; // DEBUG Increment count for processed returns
+                                total_returns_processed += 1;
                                 let return_span =
                                     (return_node.start_byte(), return_node.end_byte());
-                                let return_kind = return_node.kind(); // DEBUG Get node kind
+                                let return_kind = return_node.kind();
 
                                 eprint!(
                                     "[DEBUG Returns]   Found return statement within definition: Kind='{}', Span={:?}. ",
                                     return_kind, return_span
                                 );
-
-                                // Query is scoped, so it's accepted
                                 eprintln!(" => ACCEPTED (within definition node)");
 
-                                // Extract the text of the returned value, if present
                                 let returned_value_text = return_value_node_opt
-                                    .map(|n| get_node_text(&n, &input.source).to_string()); // Use input.source
+                                    .map(|n| get_node_text(&n, &input.source).to_string());
 
-                                // Add return edges from this callee back to all its callers
                                 for (caller_id, call_sequence) in callers_info {
-                                    // Need immutable borrow of callee node here for its span
                                     let callee_node_span = self.nodes[*callee_node_id].span;
+                                    // Use actual_declared_ret_type obtained earlier for the edge
                                     new_return_edges.push(Edge {
-                                        source_node_id: *callee_node_id, // Return starts from callee
-                                        target_node_id: *caller_id,      // Return goes to caller
+                                        source_node_id: *callee_node_id,
+                                        target_node_id: *caller_id,
                                         edge_type: EdgeType::Return,
                                         call_site_span: callee_node_span, // Span of the function definition itself
                                         return_site_span: Some(return_span), // Span of the return statement
@@ -414,6 +416,7 @@ impl CallGraph {
                                         returned_value: returned_value_text.clone(), // Add the returned value text
                                         argument_names: None, // Return edges don't have call arguments
                                         event_name: None,
+                                        declared_return_type: actual_declared_ret_type.clone(), // Use the fetched type
                                     });
                                 }
                             } else {
@@ -851,18 +854,24 @@ pub(crate) fn get_function_return_type(
         // or returns from modifiers. This is sufficient for the current test case.
         // Added pattern for interface function definitions.
         let return_type_query_str = r#"
-            (function_definition
-              return_type: (return_type_definition
-                (parameter type: (type_name) @return_type_name_node)
+            [
+              (function_definition
+                return_type: (return_type_definition
+                  (parameter
+                    type: (type_name) @return_type_name_node
+                  )
+                )
               )
-            )
-
-            ; Interface function definitions might have a slightly different structure
-            ; but the return type part should be similar.
-            (interface_declaration (contract_body (function_definition
-              return_type: (return_type_definition
-                (parameter type: (type_name) @return_type_name_node))
-            )))
+              (interface_declaration (_                       ;; Same for interfaces
+                (function_definition
+                  return_type: (return_type_definition
+                    (parameter
+                      type: (type_name) @return_type_name_node
+                    )
+                  )
+                )
+              ))
+            ]
         "#;
         // Note: Using a static query cache might be more efficient if this runs often.
         let return_type_query = match Query::new(&input.solidity_lang, return_type_query_str) {

@@ -67,11 +67,30 @@ impl MermaidGenerator {
                     ) {
                         let ret_source_participant_id_for_signal = Self::get_participant_id(&ret_source_node.name, ret_source_node.contract_name.as_ref());
                         let ret_target_participant_id_for_signal = Self::get_participant_id(&ret_target_node.name, ret_target_node.contract_name.as_ref());
-                        let returned_value_str = return_edge.returned_value.as_ref().map(|v| {
-                            let sanitized_v = v.replace('\n', " ").split_whitespace().collect::<Vec<&str>>().join(" ");
-                            format!(" {}", sanitized_v)
-                        }).unwrap_or_default();
-                        let message_content_ret = format!("ret{} from {}", returned_value_str, ret_source_node.name);
+                        let returned_value_text = return_edge.returned_value.as_ref().map(|v| {
+                            v.replace('\n', " ").split_whitespace().collect::<Vec<&str>>().join(" ")
+                        }).filter(|s| !s.is_empty()); // Filter out empty strings after sanitizing
+
+                        let mut value_and_type_display = String::new();
+                        if let Some(val_text) = returned_value_text {
+                            value_and_type_display.push_str(&val_text);
+                        }
+
+                        if let Some(type_text) = &return_edge.declared_return_type {
+                            if !value_and_type_display.is_empty() {
+                                value_and_type_display.push_str(": ");
+                            } else {
+                                // If no value text, but type exists, prefix with ":" to distinguish
+                                value_and_type_display.push_str(": ");
+                            }
+                            value_and_type_display.push_str(type_text);
+                        }
+                        
+                        let message_content_ret = if value_and_type_display.is_empty() {
+                            format!("ret from {}", ret_source_node.name)
+                        } else {
+                            format!("ret {} from {}", value_and_type_display, ret_source_node.name)
+                        };
                         
                         current_builder.signal(
                             ret_source_participant_id_for_signal, 
@@ -623,8 +642,15 @@ impl ToSequenceDiagram for MermaidGenerator {
             // --- Add synthetic return edge from entry point back to User ---
             // Check the pre-calculated flag on the entry node
             if entry_node.has_explicit_return {
-                // Use the target_contract_id captured before the process_flow call
-                let message_content = format!("ret from {}()", entry_node.name); // Simple return message
+                let mut return_display_parts: Vec<String> = Vec::new();
+                // Access the declared_return_type from the Node struct
+                if let Some(return_type) = &entry_node.declared_return_type {
+                    if !return_type.is_empty() { // Ensure type is not empty string
+                        return_display_parts.push(format!(": {}", return_type));
+                    }
+                }
+
+                let message_content = format!("ret{} from {}()", return_display_parts.join(""), entry_node.name);
                 builder.signal(
                     target_contract_id, // Source is the contract participant
                     Self::USER_ID.to_string(),
