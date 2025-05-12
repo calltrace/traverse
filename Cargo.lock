@@ -548,6 +548,7 @@ dependencies = [
  "clap",
  "language",
  "mermaid",
+ "nom",
  "once_cell",
  "petgraph",
  "serde_json",

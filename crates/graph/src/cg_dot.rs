@@ -429,6 +429,7 @@ mod tests {
             None,           // returned_value
             None,           // argument_names
             None,
+            None,
         );
         graph
     }
@@ -528,7 +529,7 @@ mod tests {
         );
         // Add an edge to connect n0 and n1
         graph.add_edge(
-            n0, n1, EdgeType::Call, (15, 18), None, 1, None, None, None,
+            n0, n1, EdgeType::Call, (15, 18), None, 1, None, None, None, None,
         );
 
         // Test 1: Exclude isolated nodes
