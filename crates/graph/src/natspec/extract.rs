@@ -76,37 +76,19 @@ fn node_to_text_range(node: &tree_sitter::Node) -> TextRange {
 
 const SOURCE_ITEM_COMMENT_QUERY: &str = r#"
 (
-  (comment_block) @comment
+  (comment) @comment
   .
   [
-    (contract_definition name: (identifier) @item_name)
-    (interface_definition name: (identifier) @item_name)
-    (library_definition name: (identifier) @item_name)
-    (struct_definition name: (identifier) @item_name)
-    (enum_definition name: (identifier) @item_name)
+    (contract_declaration name: (identifier) @item_name)
+    (interface_declaration name: (identifier) @item_name)
+    (library_declaration name: (identifier) @item_name)
+    (struct_declaration name: (identifier) @item_name)
+    (enum_declaration name: (identifier) @item_name)
     (function_definition name: (identifier) @item_name)
     (modifier_definition name: (identifier) @item_name)
     (event_definition name: (identifier) @item_name)
-    (error_definition name: (identifier) @item_name)
-    (state_variable_declaration)
-    (using_directive)
-  ] @item
-)
-
-(
-  (line_comment) @comment
-  .
-  [
-    (contract_definition name: (identifier) @item_name)
-    (interface_definition name: (identifier) @item_name)
-    (library_definition name: (identifier) @item_name)
-    (struct_definition name: (identifier) @item_name)
-    (enum_definition name: (identifier) @item_name)
-    (function_definition name: (identifier) @item_name)
-    (modifier_definition name: (identifier) @item_name)
-    (event_definition name: (identifier) @item_name)
-    (error_definition name: (identifier) @item_name)
-    (state_variable_declaration)
+    (error_declaration name: (identifier) @item_name)
+    (state_variable_declaration name: (identifier) @item_name)
     (using_directive)
   ] @item
 )
@@ -154,23 +136,23 @@ pub fn extract_source_comments(source: &str) -> Result<Vec<SourceComment>> {
 
             let item_kind_str = item_n.kind();
             let (item_kind, extracted_name) = match item_kind_str {
-                "contract_definition" => (
+                "contract_declaration" => (
                     SourceItemKind::Contract,
                     item_name_node.map(|n| get_node_text(&n, source).to_string()),
                 ),
-                "interface_definition" => (
+                "interface_declaration" => (
                     SourceItemKind::Interface,
                     item_name_node.map(|n| get_node_text(&n, source).to_string()),
                 ),
-                "library_definition" => (
+                "library_declaration" => (
                     SourceItemKind::Library,
                     item_name_node.map(|n| get_node_text(&n, source).to_string()),
                 ),
-                "struct_definition" => (
+                "struct_declaration" => (
                     SourceItemKind::Struct,
                     item_name_node.map(|n| get_node_text(&n, source).to_string()),
                 ),
-                "enum_definition" => (
+                "enum_declaration" => (
                     SourceItemKind::Enum,
                     item_name_node.map(|n| get_node_text(&n, source).to_string()),
                 ),
@@ -186,27 +168,17 @@ pub fn extract_source_comments(source: &str) -> Result<Vec<SourceComment>> {
                     SourceItemKind::Event,
                     item_name_node.map(|n| get_node_text(&n, source).to_string()),
                 ),
-                "error_definition" => (
+                "error_declaration" => (
                     SourceItemKind::Error,
                     item_name_node.map(|n| get_node_text(&n, source).to_string()),
                 ),
-                "state_variable_declaration" => {
-                    let name = item_n
-                        .children(&mut item_n.walk())
-                        .find(|c| c.kind() == "variable_declaration")
-                        .and_then(|vd_node| {
-                            vd_node.child_by_field_name("name").or_else(|| {
-                                vd_node
-                                    .children(&mut vd_node.walk())
-                                    .find(|child_of_vd| child_of_vd.kind() == "identifier")
-                            })
-                        })
-                        .map(|name_node| get_node_text(&name_node, source).to_string());
-                    (SourceItemKind::StateVariable, name)
-                }
+                "state_variable_declaration" => (
+                    SourceItemKind::StateVariable,
+                    item_name_node.map(|n| get_node_text(&n, source).to_string()),
+                ),
                 "using_directive" => (
                     SourceItemKind::UsingDirective,
-                    Some(get_node_text(&item_n, source).to_string()),
+                    Some(get_node_text(&item_n, source).to_string()), // Name for using_directive is the full text
                 ),
                 _ => (SourceItemKind::Unknown, None),
             };
@@ -270,8 +242,10 @@ mod source_comment_extraction_tests {
     #[test]
     fn test_extract_state_variable_comment() {
         let source = r#"
-        /// The counter value
-        uint256 public count;
+        contract TestContract {
+            /// The counter value
+            uint256 public count;
+        }
         "#;
         let comments = extract_source_comments(source).unwrap();
         assert_eq!(comments.len(), 1);
@@ -343,8 +317,10 @@ mod source_comment_extraction_tests {
     #[test]
     fn test_using_directive_comment() {
         let source = r#"
-        /// @title Using SafeMath for uint256
-        using SafeMath for uint256;
+        contract TestContract {
+            /// @title Using SafeMath for uint256
+            using SafeMath for uint256;
+        }
         "#;
         let comments = extract_source_comments(source).unwrap();
         assert_eq!(comments.len(), 1);
@@ -361,8 +337,10 @@ mod source_comment_extraction_tests {
     #[test]
     fn test_state_variable_complex_declaration() {
         let source = r#"
-        /// Stores the owner of the contract
-        address payable public owner;
+        contract TestContract {
+            /// Stores the owner of the contract
+            address payable public owner;
+        }
         "#;
         let comments = extract_source_comments(source).unwrap();
         assert_eq!(comments.len(), 1);
