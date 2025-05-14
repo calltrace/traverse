@@ -1,4 +1,6 @@
 use crate::cg_dot;
+use crate::interface_resolver::BindingRegistry; // Added
+use crate::manifest::Manifest; // Added
 use crate::parser::{get_node_text, SolidityAST};
 use anyhow::{anyhow, Context, Result}; // Add anyhow!
 use language::{Language, Solidity};
@@ -546,6 +548,9 @@ pub struct CallGraphGeneratorContext {
     pub interface_inherits: HashMap<String, Vec<String>>, // Interface -> List of Interfaces it inherits from
     pub contract_inherits: HashMap<String, Vec<String>>, // Contract -> List of Contracts/Interfaces it inherits from
     pub storage_var_nodes: HashMap<(Option<String>, String), usize>, // (ContractScope, VarName) -> Node ID
+    // Added for interface binding resolution
+    pub manifest: Option<Manifest>,
+    pub binding_registry: Option<BindingRegistry>,
 }
 
 

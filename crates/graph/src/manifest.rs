@@ -1,14 +1,13 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
     fs,
     path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
 
 use crate::natspec::extract::{extract_source_comments, SourceComment, SourceItemKind};
-use crate::natspec::{TextIndex, TextRange}; // Ensure TextRange and TextIndex are available
+use crate::natspec::{TextRange}; // Ensure TextRange and TextIndex are available
 
 // Re-defining TextRange and TextIndex here if we don't want to make them public from natspec::mod
 // For now, assuming they are accessible or we might need to duplicate/re-export them.

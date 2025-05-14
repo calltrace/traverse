@@ -11,7 +11,7 @@ contract CallerContract {
     /**
      * @notice The greeter interface reference
      * @dev This will be bound to a specific implementation via the binding file
-     * @custom:binds-to GreeterImplementation
+     * @custom:binds-to FriendlyGreeterImpl
      */
     IGreeter private greeter;
     

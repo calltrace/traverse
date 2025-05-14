@@ -5,6 +5,13 @@ use graph::cg::{
 };
 use graph::cg_dot::CgToDot;
 use graph::cg_mermaid::{MermaidGenerator, ToSequenceDiagram};
+use graph::interface_resolver::{BindingConfig, BindingRegistry}; // Added BindingConfig
+use graph::manifest::{
+    find_solidity_files_for_manifest, generate_manifest as generate_manifest_to_file, Manifest,
+    ManifestEntry,
+}; // Added ManifestEntry
+use graph::natspec::extract::extract_source_comments; // Added
+use graph::natspec::{parse_natspec_comment, NatSpecKind}; // Added for Natspec parsing
 use graph::parser::parse_solidity;
 use graph::steps::{CallsHandling, ContractHandling};
 use language::{Language, Solidity};
@@ -13,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::io::{stdout, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 use walkdir::WalkDir;
 
@@ -47,8 +54,16 @@ struct Cli {
     config: Option<String>,
 
     /// [DOT format only] Exclude nodes that have no incoming or outgoing edges.
-    #[arg(long, requires = "format_dot")] // Only relevant for DOT format
+    #[arg(long, requires_if("dot", "format"))] // Only relevant for DOT format
     exclude_isolated_nodes: bool,
+
+    /// Optional path to the binding.yaml file for interface resolution.
+    #[arg(long)]
+    bindings: Option<PathBuf>,
+
+    /// Optional path to a pre-generated manifest.yaml file.
+    #[arg(long)]
+    manifest_file: Option<PathBuf>,
 }
 
 // Helper function to get the value "dot" for the requires condition
@@ -175,6 +190,170 @@ fn main() -> Result<()> {
 
     // Create the pipeline context
     let mut ctx = CallGraphGeneratorContext::default();
+
+    // --- Manifest Generation and Binding Loading ---
+    let project_root = fs::canonicalize(
+        sol_files
+            .first()
+            .map(|p| p.parent().unwrap_or_else(|| Path::new(".")))
+            .unwrap_or_else(|| Path::new(".")),
+    )
+    .context("Failed to determine project root for manifest generation")?; // Basic project root heuristic
+
+    eprintln!(
+        "[sol2cg] Using project root for manifest/bindings: {}",
+        project_root.display()
+    );
+
+    // --- Manifest Handling ---
+    let mut manifest_loaded_from_file = false;
+    if let Some(manifest_path_arg) = &cli.manifest_file {
+        let absolute_manifest_path = if manifest_path_arg.is_absolute() {
+            manifest_path_arg.clone()
+        } else {
+            project_root.join(manifest_path_arg)
+        };
+        eprintln!(
+            "[sol2cg] Attempting to load manifest from: {}",
+            absolute_manifest_path.display()
+        );
+        // Use graph::manifest::load_manifest directly
+        match graph::manifest::load_manifest(&absolute_manifest_path) {
+            Ok(loaded_manifest) => {
+                eprintln!(
+                    "[sol2cg] Manifest loaded successfully from file with {} entries.",
+                    loaded_manifest.entries.len()
+                );
+                ctx.manifest = Some(loaded_manifest);
+                manifest_loaded_from_file = true;
+            }
+            Err(e) => {
+                eprintln!(
+                    "Warning: Failed to load manifest from {}: {}. Will attempt to generate from source files.",
+                    absolute_manifest_path.display(),
+                    e
+                );
+                // ctx.manifest remains None, allowing fallback
+            }
+        }
+    }
+
+    if !manifest_loaded_from_file {
+        eprintln!("[sol2cg] Generating manifest in-memory from source files.");
+        let mut manifest_in_memory = Manifest::default();
+        let sol_files_relative_for_manifest =
+            find_solidity_files_for_manifest(&cli.input_paths, &project_root).context(
+                "Failed to find Solidity files relative to project root for manifest generation",
+            )?;
+
+        if sol_files_relative_for_manifest.is_empty() {
+            eprintln!("[sol2cg] No Solidity files found for in-memory manifest generation. Proceeding without manifest.");
+            // ctx.manifest remains None
+        } else {
+            for relative_file_path in &sol_files_relative_for_manifest {
+                let full_file_path = project_root.join(relative_file_path);
+                match fs::read_to_string(&full_file_path) {
+                    Ok(source_content) => match extract_source_comments(&source_content) {
+                        Ok(source_comments) => {
+                            let entries: Vec<ManifestEntry> = source_comments
+                                .into_iter()
+                                .map(|sc| ManifestEntry::from((sc, relative_file_path.clone())))
+                                .collect();
+                            manifest_in_memory.extend_entries(entries);
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                    "Warning: Failed to extract comments from {}: {}. Skipping file for manifest.",
+                                    relative_file_path.display(),
+                                    e
+                                );
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: Failed to read file {} for manifest generation: {}",
+                            full_file_path.display(),
+                            e
+                        );
+                    }
+                }
+            }
+            eprintln!(
+                "[sol2cg] In-memory manifest generated with {} entries.",
+                manifest_in_memory.entries.len()
+            );
+            if !manifest_in_memory.entries.is_empty() {
+                ctx.manifest = Some(manifest_in_memory);
+            } else {
+                eprintln!("[sol2cg] In-memory manifest generated, but it is empty. Proceeding without manifest in context.");
+                // ctx.manifest remains None
+            }
+        }
+    }
+    // --- End Manifest Handling ---
+
+    // --- Binding Registry Handling ---
+    let mut binding_registry_option: Option<BindingRegistry> = None;
+
+    if let Some(bindings_path) = &cli.bindings {
+        let absolute_bindings_path = if bindings_path.is_absolute() {
+            bindings_path.clone()
+        } else {
+            project_root.join(bindings_path) // project_root must be defined before this block
+        };
+        eprintln!(
+            "[sol2cg] Attempting to load bindings from file: {}",
+            absolute_bindings_path.display()
+        );
+        match BindingRegistry::load(&absolute_bindings_path) {
+            Ok(registry) => {
+                eprintln!(
+                    "[sol2cg] BindingRegistry loaded successfully from file with {} keys.",
+                    registry.bindings.len()
+                );
+                binding_registry_option = Some(registry);
+            }
+            Err(e) => {
+                eprintln!(
+                    "Warning: Failed to load bindings from file {}: {}. Proceeding with an empty or Natspec-derived registry.",
+                    absolute_bindings_path.display(),
+                    e
+                );
+                // binding_registry_option remains None, will be defaulted if still None later
+            }
+        }
+    }
+
+    // Ensure we have a BindingRegistry instance to work with, default to empty if not loaded from file.
+    if binding_registry_option.is_none() {
+        eprintln!("[sol2cg] No bindings file loaded or specified. Initializing a default BindingRegistry.");
+        binding_registry_option = Some(BindingRegistry::default());
+    }
+
+    // Populate/enrich the registry from manifest Natspec (specifically from concrete contracts)
+    // This happens regardless of whether bindings were loaded from a file or started as default.
+    if let Some(registry) = binding_registry_option.as_mut() {
+        if let Some(ref manifest_content) = ctx.manifest {
+            eprintln!("[sol2cg] Populating BindingRegistry from manifest Natspec (processing @custom:binds-to on concrete contracts)...");
+            let initial_keys_count = registry.bindings.len();
+            let initial_concrete_bindings = registry.bindings.values().filter(|bc| bc.contract_name.is_some()).count();
+            
+            registry.populate_from_manifest(manifest_content);
+            
+            let final_keys_count = registry.bindings.len();
+            let final_concrete_bindings = registry.bindings.values().filter(|bc| bc.contract_name.is_some()).count();
+            
+            eprintln!(
+                "[sol2cg] BindingRegistry population from manifest complete. Keys: {} -> {}. Concrete contract bindings: {} -> {}.",
+                initial_keys_count, final_keys_count, initial_concrete_bindings, final_concrete_bindings
+            );
+        } else {
+            eprintln!("[sol2cg] Manifest not available, skipping Natspec-based population for BindingRegistry.");
+        }
+    }
+    
+    ctx.binding_registry = binding_registry_option;
+    // --- End Binding Registry Handling ---
 
     // Create the call graph
     let mut graph = CallGraph::new();

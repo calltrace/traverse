@@ -21,10 +21,11 @@
     complex smart contract systems where parts might be abstract or deployed separately.
 */
 
-use crate::manifest::{Manifest, ManifestEntry};
+use crate::manifest::{Manifest, ManifestEntry}; // ManifestEntry is used as a parameter type, no need to import separately if manifest is the only one needed at top level
 use crate::natspec::{
-    extract::SourceItemKind, parse_natspec_comment, NatSpec, NatSpecKind, TextRange,
+    extract::SourceItemKind, parse_natspec_comment, NatSpecKind, TextRange,
 };
+// NatSpec struct itself is not directly used in this file, only its kinds.
 use anyhow::{Context, Result};
 use nom::Finish;
 use serde::{Deserialize, Serialize};
@@ -56,7 +57,7 @@ impl BindingFile {
 
 #[derive(Debug, Clone, Default)]
 pub struct BindingRegistry {
-    bindings: HashMap<String, BindingConfig>,
+    pub bindings: HashMap<String, BindingConfig>, // Made public for len() access in sol2cg
 }
 
 impl BindingRegistry {
@@ -89,6 +90,87 @@ impl BindingRegistry {
 
     pub fn get_binding(&self, key: &str) -> Option<&BindingConfig> {
         self.bindings.get(key)
+    }
+
+    /// Populates the registry with bindings derived from Natspec comments in the manifest,
+    /// particularly `@custom:binds-to` tags on concrete contracts.
+    pub fn populate_from_manifest(&mut self, manifest: &Manifest) {
+        for entry in &manifest.entries {
+            if !entry.is_natspec || entry.item_kind != SourceItemKind::Contract {
+                continue;
+            }
+
+            if let Ok(natspec) = parse_natspec_comment(&entry.text) {
+                for item in natspec.items {
+                    if let NatSpecKind::Custom { tag } = item.kind {
+                        if tag == "binds-to" {
+                            let binding_key = item.comment.trim();
+                            if binding_key.is_empty() {
+                                eprintln!(
+                                    "Warning: Found '@custom:binds-to' with empty key in Natspec for item {:?} in file {}",
+                                    entry.item_name, entry.file_path.display()
+                                );
+                                continue;
+                            }
+
+                            if let Some(contract_name_val) = &entry.item_name {
+                                let config = self
+                                    .bindings
+                                    .entry(binding_key.to_string())
+                                    .or_insert_with(|| {
+                                        eprintln!(
+                                            "Natspec: Creating new binding for key '{}' from contract '{}'",
+                                            binding_key, contract_name_val
+                                        );
+                                        BindingConfig {
+                                            key: binding_key.to_string(),
+                                            contract_name: None, // Will be set below
+                                            address: None,
+                                            chain_id: None,
+                                            notes: Some(format!(
+                                                "Binding key '{}' initially found on contract '{}' via Natspec.",
+                                                binding_key, contract_name_val
+                                            )),
+                                        }
+                                    });
+
+                                if config.contract_name.is_some()
+                                    && config.contract_name.as_deref() != Some(contract_name_val)
+                                {
+                                    eprintln!(
+                                        "Warning: Overwriting Natspec-derived binding for key '{}'. \
+                                        Previous contract_name: {:?}, New (from contract '{}'): '{}'. \
+                                        File: {}",
+                                        binding_key,
+                                        config.contract_name,
+                                        contract_name_val,
+                                        contract_name_val,
+                                        entry.file_path.display()
+                                    );
+                                } else if config.contract_name.is_none() {
+                                     eprintln!(
+                                        "Natspec: Setting contract_name for key '{}' to '{}' from contract '{}'",
+                                        binding_key, contract_name_val, contract_name_val
+                                    );
+                                }
+
+
+                                config.contract_name = Some(contract_name_val.clone());
+                                // Enhance notes
+                                config.notes = Some(format!(
+                                    "Binding key '{}' concretely implemented by contract '{}' (derived from Natspec on the contract itself in {}).{}",
+                                    binding_key,
+                                    contract_name_val,
+                                    entry.file_path.display(),
+                                    config.notes.as_ref().map_or("".to_string(), |n| format!(" Previous notes: {}", n))
+                                ));
+                            }
+                            break; // Assuming one binds-to per Natspec block is primary
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -172,6 +254,7 @@ impl<'m, 'r> InterfaceResolver<'m, 'r> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::manifest::ManifestEntry; // Added for tests
     use crate::natspec::extract::SourceItemKind;
     use crate::natspec::{TextIndex, TextRange};
     use std::fs::File;
@@ -515,5 +598,102 @@ bindings:
         )?;
         assert!(no_binding_wrong_hint.is_none());
         Ok(())
+    }
+
+    #[test]
+    fn test_populate_from_manifest_new_and_update() {
+        let mut registry = BindingRegistry::default();
+        let mut manifest = Manifest::default();
+
+        // Entry 1: New binding from a contract's Natspec
+        manifest.add_entry(ManifestEntry {
+            file_path: PathBuf::from("contracts/ConcreteA.sol"),
+            text: "/// @custom:binds-to KeyA".to_string(),
+            raw_comment_span: default_text_range(),
+            item_kind: SourceItemKind::Contract,
+            item_name: Some("ConcreteA".to_string()),
+            item_span: default_text_range(),
+            is_natspec: true,
+        });
+
+        // Entry 2: Another contract binding to a different key
+        manifest.add_entry(ManifestEntry {
+            file_path: PathBuf::from("contracts/ConcreteB.sol"),
+            text: "/** @custom:binds-to KeyB */".to_string(),
+            raw_comment_span: default_text_range(),
+            item_kind: SourceItemKind::Contract,
+            item_name: Some("ConcreteB".to_string()),
+            item_span: default_text_range(),
+            is_natspec: true,
+        });
+
+        // Entry 3: A contract that will update an existing binding (e.g., if KeyA was already known from an interface)
+        // Let's pre-populate KeyA in the registry as if it came from an interface Natspec (no concrete contract yet)
+        registry.bindings.insert(
+            "KeyA".to_string(),
+            BindingConfig {
+                key: "KeyA".to_string(),
+                contract_name: None, // No concrete contract known yet
+                address: None,
+                chain_id: None,
+                notes: Some("Initially from IKeyA interface Natspec".to_string()),
+            },
+        );
+        // Now, ConcreteC also binds to KeyA, which should fill in the contract_name
+        manifest.add_entry(ManifestEntry {
+            file_path: PathBuf::from("contracts/ConcreteC.sol"),
+            text: "/// @custom:binds-to KeyA".to_string(), // Same key as ConcreteA, but we'll process ConcreteA first
+            raw_comment_span: default_text_range(),
+            item_kind: SourceItemKind::Contract,
+            item_name: Some("ConcreteC".to_string()), // This should ideally be the one that "wins" if processed later, or cause a warning
+            item_span: default_text_range(),
+            is_natspec: true,
+        });
+
+
+        // Entry 4: Not a contract, should be ignored
+        manifest.add_entry(ManifestEntry {
+            file_path: PathBuf::from("interfaces/IfaceD.sol"),
+            text: "/// @custom:binds-to KeyD".to_string(),
+            raw_comment_span: default_text_range(),
+            item_kind: SourceItemKind::Interface, // Not a contract
+            item_name: Some("IfaceD".to_string()),
+            item_span: default_text_range(),
+            is_natspec: true,
+        });
+
+        // Entry 5: Contract, but not Natspec, should be ignored
+        manifest.add_entry(ManifestEntry {
+            file_path: PathBuf::from("contracts/ConcreteE.sol"),
+            text: "// @custom:binds-to KeyE".to_string(),
+            raw_comment_span: default_text_range(),
+            item_kind: SourceItemKind::Contract,
+            item_name: Some("ConcreteE".to_string()),
+            item_span: default_text_range(),
+            is_natspec: false, // Not Natspec
+        });
+
+
+        registry.populate_from_manifest(&manifest);
+
+        assert_eq!(registry.bindings.len(), 2); // KeyA, KeyB. KeyD and KeyE should not be added.
+
+        // Check KeyA: It was pre-populated, then ConcreteA bound to it, then ConcreteC.
+        // The manifest processing order is ConcreteA then ConcreteC for KeyA.
+        // So ConcreteC should be the final contract_name.
+        let binding_a = registry.get_binding("KeyA").unwrap();
+        assert_eq!(binding_a.contract_name, Some("ConcreteC".to_string()));
+        assert!(binding_a.notes.as_ref().unwrap().contains("ConcreteC"));
+        assert!(binding_a.notes.as_ref().unwrap().contains("Initially from IKeyA interface Natspec"));
+
+
+        // Check KeyB
+        let binding_b = registry.get_binding("KeyB").unwrap();
+        assert_eq!(binding_b.contract_name, Some("ConcreteB".to_string()));
+        assert!(binding_b.notes.as_ref().unwrap().contains("ConcreteB"));
+
+        // Ensure KeyD and KeyE were not processed
+        assert!(registry.get_binding("KeyD").is_none());
+        assert!(registry.get_binding("KeyE").is_none());
     }
 }

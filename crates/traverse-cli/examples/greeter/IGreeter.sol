@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 /**
  * @title Greeter Interface
  * @dev Interface for contracts that can provide greeting messages
- * @custom:binds-to GreeterImplementation
+ * @custom:binds-to FriendlyGreeterImpl
  */
 interface IGreeter {
     /**
