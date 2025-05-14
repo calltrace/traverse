@@ -46,6 +46,10 @@ path = "src/bin/trvd.rs"
 name = "sol2cg"
 path = "src/bin/sol2cg.rs"
 
+[[bin]]
+name = "sol2bnd"
+path = "src/bin/sol2bnd.rs"
+
 [dependencies]
 tracing = "0.1"
 tracing-subscriber = "0.3"
@@ -71,3 +75,4 @@ regex = "1.11.1"
 anyhow = "1.0" # For easy error handling
 walkdir = "2"   # For directory traversal
 thiserror = "1.0" # For custom error types
+serde_yaml = "0.9.34"

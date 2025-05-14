@@ -30,10 +30,11 @@ use anyhow::{Context, Result};
 use language::{Language, Solidity};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node, Parser, Query, QueryCursor};
+use serde::{Serialize, Deserialize};
 
 use super::{TextIndex, TextRange};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SourceItemKind {
     Contract,
     Interface,
@@ -49,7 +50,7 @@ pub enum SourceItemKind {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceComment {
     pub text: String,
     pub raw_comment_span: TextRange,
