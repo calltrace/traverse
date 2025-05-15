@@ -2174,6 +2174,74 @@ mod tests {
             input_clone, // Return the input for use in tests
         ))
     }
+
+    // More controlled setup for specific manifest/binding tests
+    fn setup_test_environment_customized(
+        source: &str,
+        custom_manifest: Option<Manifest>,
+        custom_binding_registry: Option<BindingRegistry>,
+        // We still run parts of the pipeline to populate basic graph structure
+        // like nodes for contracts and functions.
+    ) -> Result<(
+        CallGraphGeneratorContext,
+        CallGraph,
+        Tree,
+        tree_sitter::Language,
+        CallGraphGeneratorInput,
+    )> {
+        let solidity_lang = Solidity.get_tree_sitter_language();
+        let mut parser = Parser::new();
+        parser
+            .set_language(&solidity_lang)
+            .context("Failed to set language")?;
+        let tree = parser
+            .parse(source, None)
+            .context("Failed to parse source code")?;
+
+        let mut ctx = CallGraphGeneratorContext::default();
+        let mut graph = CallGraph::new();
+
+        // Populate from custom arguments
+        if let Some(manifest) = custom_manifest {
+            ctx.manifest = Some(manifest);
+        }
+        if let Some(registry) = custom_binding_registry {
+            ctx.binding_registry = Some(registry);
+        }
+
+        // Run a minimal pipeline to get basic graph structure (contracts, functions)
+        // This will also populate ctx.all_contracts, ctx.all_interfaces, etc.
+        // and graph.node_lookup, graph.nodes.
+        let input = CallGraphGeneratorInput {
+            source: source.to_string(),
+            tree: tree.clone(),
+            solidity_lang: solidity_lang.clone(),
+        };
+        let input_clone = input.clone();
+        let mut pipeline = CallGraphGeneratorPipeline::new();
+        pipeline.add_step(Box::new(ContractHandling::default())); // Gets contract/interface/function nodes
+                                                                  // We might not need CallsHandling if we are testing resolution logic directly
+                                                                  // and not relying on its graph modifications.
+                                                                  // pipeline.add_step(Box::new(CallsHandling::default()));
+        let config: HashMap<String, String> = HashMap::new();
+        pipeline
+            .run(input, &mut ctx, &mut graph, &config)
+            .context("Minimal pipeline execution failed for custom setup")?;
+
+        // Crucially, after the pipeline runs and populates ctx.all_contracts etc.,
+        // we might need to re-apply our custom manifest and registry if the pipeline
+        // overwrote or modified them in an undesired way for the test's specific scenario.
+        // For this test, ContractHandling should populate all_contracts/interfaces correctly.
+        // The binding registry and manifest are primarily *inputs* to the chains.rs logic.
+
+        Ok((
+            ctx.clone(),
+            graph.clone(),
+            tree.clone(),
+            solidity_lang.clone(),
+            input_clone,
+        ))
+    }
     // Helper to find a specific node within the source code for testing
     fn find_node_by_kind_and_text<'a>(
         tree: &'a Tree,
@@ -3585,6 +3653,450 @@ mod tests {
                     }) => {
                         assert_eq!(contract_name.as_deref(), Some("BoundRemoteImpl"));
                         assert_eq!(function_name, "performRemoteAction");
+                        assert_eq!(*node_type, NodeType::Function);
+                    }
+                    _ => panic!(
+                        "Expected implementation to be ResolvedTarget::Function, got {:?}",
+                        implementation
+                    ),
+                }
+            }
+            _ => panic!(
+                "Expected ResolvedTarget::InterfaceMethod, got {:?}",
+                step.target
+            ),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_analyze_interface_call_structural_typing_via_shared_key_no_inheritance() -> Result<()> {
+        let source = r#"
+            interface IExternal {
+                /// @custom:binds-to ExternalKey
+                function doExternalWork() external returns (string);
+            }
+
+            /// @custom:binds-to ExternalKey
+            contract ExternalContractImpl {
+                // This contract does NOT explicitly implement IExternal
+                function doExternalWork() public pure returns (string) {
+                    return "ExternalContractImpl.doExternalWork";
+                }
+            }
+
+            contract CallerContract {
+                IExternal externalService;
+
+                function setService(address _serviceAddr) public {
+                    externalService = IExternal(_serviceAddr);
+                }
+
+                function callExternalWork() public returns (string) {
+                    return externalService.doExternalWork(); // This should resolve to ExternalContractImpl.doExternalWork
+                }
+            }
+        "#;
+
+        // --- Setup Manifest ---
+        let mut manifest_entries = Vec::new();
+
+        // ManifestEntry for IExternal
+        manifest_entries.push(ManifestEntry {
+            file_path: std::path::PathBuf::from("test.sol"),
+            text: "/// @custom:binds-to ExternalKey".to_string(),
+            raw_comment_span: default_natspec_text_range(), // Dummy span
+            item_kind: NatspecSourceItemKind::Interface,
+            item_name: Some("IExternal".to_string()),
+            item_span: NatspecTextRange {
+                // Approx span for "interface IExternal"
+                start: NatspecTextIndex {
+                    utf8: 13,
+                    line: 1,
+                    column: 12,
+                },
+                end: NatspecTextIndex {
+                    utf8: 108,
+                    line: 4,
+                    column: 13,
+                },
+            },
+            is_natspec: true,
+        });
+
+        // ManifestEntry for ExternalContractImpl
+        manifest_entries.push(ManifestEntry {
+            file_path: std::path::PathBuf::from("test.sol"),
+            text: "/// @custom:binds-to ExternalKey".to_string(),
+            raw_comment_span: default_natspec_text_range(), // Dummy span
+            item_kind: NatspecSourceItemKind::Contract,
+            item_name: Some("ExternalContractImpl".to_string()),
+            item_span: NatspecTextRange {
+                // Approx span for "contract ExternalContractImpl"
+                start: NatspecTextIndex {
+                    utf8: 123,
+                    line: 6,
+                    column: 0,
+                },
+                end: NatspecTextIndex {
+                    utf8: 280,
+                    line: 11,
+                    column: 1,
+                },
+            },
+            is_natspec: true,
+        });
+
+        // ManifestEntry for CallerContract.callExternalWork (to ensure it's in the graph)
+        manifest_entries.push(ManifestEntry {
+            file_path: std::path::PathBuf::from("test.sol"),
+            text: "".to_string(), // No natspec needed for the caller function itself for this test
+            raw_comment_span: default_natspec_text_range(),
+            item_kind: NatspecSourceItemKind::Function,
+            item_name: Some("callExternalWork".to_string()),
+            item_span: NatspecTextRange {
+                // Approx span for "function callExternalWork"
+                start: NatspecTextIndex {
+                    utf8: 408,
+                    line: 19,
+                    column: 4,
+                },
+                end: NatspecTextIndex {
+                    utf8: 504,
+                    line: 21,
+                    column: 5,
+                },
+            },
+            is_natspec: false,
+        });
+
+        let manifest = Manifest {
+            entries: manifest_entries,
+        };
+        let mut binding_registry = BindingRegistry::default();
+
+        // Simulate sol2cg's population of the registry from contract Natspec
+        binding_registry.populate_from_manifest(&manifest);
+
+        // Verify that populate_from_manifest correctly set the contract_name for ExternalKey
+        let binding_conf_after_populate = binding_registry.get_binding("ExternalKey");
+        assert!(
+            binding_conf_after_populate.is_some(),
+            "BindingConfig for ExternalKey should exist after populate"
+        );
+        assert_eq!(
+            binding_conf_after_populate.unwrap().contract_name,
+            Some("ExternalContractImpl".to_string()),
+            "BindingConfig for ExternalKey should have ExternalContractImpl as contract_name"
+        );
+
+        let (mut ctx, graph, tree, lang, input) =
+            setup_test_environment_customized(source, Some(manifest), Some(binding_registry))?;
+
+        // Find the 'callExternalWork' function definition node in CallerContract
+        let caller_func_def_node =
+            find_function_definition_node_by_name(&tree, source, &lang, "callExternalWork")?;
+
+        // Get the Node ID for the caller function from the graph
+        let caller_node_id = graph
+            .node_lookup
+            .get(&(
+                Some("CallerContract".to_string()),
+                "callExternalWork".to_string(),
+            ))
+            .copied()
+            .ok_or_else(|| {
+                anyhow::anyhow!("Node ID for CallerContract.callExternalWork not found")
+            })?;
+
+        // Find the call_expression node for externalService.doExternalWork()
+        let call_expr_node = find_nth_descendant_node_of_kind(
+            &caller_func_def_node,
+            source,
+            &lang,
+            "call_expression",
+            0, // First call expression in callExternalWork
+        )?
+        .ok_or_else(|| {
+            TypeError::Internal(
+                "call_expression node for externalService.doExternalWork() not found".to_string(),
+            )
+        })?;
+
+        let steps = analyze_chained_call(
+            call_expr_node,
+            caller_node_id,
+            &Some("CallerContract".to_string()),
+            &ctx,
+            &graph,
+            source,
+            &lang,
+            &input,
+            None, // This is the top-level call being analyzed
+            call_expr_node.start_byte(),
+        )?;
+
+        assert_eq!(steps.len(), 1, "Expected one step for the call");
+        let step = &steps[0];
+
+        assert_eq!(
+            step.object_type,
+            Some("IExternal".to_string()),
+            "Object type should be IExternal"
+        );
+        assert_eq!(
+            step.result_type,
+            Some("string".to_string()),
+            "Result type should be string (from ExternalContractImpl.doExternalWork)"
+        );
+
+        match &step.target {
+            ResolvedTarget::InterfaceMethod {
+                interface_name,
+                method_name,
+                implementation,
+            } => {
+                assert_eq!(interface_name, "IExternal");
+                assert_eq!(method_name, "doExternalWork");
+                assert!(
+                    implementation.is_some(),
+                    "Implementation should be resolved via shared Natspec binding key"
+                );
+
+                match implementation.as_deref() {
+                    Some(ResolvedTarget::Function {
+                        contract_name: impl_contract_name,
+                        function_name: impl_function_name,
+                        node_type,
+                    }) => {
+                        assert_eq!(
+                            impl_contract_name.as_deref(),
+                            Some("ExternalContractImpl"),
+                            "Implementation should be ExternalContractImpl"
+                        );
+                        assert_eq!(impl_function_name, "doExternalWork");
+                        assert_eq!(*node_type, NodeType::Function);
+                    }
+                    _ => panic!(
+                        "Expected implementation to be ResolvedTarget::Function, got {:?}",
+                        implementation
+                    ),
+                }
+            }
+            _ => panic!(
+                "Expected ResolvedTarget::InterfaceMethod, got {:?}",
+                step.target
+            ),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_analyze_interface_cast_call_structural_typing_shared_key() -> Result<()> {
+        let source = r#"
+            interface IERC20 {
+                /// @custom:binds-to ERC20Key
+                function balanceOf(address account) external view returns (uint256);
+            }
+
+            /// @custom:binds-to ERC20Key
+            contract MyToken {
+                // This contract does NOT explicitly implement IERC20
+                mapping(address => uint256) private _balances;
+
+                function balanceOf(address account) public view returns (uint256) {
+                    return _balances[account];
+                }
+            }
+
+            contract CallerContract {
+                address token0; // Assume this is set to MyToken's address
+
+                constructor(address _token0) {
+                    token0 = _token0;
+                }
+
+                function getMyBalance() public view returns (uint256) {
+                    // Call via type cast: InterfaceName(variable).method()
+                    return IERC20(token0).balanceOf(address(this));
+                }
+            }
+        "#;
+
+        // --- Setup Manifest ---
+        let mut manifest_entries = Vec::new();
+
+        manifest_entries.push(ManifestEntry {
+            file_path: std::path::PathBuf::from("test.sol"),
+            text: "/// @custom:binds-to ERC20Key".to_string(),
+            raw_comment_span: default_natspec_text_range(),
+            item_kind: NatspecSourceItemKind::Interface,
+            item_name: Some("IERC20".to_string()),
+            item_span: NatspecTextRange {
+                // Approx span for "interface IERC20"
+                start: NatspecTextIndex {
+                    utf8: 13,
+                    line: 1,
+                    column: 12,
+                },
+                end: NatspecTextIndex {
+                    utf8: 123,
+                    line: 4,
+                    column: 13,
+                },
+            },
+            is_natspec: true,
+        });
+
+        manifest_entries.push(ManifestEntry {
+            file_path: std::path::PathBuf::from("test.sol"),
+            text: "/// @custom:binds-to ERC20Key".to_string(),
+            raw_comment_span: default_natspec_text_range(),
+            item_kind: NatspecSourceItemKind::Contract,
+            item_name: Some("MyToken".to_string()),
+            item_span: NatspecTextRange {
+                // Approx span for "contract MyToken"
+                start: NatspecTextIndex {
+                    utf8: 138,
+                    line: 6,
+                    column: 0,
+                },
+                end: NatspecTextIndex {
+                    utf8: 330,
+                    line: 13,
+                    column: 1,
+                },
+            },
+            is_natspec: true,
+        });
+
+        manifest_entries.push(ManifestEntry {
+            // For CallerContract.getMyBalance
+            file_path: std::path::PathBuf::from("test.sol"),
+            text: "".to_string(),
+            raw_comment_span: default_natspec_text_range(),
+            item_kind: NatspecSourceItemKind::Function,
+            item_name: Some("getMyBalance".to_string()),
+            item_span: NatspecTextRange {
+                // Approx span for "function getMyBalance"
+                start: NatspecTextIndex {
+                    utf8: 450,
+                    line: 20,
+                    column: 4,
+                },
+                end: NatspecTextIndex {
+                    utf8: 590,
+                    line: 24,
+                    column: 5,
+                },
+            },
+            is_natspec: false,
+        });
+
+        let manifest = Manifest {
+            entries: manifest_entries,
+        };
+        let mut binding_registry = BindingRegistry::default();
+        binding_registry.populate_from_manifest(&manifest);
+
+        // Verify binding population
+        let binding_conf = binding_registry.get_binding("ERC20Key");
+        assert!(
+            binding_conf.is_some(),
+            "BindingConfig for ERC20Key should exist"
+        );
+        assert_eq!(
+            binding_conf.unwrap().contract_name,
+            Some("MyToken".to_string()),
+            "ERC20Key should bind to MyToken contract"
+        );
+
+        let (mut ctx, graph, tree, lang, input) =
+            setup_test_environment_customized(source, Some(manifest), Some(binding_registry))?;
+
+        let caller_func_def_node =
+            find_function_definition_node_by_name(&tree, source, &lang, "getMyBalance")?;
+        let caller_node_id = graph
+            .node_lookup
+            .get(&(
+                Some("CallerContract".to_string()),
+                "getMyBalance".to_string(),
+            ))
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("Node ID for CallerContract.getMyBalance not found"))?;
+
+        // Find the call_expression node for IERC20(token0).balanceOf(address(this))
+        // This is the only call_expression within getMyBalance.
+        let call_expr_node = find_nth_descendant_node_of_kind(
+            &caller_func_def_node,
+            source,
+            &lang,
+            "call_expression",
+            0,
+        )?
+        .ok_or_else(|| {
+            TypeError::Internal(
+                "call_expression node for IERC20(token0).balanceOf(...) not found".to_string(),
+            )
+        })?;
+
+        let steps = analyze_chained_call(
+            call_expr_node,
+            caller_node_id,
+            &Some("CallerContract".to_string()),
+            &ctx,
+            &graph,
+            source,
+            &lang,
+            &input,
+            None,
+            call_expr_node.start_byte(),
+        )?;
+
+        assert_eq!(steps.len(), 1, "Expected one step for the call");
+        let step = &steps[0];
+
+        assert_eq!(
+            step.object_type,
+            Some("IERC20".to_string()),
+            "Object type should be IERC20 (from type cast)"
+        );
+        assert_eq!(
+            step.result_type,
+            Some("uint256".to_string()),
+            "Result type should be uint256 (from MyToken.balanceOf)"
+        );
+        assert_eq!(step.arguments.len(), 1, "Expected one argument");
+        assert_eq!(
+            step.arguments[0], "address(this)",
+            "Argument should be address(this)"
+        );
+
+        match &step.target {
+            ResolvedTarget::InterfaceMethod {
+                interface_name,
+                method_name,
+                implementation,
+            } => {
+                assert_eq!(interface_name, "IERC20");
+                assert_eq!(method_name, "balanceOf");
+                assert!(
+                    implementation.is_some(),
+                    "Implementation should be resolved via shared Natspec binding key"
+                );
+
+                match implementation.as_deref() {
+                    Some(ResolvedTarget::Function {
+                        contract_name: impl_contract_name,
+                        function_name: impl_function_name,
+                        node_type,
+                    }) => {
+                        assert_eq!(
+                            impl_contract_name.as_deref(),
+                            Some("MyToken"),
+                            "Implementation should be MyToken"
+                        );
+                        assert_eq!(impl_function_name, "balanceOf");
                         assert_eq!(*node_type, NodeType::Function);
                     }
                     _ => panic!(

@@ -2920,5 +2920,14 @@ fn resolve_target_to_node_id(
             );
             None
         }
+        /*
+        crate::chains::ResolvedTarget::MappingGetter { contract_name, mapping_name, .. } => {
+            // Implicit mapping getters don't have dedicated function nodes in the graph.
+            eprintln!(
+                "[Resolve Target ID] Info: Skipping direct node ID resolution for implicit mapping getter '{}.{}'.",
+                contract_name, mapping_name
+            );
+            None
+        }*/
     }
 }

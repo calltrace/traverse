@@ -79,6 +79,17 @@ pub struct Node {
     pub declared_return_type: Option<String>, // Added: Store declared return type of the function
 }
 
+/// Information about a state variable mapping.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MappingInfo {
+    pub name: String,
+    pub visibility: Visibility,
+    pub key_types: Vec<String>, // For mapping(k1 => mapping(k2 => v)), this would be [k1_type_str, k2_type_str]
+    pub value_type: String,   // The final value type string
+    pub span: (usize, usize), // Span of the full state variable declaration
+    pub full_type_str: String, // e.g., "mapping(address => mapping(uint => bool))"
+}
+
 // --- DOT Label Implementation ---
 
 impl crate::cg_dot::ToDotLabel for Node {
@@ -548,6 +559,9 @@ pub struct CallGraphGeneratorContext {
     pub interface_inherits: HashMap<String, Vec<String>>, // Interface -> List of Interfaces it inherits from
     pub contract_inherits: HashMap<String, Vec<String>>, // Contract -> List of Contracts/Interfaces it inherits from
     pub storage_var_nodes: HashMap<(Option<String>, String), usize>, // (ContractScope, VarName) -> Node ID
+    /// Stores detailed information about declared mappings.
+    /// Key: (contract_name, mapping_variable_name)
+    pub contract_mappings: HashMap<(String, String), MappingInfo>,
     // Added for interface binding resolution
     pub manifest: Option<Manifest>,
     pub binding_registry: Option<BindingRegistry>,

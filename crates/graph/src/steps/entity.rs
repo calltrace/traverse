@@ -146,12 +146,11 @@ impl CallGraphGeneratorStep for ContractHandling {
             (contract_declaration
                 name: (identifier) @contract_scope_for_var
                 (contract_body
-                    (state_variable_declaration
-                        (type_name) @var_type
-                        (identifier) @var_name
-                    ) @state_var_def_item
+                    ; Capture the whole state_variable_declaration node
+                    ; Type, name, and visibility will be extracted from its children
+                    (state_variable_declaration) @state_var_node_capture
                 )
-            )
+            ) @state_var_item
 
             ; Using directive within a contract
             (contract_declaration
@@ -362,29 +361,84 @@ impl CallGraphGeneratorStep for ContractHandling {
                             }
                         }
                     }
-                    "state_var_def_item" => {
-                        if let (Some(scope_node), Some(type_node), Some(name_node)) = (
-                            captures_map.get("contract_scope_for_var"),
-                            captures_map.get("var_type"),
-                            captures_map.get("var_name"),
-                        ) {
-                            let contract_name = get_node_text(scope_node, &input.source).to_string();
-                            let var_name = get_node_text(name_node, &input.source).to_string();
-                            let var_type = get_node_text(type_node, &input.source).to_string();
-                            let def_node = captures_map.get(item_kind_name).unwrap();
+                    "state_var_item" => {
+                        let state_var_decl_node = captures_map.get("state_var_node_capture")
+                            .ok_or_else(|| anyhow!("state_var_item missing state_var_node_capture capture"))?;
+                        let contract_name_node = captures_map.get("contract_scope_for_var")
+                            .ok_or_else(|| anyhow!("state_var_item missing contract_scope_for_var capture"))?;
+                        let contract_name = get_node_text(contract_name_node, &input.source).to_string();
 
-                            ctx.state_var_types.insert((contract_name.clone(), var_name.clone()), var_type);
+                        // Extract type, name, and visibility from children of state_var_decl_node
+                        let type_node_opt = state_var_decl_node.child_by_field_name("type");
+                        let name_node_opt = state_var_decl_node.child_by_field_name("name");
+                        let mut visibility_text_opt: Option<String> = None;
+
+                        let mut child_cursor = state_var_decl_node.walk();
+                        for child in state_var_decl_node.children(&mut child_cursor) {
+                            if child.kind() == "visibility" {
+                                visibility_text_opt = Some(get_node_text(&child, &input.source).to_string());
+                                break;
+                            }
+                        }
+
+                        if let (Some(var_type_node), Some(var_name_node)) = (type_node_opt, name_node_opt) {
+                            let var_name_str = get_node_text(&var_name_node, &input.source).to_string();
+                            let visibility = match visibility_text_opt.as_deref() {
+                                Some("public") => Visibility::Public,
+                                Some("internal") => Visibility::Internal,
+                                Some("private") => Visibility::Private,
+                                _ => Visibility::Internal, // Default visibility for state variables
+                            };
+
+                            if var_type_node.kind() == "mapping_type" {
+                                let mut extracted_key_types = Vec::new();
+                                match parse_mapping_recursive(var_type_node, &input.source, &mut extracted_key_types) {
+                                    Ok((final_value_type, full_mapping_str)) => {
+                                        let mapping_info = crate::cg::MappingInfo {
+                                            name: var_name_str.clone(),
+                                            visibility: visibility.clone(),
+                                            key_types: extracted_key_types,
+                                            value_type: final_value_type,
+                                            span: (state_var_decl_node.start_byte(), state_var_decl_node.end_byte()),
+                                            full_type_str: full_mapping_str.clone(),
+                                        };
+                                        ctx.contract_mappings.insert((contract_name.clone(), var_name_str.clone()), mapping_info.clone()); // Clone mapping_info for logging
+                                        ctx.state_var_types.insert((contract_name.clone(), var_name_str.clone()), full_mapping_str.clone());
+                                        eprintln!("[ContractHandling DEBUG] Adding to state_var_types (mapping): Key=({}, {}), Value={}", contract_name, var_name_str, full_mapping_str);
+                                        eprintln!("[ContractHandling] Added mapping info for {}.{}: Name='{}', Visibility='{:?}', Keys='{:?}', ValueType='{}', FullType='{}'",
+                                            contract_name, var_name_str,
+                                            mapping_info.name, mapping_info.visibility, mapping_info.key_types, mapping_info.value_type, mapping_info.full_type_str);
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Error parsing mapping type for {}.{}: {}", contract_name, var_name_str, e);
+                                    }
+                                }
+                            } else {
+                                let var_type_str = get_node_text(&var_type_node, &input.source).to_string();
+                                ctx.state_var_types.insert((contract_name.clone(), var_name_str.clone()), var_type_str.clone());
+                                eprintln!("[ContractHandling DEBUG] Adding to state_var_types (non-mapping): Key=({}, {}), Value={}", contract_name, var_name_str, var_type_str);
+                            }
+
+                            // Add node to graph for all state variables (mapping or not)
                             let node_id = graph.add_node(
-                                var_name.clone(),
+                                var_name_str.clone(),
                                 NodeType::StorageVariable,
                                 Some(contract_name.clone()),
-                                Visibility::Default,
-                                (def_node.start_byte(), def_node.end_byte()),
+                                visibility, // Use parsed visibility
+                                (state_var_decl_node.start_byte(), state_var_decl_node.end_byte()),
                             );
-                            ctx.storage_var_nodes.insert((Some(contract_name), var_name), node_id);
+                            ctx.storage_var_nodes.insert((Some(contract_name), var_name_str), node_id);
+
+                        } else {
+                             eprintln!("Warning: Could not extract type or name for state variable in contract '{}' at span {:?}. Type found: {}, Name found: {}", 
+                                contract_name, 
+                                state_var_decl_node.byte_range(),
+                                type_node_opt.is_some(),
+                                name_node_opt.is_some()
+                             );
                         }
                     }
-                    "using_directive_item" => {
+                   "using_directive_item" => {
                         if let (Some(scope_node), Some(lib_name_node), Some(type_node)) = (
                             captures_map.get("contract_scope_for_using"),
                             captures_map.get("using_library_name"),
@@ -424,5 +478,33 @@ impl CallGraphGeneratorStep for ContractHandling {
         }
         eprintln!("[ContractHandling] Pass 2: Processing complete.");
         Ok(())
+    }
+
+}
+
+// Helper function to recursively parse mapping types
+fn parse_mapping_recursive(
+    current_type_node: TsNode,
+    source: &str,
+    key_types: &mut Vec<String>, // Accumulates key types
+) -> Result<(String, String)> { // Returns (final_value_type, full_mapping_type_string)
+    if current_type_node.kind() == "mapping_type" {
+        let key_node = current_type_node.child_by_field_name("key")
+            .ok_or_else(|| anyhow!("Mapping type node missing 'key' field. Node: {:?}", get_node_text(&current_type_node, source)))?;
+        let key_type_str = get_node_text(&key_node, source).to_string();
+        key_types.push(key_type_str.clone());
+
+        let value_node = current_type_node.child_by_field_name("value")
+            .ok_or_else(|| anyhow!("Mapping type node missing 'value' field. Node: {:?}", get_node_text(&current_type_node, source)))?;
+
+        // Recursively parse the value part
+        let (final_value_type, nested_value_str) = parse_mapping_recursive(value_node, source, key_types)?;
+        
+        let current_level_full_str = format!("mapping({} => {})", key_type_str, nested_value_str);
+        Ok((final_value_type, current_level_full_str))
+    } else {
+        // Base case: this is the final value type (or a part of a complex non-mapping type)
+        let value_type_str = get_node_text(&current_type_node, source).to_string();
+        Ok((value_type_str.clone(), value_type_str))
     }
 }
