@@ -390,34 +390,46 @@ impl CallGraphGeneratorStep for ContractHandling {
                                 _ => Visibility::Internal, // Default visibility for state variables
                             };
 
-                            if var_type_node.kind() == "mapping_type" {
+
                                 let mut extracted_key_types = Vec::new();
+                                // Call parse_mapping_recursive. It will return the final value type,
+                                // the full type string, and a boolean indicating if it was a mapping.
                                 match parse_mapping_recursive(var_type_node, &input.source, &mut extracted_key_types) {
-                                    Ok((final_value_type, full_mapping_str)) => {
-                                        let mapping_info = crate::cg::MappingInfo {
-                                            name: var_name_str.clone(),
-                                            visibility: visibility.clone(),
-                                            key_types: extracted_key_types,
-                                            value_type: final_value_type,
-                                            span: (state_var_decl_node.start_byte(), state_var_decl_node.end_byte()),
-                                            full_type_str: full_mapping_str.clone(),
-                                        };
-                                        ctx.contract_mappings.insert((contract_name.clone(), var_name_str.clone()), mapping_info.clone()); // Clone mapping_info for logging
-                                        ctx.state_var_types.insert((contract_name.clone(), var_name_str.clone()), full_mapping_str.clone());
-                                        eprintln!("[ContractHandling DEBUG] Adding to state_var_types (mapping): Key=({}, {}), Value={}", contract_name, var_name_str, full_mapping_str);
-                                        eprintln!("[ContractHandling] Added mapping info for {}.{}: Name='{}', Visibility='{:?}', Keys='{:?}', ValueType='{}', FullType='{}'",
-                                            contract_name, var_name_str,
-                                            mapping_info.name, mapping_info.visibility, mapping_info.key_types, mapping_info.value_type, mapping_info.full_type_str);
+                                    Ok((final_value_type, full_type_str, is_mapping)) => {
+                                        // Always store the full type string in state_var_types
+                                        ctx.state_var_types.insert((contract_name.clone(), var_name_str.clone()), full_type_str.clone());
+                                        eprintln!("[ContractHandling DEBUG] Adding to state_var_types (any type): Key=({}, {}), Value={}", contract_name, var_name_str, full_type_str);
+
+                                        if is_mapping {
+                                            // If it was a mapping, populate contract_mappings
+                                            let mapping_info = crate::cg::MappingInfo {
+                                                name: var_name_str.clone(),
+                                                visibility: visibility.clone(),
+                                                key_types: extracted_key_types, // These are filled by parse_mapping_recursive
+                                                value_type: final_value_type, // This is the ultimate value type from parse_mapping_recursive
+                                                span: (state_var_decl_node.start_byte(), state_var_decl_node.end_byte()),
+                                                full_type_str: full_type_str.clone(), // This is the full "mapping(...)" string
+                                            };
+                                            ctx.contract_mappings.insert((contract_name.clone(), var_name_str.clone()), mapping_info.clone());
+                                            eprintln!("[ContractHandling] Added mapping info for {}.{}: Name='{}', Visibility='{:?}', Keys='{:?}', ValueType='{}', FullType='{}'",
+                                                contract_name, var_name_str,
+                                                mapping_info.name, mapping_info.visibility, mapping_info.key_types, mapping_info.value_type, mapping_info.full_type_str);
+                                        } else {
+                                            // If it wasn't a mapping, full_type_str is just the simple type string.
+                                            // state_var_types is already populated above. No need to populate contract_mappings.
+                                            eprintln!("[ContractHandling] State variable {}.{} is not a mapping. Type: {}", contract_name, var_name_str, full_type_str);
+                                        }
                                     }
                                     Err(e) => {
-                                        eprintln!("Error parsing mapping type for {}.{}: {}", contract_name, var_name_str, e);
+                                        eprintln!("Error parsing type for {}.{}: {}", contract_name, var_name_str, e);
+                                        // Fallback: store the raw text if parsing fails, though parse_mapping_recursive should handle non-mappings gracefully.
+                                        let raw_type_str = get_node_text(&var_type_node, &input.source).to_string();
+                                        ctx.state_var_types.insert((contract_name.clone(), var_name_str.clone()), raw_type_str);
+
                                     }
                                 }
-                            } else {
-                                let var_type_str = get_node_text(&var_type_node, &input.source).to_string();
-                                ctx.state_var_types.insert((contract_name.clone(), var_name_str.clone()), var_type_str.clone());
-                                eprintln!("[ContractHandling DEBUG] Adding to state_var_types (non-mapping): Key=({}, {}), Value={}", contract_name, var_name_str, var_type_str);
-                            }
+                                // The `else` block for non-mapping_type kinds is removed because
+                                // parse_mapping_recursive now handles all type_name nodes.
 
                             // Add node to graph for all state variables (mapping or not)
                             let node_id = graph.add_node(
@@ -484,27 +496,164 @@ impl CallGraphGeneratorStep for ContractHandling {
 
 // Helper function to recursively parse mapping types
 fn parse_mapping_recursive(
-    current_type_node: TsNode,
+    current_node: TsNode, // This is a type_name node
     source: &str,
     key_types: &mut Vec<String>, // Accumulates key types
-) -> Result<(String, String)> { // Returns (final_value_type, full_mapping_type_string)
-    if current_type_node.kind() == "mapping_type" {
-        let key_node = current_type_node.child_by_field_name("key")
-            .ok_or_else(|| anyhow!("Mapping type node missing 'key' field. Node: {:?}", get_node_text(&current_type_node, source)))?;
-        let key_type_str = get_node_text(&key_node, source).to_string();
+) -> Result<(String, String, bool)> { // Returns (final_value_type, full_type_string, is_mapping_flag)
+
+    // Check if the current_node (a type_name node) represents a mapping
+    // by looking for 'key_type' and 'value_type' fields, as per CST.
+    if let (Some(key_type_field_node), Some(value_type_field_node)) = (
+        current_node.child_by_field_name("key_type"),
+        current_node.child_by_field_name("value_type"),
+    ) {
+        // current_node is a mapping.
+        // key_type_field_node is the node for the key's type (e.g., primitive_type, user_defined_type).
+        // Its text is the key type string.
+        let key_type_str = get_node_text(&key_type_field_node, source).to_string();
         key_types.push(key_type_str.clone());
 
-        let value_node = current_type_node.child_by_field_name("value")
-            .ok_or_else(|| anyhow!("Mapping type node missing 'value' field. Node: {:?}", get_node_text(&current_type_node, source)))?;
-
-        // Recursively parse the value part
-        let (final_value_type, nested_value_str) = parse_mapping_recursive(value_node, source, key_types)?;
+        // value_type_field_node is a type_name node for the value.
+        // Recursively parse this value_type_field_node.
+        let (final_value_type, nested_value_str, _is_nested_mapping) =
+            parse_mapping_recursive(value_type_field_node, source, key_types)?;
         
         let current_level_full_str = format!("mapping({} => {})", key_type_str, nested_value_str);
-        Ok((final_value_type, current_level_full_str))
-    } else {
-        // Base case: this is the final value type (or a part of a complex non-mapping type)
-        let value_type_str = get_node_text(&current_type_node, source).to_string();
-        Ok((value_type_str.clone(), value_type_str))
+        return Ok((final_value_type, current_level_full_str, true));
+    }
+
+    // Base case: current_node is not a mapping (it's a primitive, user_defined_type, array_type, etc.)
+    // It doesn't have 'key_type' and 'value_type' fields.
+    let type_str = get_node_text(&current_node, source).to_string();
+    Ok((type_str.clone(), type_str, false))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        cg::{
+            CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, MappingInfo, Visibility,
+        },
+        // parser::parse_source_code, // Removed: No longer used directly
+    };
+    use anyhow::Context as _; // Ensure anyhow::Context is in scope for .context()
+    use language::{Language, Solidity}; // Added for Solidity language access
+    use std::collections::HashSet;
+    use tree_sitter::Parser;
+
+    fn run_contract_handling(
+        source_code: &str,
+    ) -> Result<(CallGraph, CallGraphGeneratorContext)> {
+        let mut parser = Parser::new();
+        let sol_lang = Solidity.get_tree_sitter_language(); // Get language using Solidity struct
+        parser
+            .set_language(&sol_lang) // Use the fetched language
+            .expect("Error loading Solidity grammar");
+        let tree = parser
+            .parse(source_code, None)
+            .context("Failed to parse source code")?;
+        let mut graph = CallGraph::new();
+        let mut ctx = CallGraphGeneratorContext::default();
+        let contract_handler = ContractHandling::default();
+
+        let input = CallGraphGeneratorInput {
+            source: source_code.to_string(),
+            tree,
+            solidity_lang: sol_lang.clone(), // Use the fetched language here
+            // Add other necessary fields if they become required by ContractHandling
+        };
+
+        contract_handler.generate(input, &mut ctx, &mut graph)?;
+        Ok((graph, ctx))
+    }
+
+    #[test]
+    fn test_mapping_state_variables() -> Result<()> {
+        let source_code = r#"
+            contract TestMappings {
+                mapping(address => uint) public balanceOf;
+                mapping(address => mapping(address => uint)) public allowance;
+                mapping(bytes32 => mapping(uint256 => mapping(address => bool))) internal nestedMap;
+                mapping(address => UserStruct) userInfos; // Assuming UserStruct is defined elsewhere or not relevant for type string
+                struct UserStruct { uint id; }
+            }
+        "#;
+
+        let (_graph, ctx) = run_contract_handling(source_code)?;
+
+        // Check state_var_types
+        assert_eq!(
+            ctx.state_var_types
+                .get(&("TestMappings".to_string(), "balanceOf".to_string())),
+            Some(&"mapping(address => uint)".to_string())
+        );
+        assert_eq!(
+            ctx.state_var_types
+                .get(&("TestMappings".to_string(), "allowance".to_string())),
+            Some(&"mapping(address => mapping(address => uint))".to_string())
+        );
+        assert_eq!(
+            ctx.state_var_types
+                .get(&("TestMappings".to_string(), "nestedMap".to_string())),
+            Some(&"mapping(bytes32 => mapping(uint256 => mapping(address => bool)))".to_string())
+        );
+        assert_eq!(
+            ctx.state_var_types
+                .get(&("TestMappings".to_string(), "userInfos".to_string())),
+            Some(&"mapping(address => UserStruct)".to_string()) // This will be captured as string
+        );
+
+
+        // Check contract_mappings for balanceOf
+        let balance_of_key = ("TestMappings".to_string(), "balanceOf".to_string());
+        let balance_of_info = ctx.contract_mappings.get(&balance_of_key).unwrap();
+        assert_eq!(balance_of_info.name, "balanceOf");
+        assert_eq!(balance_of_info.visibility, Visibility::Public);
+        assert_eq!(balance_of_info.key_types, vec!["address".to_string()]);
+        assert_eq!(balance_of_info.value_type, "uint".to_string());
+        assert_eq!(balance_of_info.full_type_str, "mapping(address => uint)");
+
+        // Check contract_mappings for allowance
+        let allowance_key = ("TestMappings".to_string(), "allowance".to_string());
+        let allowance_info = ctx.contract_mappings.get(&allowance_key).unwrap();
+        assert_eq!(allowance_info.name, "allowance");
+        assert_eq!(allowance_info.visibility, Visibility::Public);
+        assert_eq!(
+            allowance_info.key_types,
+            vec!["address".to_string(), "address".to_string()]
+        );
+        assert_eq!(allowance_info.value_type, "uint".to_string());
+        assert_eq!(
+            allowance_info.full_type_str,
+            "mapping(address => mapping(address => uint))"
+        );
+
+        // Check contract_mappings for nestedMap
+        let nested_map_key = ("TestMappings".to_string(), "nestedMap".to_string());
+        let nested_map_info = ctx.contract_mappings.get(&nested_map_key).unwrap();
+        assert_eq!(nested_map_info.name, "nestedMap");
+        assert_eq!(nested_map_info.visibility, Visibility::Internal); // Based on 'internal' keyword
+        assert_eq!(
+            nested_map_info.key_types,
+            vec!["bytes32".to_string(), "uint256".to_string(), "address".to_string()]
+        );
+        assert_eq!(nested_map_info.value_type, "bool".to_string());
+        assert_eq!(
+            nested_map_info.full_type_str,
+            "mapping(bytes32 => mapping(uint256 => mapping(address => bool)))"
+        );
+        
+        // Check contract_mappings for userInfos (mapping to a struct)
+        let user_infos_key = ("TestMappings".to_string(), "userInfos".to_string());
+        let user_infos_info = ctx.contract_mappings.get(&user_infos_key).unwrap();
+        assert_eq!(user_infos_info.name, "userInfos");
+        assert_eq!(user_infos_info.visibility, Visibility::Internal); // Default for state vars without explicit visibility
+        assert_eq!(user_infos_info.key_types, vec!["address".to_string()]);
+        assert_eq!(user_infos_info.value_type, "UserStruct".to_string());
+        assert_eq!(user_infos_info.full_type_str, "mapping(address => UserStruct)");
+
+
+        Ok(())
     }
 }
