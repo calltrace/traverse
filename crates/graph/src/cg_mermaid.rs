@@ -704,29 +704,27 @@ impl ToSequenceDiagram for MermaidGenerator {
             );
 
             // --- Add synthetic return edge from entry point back to User ---
-            // Check the pre-calculated flag on the entry node
-            if entry_node.has_explicit_return {
-                let mut return_display_parts: Vec<String> = Vec::new();
-                // Access the declared_return_type from the Node struct
-                if let Some(return_type) = &entry_node.declared_return_type {
-                    if !return_type.is_empty() {
-                        // Ensure type is not empty string
-                        return_display_parts.push(format!(": {}", return_type));
-                    }
+            // All public/external entry points return control to the user.
+            let mut return_display_parts: Vec<String> = Vec::new();
+            // Access the declared_return_type from the Node struct
+            if let Some(return_type) = &entry_node.declared_return_type {
+                if !return_type.is_empty() {
+                    // Ensure type is not empty string
+                    return_display_parts.push(format!(": {}", return_type));
                 }
-
-                let message_content = format!(
-                    "ret{} from {}()",
-                    return_display_parts.join(""),
-                    entry_node.name
-                );
-                builder.signal(
-                    target_contract_id, // Source is the contract participant
-                    Self::USER_ID.to_string(),
-                    "-->>", // Dashed line for return
-                    Some(message_content),
-                );
             }
+
+            let message_content = format!(
+                "ret{} from {}()",
+                return_display_parts.join(""),
+                entry_node.name
+            );
+            builder.signal(
+                target_contract_id, // Source is the contract participant
+                Self::USER_ID.to_string(),
+                "-->>", // Dashed line for return
+                Some(message_content),
+            );
         }
 
         // Note: Any edges not reachable from a public/external function called by the User
