@@ -6,7 +6,7 @@ use crate::cg::{
 };
 use crate::parser::get_node_text;
 use std::collections::VecDeque;
- use streaming_iterator::StreamingIterator; // Not directly used, but QueryCursor uses it. Keep for now if indirect.
+use streaming_iterator::StreamingIterator; // Not directly used, but QueryCursor uses it. Keep for now if indirect.
 use tree_sitter::{Node as TsNode, Query, QueryCursor};
 
 #[derive(Debug, PartialEq, Eq, Clone, thiserror::Error)]
@@ -1161,33 +1161,55 @@ fn resolve_expression_type_v2<'a>(
                 input,
             )?;
 
-            if let Some(base_type_str) = base_type_opt {
+            if let Some(ref base_type_of_base_expr_str) = base_type_opt {
+                // Use `ref` to borrow
                 eprintln!(
                     "[Resolve Type V2]     Base type of array_access resolved to: '{}'",
-                    base_type_str
+                    base_type_of_base_expr_str
                 );
 
-                if base_type_str.starts_with("mapping(") && base_type_str.ends_with(')') {
-                    // mapping(KeyType => ValueType)
-                    if let Some(arrow_index) = base_type_str.find("=>") {
-                        let value_type_part =
-                            base_type_str[arrow_index + 2..base_type_str.len() - 1].trim();
-                        if !value_type_part.is_empty() {
+                // Priority 1: If base is an identifier, check ctx.contract_mappings for precise value_type
+                if base_node.kind() == "identifier" {
+                    if let Some(contract_name) = caller_contract_name_opt {
+                        let mapping_var_name = get_node_text(&base_node, source);
+                        if let Some(mapping_info) = ctx
+                            .contract_mappings
+                            .get(&(contract_name.clone(), mapping_var_name.to_string()))
+                        {
                             eprintln!(
-                                "[Resolve Type V2]       Mapping value type: '{}'",
-                                value_type_part
+                                "[Resolve Type V2]       Array access on known mapping '{}.{}'. Resolved value type from MappingInfo: '{}'",
+                                contract_name, mapping_var_name, mapping_info.value_type
                             );
-                            return Ok(Some(value_type_part.to_string()));
+                            return Ok(Some(mapping_info.value_type.clone()));
                         }
                     }
-                    eprintln!(
-                        "[Resolve Type V2]       Could not parse mapping type: {}",
-                        base_type_str
-                    );
-                    Ok(None)
-                } else if base_type_str.ends_with("[]") {
-                    // ArrayType[]
-                    let element_type = base_type_str[0..base_type_str.len() - 2].trim();
+                }
+
+                // Priority 2: Fallback to parsing the resolved base_type_of_base_expr_str
+                if base_type_of_base_expr_str.starts_with("mapping(") {
+                    match parse_mapping_final_value_type(base_type_of_base_expr_str) {
+                        Ok(final_value_type) => {
+                            eprintln!(
+                                "[Resolve Type V2]       Parsed mapping type string '{}'. Final value type: '{}'",
+                                base_type_of_base_expr_str, final_value_type
+                            );
+                            return Ok(Some(final_value_type));
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "[Resolve Type V2]       Error parsing mapping type string '{}': {}. Falling back.",
+                                base_type_of_base_expr_str, e
+                            );
+                            // Fall through to other checks if parsing fails, or return error
+                            // For now, let's try to be robust and let other checks proceed.
+                        }
+                    }
+                }
+
+                // Existing logic for arrays and bytes
+                if base_type_of_base_expr_str.ends_with("[]") {
+                    let element_type =
+                        base_type_of_base_expr_str[0..base_type_of_base_expr_str.len() - 2].trim();
                     if !element_type.is_empty() {
                         eprintln!(
                             "[Resolve Type V2]       Array element type: '{}'",
@@ -1197,10 +1219,11 @@ fn resolve_expression_type_v2<'a>(
                     }
                     eprintln!(
                         "[Resolve Type V2]       Could not parse array type: {}",
-                        base_type_str
+                        base_type_of_base_expr_str // Fix: Use new variable name
                     );
                     Ok(None)
-                } else if base_type_str == "bytes" {
+                } else if base_type_of_base_expr_str == "bytes" {
+                    // Fix: Use new variable name
                     // Indexing bytes returns bytes1
                     eprintln!("[Resolve Type V2]       Bytes indexed, returning 'bytes1'");
                     return Ok(Some("bytes1".to_string()));
@@ -1209,7 +1232,7 @@ fn resolve_expression_type_v2<'a>(
                 else {
                     eprintln!(
                             "[Resolve Type V2]     Base type '{}' is not a mapping, array, or bytes. Cannot determine indexed type.",
-                            base_type_str
+                            base_type_of_base_expr_str // Fix: Use new variable name
                         );
                     Ok(None)
                 }
@@ -1514,10 +1537,8 @@ fn resolve_member_or_library_call_v2<'a>(
         if let (Some(manifest_ref), Some(registry_ref)) =
             (ctx.manifest.as_ref(), ctx.binding_registry.as_ref())
         {
-            let resolver = crate::interface_resolver::InterfaceResolver::new(
-                manifest_ref,
-                registry_ref,
-            );
+            let resolver =
+                crate::interface_resolver::InterfaceResolver::new(manifest_ref, registry_ref);
             let interface_file_path_hint: Option<std::path::PathBuf> = manifest_ref
                 .entries
                 .iter()
@@ -1527,7 +1548,10 @@ fn resolve_member_or_library_call_v2<'a>(
                 })
                 .map(|entry| entry.file_path.clone());
 
-            eprintln!("[Resolve Member/Lib V2]       Interface file hint for binding lookup: {:?}", interface_file_path_hint);
+            eprintln!(
+                "[Resolve Member/Lib V2]       Interface file hint for binding lookup: {:?}",
+                interface_file_path_hint
+            );
 
             match resolver.resolve_for_item_name_kind(
                 interface_name,
@@ -1551,20 +1575,37 @@ fn resolve_member_or_library_call_v2<'a>(
                                             function_name: method_name.to_string(),
                                             node_type: node_info.node_type.clone(),
                                         };
-                                        eprintln!("[Resolve Member/Lib V2]           Successfully resolved to bound implementation: {:?}", bound_implementation);
+                                        eprintln!("[Resolve Member/Lib V2]           Successfully resolved to bound callable implementation: {:?}", bound_implementation);
                                         natspec_binding_provided_concrete_impl = Some(ResolvedTarget::InterfaceMethod {
                                             interface_name: interface_name.to_string(),
                                             method_name: method_name.to_string(),
                                             implementation: Some(Box::new(bound_implementation)),
                                         });
                                     }
-                                    _ => eprintln!("[Resolve Member/Lib V2]           Bound contract '{}' member '{}' is not callable (Type: {:?}). Binding not used.", concrete_contract_name, method_name, node_info.node_type),
+                                    NodeType::StorageVariable => {
+                                        if node_info.visibility == crate::cg::Visibility::Public {
+                                            let getter_implementation = ResolvedTarget::Function {
+                                                contract_name: Some(concrete_contract_name.clone()),
+                                                function_name: method_name.to_string(), // Getter name is var name
+                                                node_type: NodeType::Function, // The getter is conceptually a function
+                                            };
+                                            eprintln!("[Resolve Member/Lib V2]           Successfully resolved to getter for public storage variable: {:?}", getter_implementation);
+                                            natspec_binding_provided_concrete_impl = Some(ResolvedTarget::InterfaceMethod {
+                                                interface_name: interface_name.to_string(),
+                                                method_name: method_name.to_string(),
+                                                implementation: Some(Box::new(getter_implementation)),
+                                            });
+                                        } else {
+                                            eprintln!("[Resolve Member/Lib V2]           Bound contract '{}' member '{}' is a non-public StorageVariable. Binding not used.", concrete_contract_name, method_name);
+                                        }
+                                    }
+                                    _ => eprintln!("[Resolve Member/Lib V2]           Bound contract '{}' member '{}' is not callable or a public storage variable (Type: {:?}). Binding not used.", concrete_contract_name, method_name, node_info.node_type),
                                 }
                             } else {
                                 eprintln!("[Resolve Member/Lib V2]           Bound contract '{}' method '{}' (Node ID {}) not found in graph.nodes. Binding not used.", concrete_contract_name, method_name, node_id);
                             }
-                        } else {
-                            eprintln!("[Resolve Member/Lib V2]           Method '{}' not found in bound contract '{}'. Binding not used.", method_name, concrete_contract_name);
+                        } else { // node_id not found in graph.node_lookup
+                            eprintln!("[Resolve Member/Lib V2]           Method or Variable '{}' not found in bound contract '{}' via graph.node_lookup. Binding not used.", method_name, concrete_contract_name);
                         }
                     } else {
                         eprintln!("[Resolve Member/Lib V2]         Binding for interface '{}' (key '{}') has no concrete_contract_name.", interface_name, binding_config.key);
@@ -1821,6 +1862,74 @@ fn find_using_for_target<'a>(
     Ok(None) // Not found via using for
 }
 
+/// Parses a mapping type string to extract its final (potentially nested) value type.
+/// e.g., "mapping(address => mapping(uint => IMyInterface))" -> "IMyInterface"
+/// e.g., "mapping(address => uint)" -> "uint"
+/// e.g., "uint" -> "uint"
+fn parse_mapping_final_value_type(type_str: &str) -> Result<String, String> {
+    let trimmed_type_str = type_str.trim();
+    if trimmed_type_str.starts_with("mapping(") && trimmed_type_str.ends_with(')') {
+        // Find the main "=>" separating key type from value type.
+        // We need to balance parentheses to correctly find the top-level arrow.
+        let mut balance = 0;
+        let mut arrow_index_opt: Option<usize> = None;
+
+        // Iterate from after "mapping(" up to before the final ")"
+        let content_start = "mapping(".len();
+        let content_end = trimmed_type_str.len() - ")".len();
+
+        if content_start >= content_end {
+            return Err(format!("Invalid mapping string (too short): {}", type_str));
+        }
+
+        for (i, char_code) in trimmed_type_str
+            .char_indices()
+            .skip(content_start)
+            .take(content_end - content_start)
+        {
+            if char_code == '(' {
+                balance += 1;
+            } else if char_code == ')' {
+                balance -= 1;
+                if balance < 0 {
+                    // Unbalanced parentheses before finding arrow
+                    return Err(format!(
+                        "Malformed mapping string (unbalanced parentheses): {}",
+                        type_str
+                    ));
+                }
+            } else if char_code == '=' && balance == 0 {
+                // Check if next char is '>'
+                if trimmed_type_str.chars().nth(i + 1) == Some('>') {
+                    arrow_index_opt = Some(i);
+                    break;
+                }
+            }
+        }
+
+        if let Some(arrow_idx) = arrow_index_opt {
+            // Ensure "=>" is followed by something.
+            if arrow_idx + 2 >= content_end {
+                return Err(format!(
+                    "Malformed mapping string (no value type after '=>'): {}",
+                    type_str
+                ));
+            }
+            let value_type_part = trimmed_type_str[arrow_idx + 2..content_end].trim();
+            // Recursively parse the value part, as it could be another mapping
+            parse_mapping_final_value_type(value_type_part)
+        } else {
+            Err(format!(
+                "Malformed mapping string (could not find top-level '=>'): {}",
+                type_str
+            ))
+        }
+    } else {
+        // Base case: not a mapping, so this is the final value type
+        Ok(trimmed_type_str.to_string())
+    }
+}
+
 /// Resolves the target of a simple call (identifier only).
 fn resolve_simple_call_v2<'a>(
     name: &str,
@@ -2036,22 +2145,78 @@ fn resolve_call_return_type<'a>(
         ResolvedTarget::Function {
             contract_name,
             function_name,
-            ..
+            node_type: _,
         } => {
-            let key = (contract_name.clone(), function_name.clone());
-            if let Some(node_id) = graph.node_lookup.get(&key) {
-                let def_node_opt = ctx
-                    .definition_nodes_info
-                    .iter()
-                    .find(|(id, _, _)| *id == *node_id)
-                    .map(|(_, n, _)| n.clone());
-                if let Some(def_node) = def_node_opt {
-                    get_function_return_type_v2(&def_node, input)
-                } else {
-                    Ok(None) // Cannot find definition node
+            // Use _ for node_type as we check graph
+            let lookup_key = (contract_name.clone(), function_name.clone());
+            if let Some(node_id) = graph.node_lookup.get(&lookup_key) {
+                let graph_node = &graph.nodes[*node_id]; // This is the node found by (Scope, Name)
+
+                match graph_node.node_type {
+                    NodeType::Function | NodeType::Modifier | NodeType::Constructor => {
+                        // Prioritize graph_node.declared_return_type if available
+                        if let Some(declared_type) = &graph_node.declared_return_type {
+                            eprintln!("[Resolve Call Return Type] Using declared_return_type '{}' for Node ID {}", declared_type, *node_id);
+                            return Ok(Some(declared_type.clone()));
+                        }
+                        // Fallback to parsing TsNode via definition_nodes_info
+                        let def_node_info_opt = ctx
+                            .definition_nodes_info
+                            .iter()
+                            .find(|(id, _, _)| *id == *node_id)
+                            .map(|(_, info, _)| info.clone());
+                        if let Some(def_node_info) = def_node_info_opt {
+                            eprintln!("[Resolve Call Return Type] Falling back to get_function_return_type_v2 for Node ID {}", *node_id);
+                            return get_function_return_type_v2(&def_node_info, input);
+                        }
+                        eprintln!("[Resolve Call Return Type] No declared_return_type and no NodeInfo for Node ID {}", *node_id);
+                        return Ok(None);
+                    }
+                    NodeType::StorageVariable => {
+                        if graph_node.visibility == crate::cg::Visibility::Public {
+                            let actual_contract_name =
+                                graph_node.contract_name.as_ref().ok_or_else(|| {
+                                    TypeError::Internal(
+                                        "StorageVariable node missing contract name".to_string(),
+                                    )
+                                })?;
+                            let var_name = &graph_node.name;
+                            eprintln!("[Resolve Call Return Type] ResolvedTarget::Function points to public StorageVariable '{}.{}'. Determining getter return type.", actual_contract_name, var_name);
+
+                            // For mappings, the getter returns the final value type.
+                            if let Some(mapping_info) = ctx
+                                .contract_mappings
+                                .get(&(actual_contract_name.clone(), var_name.clone()))
+                            {
+                                eprintln!("[Resolve Call Return Type]   Found mapping info. Value type: '{}'", mapping_info.value_type);
+                                return Ok(Some(mapping_info.value_type.clone()));
+                            }
+                            // For other public state variables, the getter returns the variable's type.
+                            if let Some(type_str) = ctx
+                                .state_var_types
+                                .get(&(actual_contract_name.clone(), var_name.clone()))
+                            {
+                                eprintln!("[Resolve Call Return Type]   Found state_var_types info. Type: '{}'", type_str);
+                                return Ok(Some(type_str.clone()));
+                            }
+                            eprintln!("[Resolve Call Return Type]   Public StorageVariable {}.{} type info not found in contract_mappings or state_var_types.", actual_contract_name, var_name);
+                            return Err(TypeError::Internal(format!(
+                                "Public StorageVariable {}.{} type info not found.",
+                                actual_contract_name, var_name
+                            )));
+                        } else {
+                            eprintln!("[Resolve Call Return Type] ResolvedTarget::Function points to non-public StorageVariable '{}.{}'. No getter.", graph_node.contract_name.as_deref().unwrap_or("?"), graph_node.name);
+                            return Ok(None);
+                        }
+                    }
+                    _ => {
+                        eprintln!("[Resolve Call Return Type] Warning: Node for '{:?}' (ID {}) is of unexpected type {:?}.", lookup_key, *node_id, graph_node.node_type);
+                        return Ok(None);
+                    }
                 }
             } else {
-                Ok(None) // Function not found in graph (shouldn't happen if target resolved)
+                eprintln!("[Resolve Call Return Type] Warning: Node for '{:?}' not found in graph.node_lookup.", lookup_key);
+                return Ok(None);
             }
         }
         ResolvedTarget::InterfaceMethod {
@@ -4110,6 +4275,173 @@ mod tests {
                 step.target
             ),
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_analyze_call_on_interface_method_to_mapping_getter_with_binding() -> Result<()> {
+        let source = r#"
+            interface IUniswapV2ERC20 {
+                /// @custom:binds-to ERC20Impl
+                function balanceOf(address account) external view returns (uint);
+            }
+
+            /// @custom:binds-to ERC20Impl
+            contract UniswapV2ERC20 { // Does not explicitly inherit
+                mapping(address => uint) public balanceOf;
+                // Other UniswapV2ERC20 members not needed for this specific test
+            }
+
+            contract CallerContract {
+                address token; // Changed from IUniswapV2ERC20 to address
+
+                constructor(address _tokenAddress) {
+                    token = _tokenAddress; // Store the address directly
+                }
+
+                function getBalance(address who) public view returns (uint) {
+                    // Instantiate interface and call in one line
+                    return IUniswapV2ERC20(token).balanceOf(who);
+                }
+            }
+        "#;
+
+        // --- Setup Manifest & BindingRegistry ---
+        let mut manifest_entries = Vec::new();
+        manifest_entries.push(ManifestEntry {
+            file_path: std::path::PathBuf::from("test.sol"),
+            text: "/// @custom:binds-to ERC20Impl".to_string(),
+            raw_comment_span: default_natspec_text_range(),
+            item_kind: NatspecSourceItemKind::Interface,
+            item_name: Some("IUniswapV2ERC20".to_string()),
+            item_span: default_natspec_text_range(),
+            is_natspec: true,
+        });
+        manifest_entries.push(ManifestEntry {
+            file_path: std::path::PathBuf::from("test.sol"),
+            text: "/// @custom:binds-to ERC20Impl".to_string(),
+            raw_comment_span: default_natspec_text_range(),
+            item_kind: NatspecSourceItemKind::Contract,
+            item_name: Some("UniswapV2ERC20".to_string()),
+            item_span: default_natspec_text_range(),
+            is_natspec: true,
+        });
+        // Add entries for other contracts/functions if needed for graph construction
+        manifest_entries.push(ManifestEntry {
+            file_path: std::path::PathBuf::from("test.sol"),
+            text: "".to_string(),
+            raw_comment_span: default_natspec_text_range(),
+            item_kind: NatspecSourceItemKind::Contract,
+            item_name: Some("CallerContract".to_string()),
+            item_span: default_natspec_text_range(),
+            is_natspec: false,
+        });
+        manifest_entries.push(ManifestEntry {
+            file_path: std::path::PathBuf::from("test.sol"),
+            text: "".to_string(),
+            raw_comment_span: default_natspec_text_range(),
+            item_kind: NatspecSourceItemKind::Function,
+            item_name: Some("getBalance".to_string()),
+            item_span: default_natspec_text_range(),
+            is_natspec: false,
+        });
+
+        let manifest = Manifest {
+            entries: manifest_entries,
+        };
+        let mut binding_registry = BindingRegistry::default();
+        binding_registry.populate_from_manifest(&manifest);
+
+        let (ctx, graph, tree, lang, input) =
+            setup_test_environment_customized(source, Some(manifest), Some(binding_registry))?;
+
+        let caller_func_def_node =
+            find_function_definition_node_by_name(&tree, source, &lang, "getBalance")?;
+        let caller_node_id = graph
+            .node_lookup
+            .get(&(Some("CallerContract".to_string()), "getBalance".to_string()))
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("Node ID for CallerContract.getBalance not found"))?;
+
+        // Find the call_expression node for `token.balanceOf(who)`
+        let call_expr_node = find_nth_descendant_node_of_kind(
+            &caller_func_def_node,
+            source,
+            &lang,
+            "call_expression",
+            0, // The first call in getBalance is token.balanceOf(who)
+        )?
+        .ok_or_else(|| {
+            TypeError::Internal(
+                "Could not find the call_expression for token.balanceOf(who)".to_string(),
+            )
+        })?;
+
+        let steps = analyze_chained_call(
+            call_expr_node,
+            caller_node_id,
+            &Some("CallerContract".to_string()),
+            &ctx,
+            &graph,
+            source,
+            &lang,
+            &input,
+            None,
+            call_expr_node.start_byte(),
+        )?;
+
+        assert_eq!(steps.len(), 1, "Expected one step in the chain");
+
+        let step1 = &steps[0];
+        eprintln!("Step 1: {:?}", step1);
+        assert_eq!(
+            step1.object_type,
+            Some("IUniswapV2ERC20".to_string()),
+            "Step 1 object_type"
+        );
+        assert_eq!(
+            step1.object_instance_text,
+            Some("IUniswapV2ERC20(token)".to_string()), // Updated expected object instance text
+            "Step 1 object_instance_text"
+        );
+        assert_eq!(step1.arguments, vec!["who".to_string()], "Step 1 arguments");
+        assert_eq!(
+            step1.result_type,
+            Some("uint".to_string()),
+            "Step 1 result_type (must be uint from mapping)"
+        );
+
+        match &step1.target {
+            ResolvedTarget::InterfaceMethod {
+                interface_name,
+                method_name,
+                implementation,
+            } => {
+                assert_eq!(
+                    interface_name, "IUniswapV2ERC20",
+                    "Step 1 target interface_name"
+                );
+                assert_eq!(method_name, "balanceOf", "Step 1 target method_name");
+                assert!(
+                    implementation.is_some(),
+                    "Step 1 implementation should be resolved"
+                );
+
+                match implementation.as_deref() {
+                    Some(ResolvedTarget::Function { contract_name, function_name, node_type }) => {
+                        assert_eq!(contract_name.as_deref(), Some("UniswapV2ERC20"), "Step 1 impl contract (concrete contract)");
+                        assert_eq!(function_name, "balanceOf", "Step 1 impl function (getter for mapping)");
+                        assert_eq!(*node_type, NodeType::Function, "Step 1 impl type (getter is a function)");
+                    }
+                    _ => panic!("Step 1: Expected implementation to be ResolvedTarget::Function for getter, got {:?}", implementation),
+                }
+            }
+            _ => panic!(
+                "Step 1: Expected ResolvedTarget::InterfaceMethod, got {:?}",
+                step1.target
+            ),
+        }
+
         Ok(())
     }
 }
