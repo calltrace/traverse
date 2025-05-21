@@ -1,0 +1,110 @@
+{
+  "implementation": "solidity-bdd-test-gen",
+  "features": [
+    {
+      "uri": "features/token_transfer.feature",
+      "id": "token-transfer",
+      "keyword": "Feature",
+      "name": "ERC20 Token Transfer",
+      "elements": [
+        {
+          "type": "scenario",
+          "keyword": "Scenario",
+          "name": "Transfer tokens between accounts",
+          "steps": [
+            {
+              "keyword": "Given ",
+              "name": "a deployed ERC20 token with 1000 tokens minted to Alice",
+              "solidityAction": {
+                "type": "deploy",
+                "contract": "MyToken",
+                "cfgNodeId": "MyToken.constructor"
+              }
+            },
+            {
+              "keyword": "When ",
+              "name": "Alice transfers 100 tokens to Bob",
+              "solidityAction": {
+                "type": "call",
+                "contract": "token",
+                "function": "transfer",
+                "args": ["bob", "100"],
+                "from": "alice",
+                "cfgNodeId": "MyToken.transfer",
+                "expectedPath": ["MyToken.transfer", "MyToken._transfer"]
+              }
+            },
+            {
+              "keyword": "Then ",
+              "name": "Bob's balance should be 100 tokens",
+              "solidityAction": {
+                "type": "assertState",
+                "stateAssertions": [
+                  {
+                    "contract": "token",
+                    "variable": "balanceOf(bob)",
+                    "expected": "100",
+                    "message": "Bob should have received 100 tokens"
+                  }
+                ],
+                "invariantsToCheck": ["token-supply-constant"]
+              }
+            }
+          ],
+          "cfgPathCoverage": ["MyToken.constructor", "MyToken.transfer", "MyToken._transfer"],
+          "invariantsToCheck": ["token-supply-constant"]
+        }
+      ],
+      "solidityTestFile": "test/TokenTransferTest.t.sol",
+      "testFramework": "Foundry"
+    }
+  ],
+  "controlFlowGraph": {
+    "nodes": [
+      {
+        "id": "MyToken.constructor",
+        "type": "constructor",
+        "contract": "MyToken"
+      },
+      {
+        "id": "MyToken.transfer",
+        "type": "function",
+        "contract": "MyToken",
+        "name": "transfer",
+        "signature": "transfer(address,uint256)",
+        "visibility": "public"
+      },
+      {
+        "id": "MyToken._transfer",
+        "type": "function",
+        "contract": "MyToken",
+        "name": "_transfer",
+        "signature": "_transfer(address,address,uint256)",
+        "visibility": "internal"
+      }
+    ],
+    "edges": [
+      {
+        "source": "MyToken.transfer",
+        "target": "MyToken._transfer",
+        "type": "call"
+      }
+    ]
+  },
+  "contractMetadata": {
+    "contracts": [
+      {
+        "name": "MyToken",
+        "path": "contracts/MyToken.sol",
+        "invariants": [
+          {
+            "id": "token-supply-constant",
+            "description": "Total supply should remain constant",
+            "condition": "totalSupply() == initialSupply",
+            "checkPoints": ["MyToken.transfer", "MyToken._transfer"]
+          }
+        ]
+      }
+    ]
+  }
+}

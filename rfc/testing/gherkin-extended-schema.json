@@ -1,0 +1,807 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/SolidityCucumberJson",
+  "definitions": {
+    "SolidityCucumberJson": {
+      "type": "object",
+      "properties": {
+        "implementation": {
+          "type": "string"
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Feature"
+          }
+        },
+        "controlFlowGraph": {
+          "$ref": "#/definitions/ControlFlowGraph"
+        },
+        "contractMetadata": {
+          "$ref": "#/definitions/ContractMetadata"
+        }
+      },
+      "required": [
+        "implementation",
+        "features"
+      ],
+      "additionalProperties": false
+    },
+    "ControlFlowGraph": {
+      "type": "object",
+      "properties": {
+        "mermaidSource": {
+          "type": "string",
+          "description": "Original Mermaid sequence diagram source"
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CFGNode"
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CFGEdge"
+          }
+        }
+      },
+      "required": [
+        "nodes",
+        "edges"
+      ],
+      "additionalProperties": false
+    },
+    "CFGNode": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "function",
+            "constructor",
+            "modifier",
+            "event",
+            "receive",
+            "fallback",
+            "condition",
+            "entry",
+            "exit"
+          ]
+        },
+        "contract": {
+          "type": "string",
+          "description": "Contract name that contains this node"
+        },
+        "name": {
+          "type": "string",
+          "description": "Function name or identifier"
+        },
+        "signature": {
+          "type": "string",
+          "description": "Function signature including parameters"
+        },
+        "modifiers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of modifiers applied to this function"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "public",
+            "private",
+            "internal",
+            "external"
+          ]
+        },
+        "mutability": {
+          "type": "string",
+          "enum": [
+            "pure",
+            "view",
+            "payable",
+            "nonpayable"
+          ]
+        },
+        "stateVariables": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "State variables accessed or modified"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "CFGEdge": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Source node ID"
+        },
+        "target": {
+          "type": "string",
+          "description": "Target node ID"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "call",
+            "transfer",
+            "delegatecall",
+            "staticcall",
+            "create",
+            "create2",
+            "revert",
+            "require",
+            "assert",
+            "conditional",
+            "unconditional"
+          ]
+        },
+        "condition": {
+          "type": "string",
+          "description": "Condition expression if this is a conditional edge"
+        },
+        "gas": {
+          "type": "string",
+          "description": "Gas specification if applicable"
+        },
+        "value": {
+          "type": "string",
+          "description": "ETH value transferred if applicable"
+        }
+      },
+      "required": [
+        "source",
+        "target",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "ContractMetadata": {
+      "type": "object",
+      "properties": {
+        "contracts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Contract"
+          }
+        },
+        "deploymentOrder": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Order in which contracts should be deployed for testing"
+        },
+        "networkConfig": {
+          "type": "object",
+          "properties": {
+            "fork": {
+              "type": "string",
+              "description": "Network to fork for testing (e.g., 'mainnet', 'sepolia')"
+            },
+            "blockNumber": {
+              "type": "integer",
+              "description": "Block number to fork from"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "contracts"
+      ],
+      "additionalProperties": false
+    },
+    "Contract": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string",
+          "description": "File path to the contract source"
+        },
+        "abi": {
+          "type": "array",
+          "items": {},
+          "description": "Contract ABI"
+        },
+        "constructorArgs": {
+          "type": "array",
+          "items": {},
+          "description": "Arguments to pass to the constructor"
+        },
+        "libraries": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Libraries to link with contract"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of events emitted by the contract"
+        },
+        "stateVariables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/StateVariable"
+          }
+        },
+        "invariants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Invariant"
+          }
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "StateVariable": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "description": "Solidity type of the variable"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "public",
+            "private",
+            "internal"
+          ]
+        },
+        "getter": {
+          "type": "string",
+          "description": "Name of getter function for this variable if public"
+        },
+        "slot": {
+          "type": "integer",
+          "description": "Storage slot number if known"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "Invariant": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "condition": {
+          "type": "string",
+          "description": "Solidity expression that should evaluate to true"
+        },
+        "checkPoints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "CFG node IDs where this invariant should be checked"
+        }
+      },
+      "required": [
+        "id",
+        "condition"
+      ],
+      "additionalProperties": false
+    },
+    "Feature": {
+      "type": "object",
+      "properties": {
+        "uri": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "line": {
+          "type": "number"
+        },
+        "keyword": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "elements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Element"
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Tag"
+          }
+        },
+        "solidityTestFile": {
+          "type": "string",
+          "description": "Target Solidity test file path to generate"
+        },
+        "testFramework": {
+          "type": "string",
+          "enum": [
+            "Foundry",
+            "Hardhat",
+            "Truffle",
+            "Custom"
+          ],
+          "description": "Test framework to use for generated tests"
+        },
+        "contractsUnderTest": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of contract names being tested in this feature"
+        }
+      },
+      "required": [
+        "uri",
+        "keyword",
+        "name",
+        "elements"
+      ],
+      "additionalProperties": false
+    },
+    "Element": {
+      "type": "object",
+      "properties": {
+        "start_timestamp": {
+          "type": "string"
+        },
+        "line": {
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/definitions/ElementType"
+        },
+        "keyword": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "before": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Hook"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Step"
+          }
+        },
+        "after": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Hook"
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Tag"
+          }
+        },
+        "testFunction": {
+          "type": "string",
+          "description": "Name of the generated test function"
+        },
+        "testPriority": {
+          "type": "integer",
+          "description": "Priority of this test (higher = more important)"
+        },
+        "expectedGas": {
+          "type": "integer",
+          "description": "Expected gas usage for this scenario"
+        },
+        "cfgPathCoverage": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of CFG node IDs that should be covered by this scenario"
+        },
+        "invariantsToCheck": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of invariant IDs that should be checked in this scenario"
+        },
+        "actors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Actor"
+          },
+          "description": "Blockchain actors involved in this scenario"
+        }
+      },
+      "required": [
+        "line",
+        "type",
+        "keyword",
+        "name",
+        "description",
+        "steps"
+      ],
+      "additionalProperties": false
+    },
+    "Actor": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name or identifier for this actor"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "EOA",
+            "Contract",
+            "System"
+          ],
+          "description": "Type of blockchain actor (EOA = Externally Owned Account)"
+        },
+        "address": {
+          "type": "string",
+          "description": "Address or address variable name"
+        },
+        "balance": {
+          "type": "string",
+          "description": "Initial balance (in wei, eth, or other denomination)"
+        },
+        "privateKey": {
+          "type": "string",
+          "description": "Private key for EOA (for testing environments only)"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "ElementType": {
+      "type": "string",
+      "enum": [
+        "background",
+        "scenario"
+      ]
+    },
+    "Hook": {
+      "type": "object",
+      "properties": {
+        "match": {
+          "$ref": "#/definitions/Match"
+        },
+        "result": {
+          "$ref": "#/definitions/Result"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "Match": {
+      "type": "object",
+      "properties": {
+        "location": {
+          "type": "string"
+        },
+        "arguments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Argument"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Argument": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "value",
+        "offset"
+      ],
+      "additionalProperties": false
+    },
+    "Result": {
+      "type": "object",
+      "properties": {
+        "duration": {
+          "type": "number"
+        },
+        "status": {
+          "$ref": "#/definitions/Status"
+        },
+        "error_message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "Status": {
+      "type": "string",
+      "enum": [
+        "passed",
+        "failed",
+        "skipped",
+        "undefined",
+        "pending",
+        "unknown"
+      ]
+    },
+    "Step": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string"
+        },
+        "line": {
+          "type": "number"
+        },
+        "match": {
+          "$ref": "#/definitions/Match"
+        },
+        "name": {
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/definitions/Result"
+        },
+        "doc_string": {
+          "$ref": "#/definitions/DocString"
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DataTableRow"
+          }
+        },
+        "solidityAction": {
+          "$ref": "#/definitions/SolidityAction"
+        }
+      },
+      "required": [
+        "keyword",
+        "line",
+        "name",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "SolidityAction": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "deploy",
+            "call",
+            "expectRevert",
+            "expectEmit",
+            "expectBalance",
+            "expectStorage",
+            "mockCall",
+            "prank",
+            "deal",
+            "warp",
+            "roll",
+            "snapshot",
+            "revertTo",
+            "assertInvariant",
+            "assertState",
+            "cfgTraversal"
+          ],
+          "description": "Type of Solidity test action"
+        },
+        "contract": {
+          "type": "string",
+          "description": "Contract name or instance variable"
+        },
+        "function": {
+          "type": "string",
+          "description": "Function name to call"
+        },
+        "args": {
+          "type": "array",
+          "items": {},
+          "description": "Arguments for the function call"
+        },
+        "from": {
+          "type": "string",
+          "description": "Address to call from"
+        },
+        "value": {
+          "type": "string",
+          "description": "ETH value to send"
+        },
+        "gas": {
+          "type": "string",
+          "description": "Gas limit for the call"
+        },
+        "returns": {
+          "type": "object",
+          "description": "Expected return values"
+        },
+        "cfgNodeId": {
+          "type": "string",
+          "description": "ID of CFG node related to this action"
+        },
+        "invariantsToCheck": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of invariant IDs to check after this action"
+        },
+        "expectedPath": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of CFG node IDs expected to be traversed by this action"
+        },
+        "stateAssertions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/StateAssertion"
+          }
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "StateAssertion": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "type": "string",
+          "description": "Contract name or instance variable"
+        },
+        "variable": {
+          "type": "string",
+          "description": "State variable name or accessor"
+        },
+        "expected": {
+          "description": "Expected value or expression"
+        },
+        "operator": {
+          "type": "string",
+          "enum": [
+            "==",
+            "!=",
+            ">",
+            ">=",
+            "<",
+            "<=",
+            "contains",
+            "startsWith",
+            "endsWith"
+          ],
+          "default": "=="
+        },
+        "message": {
+          "type": "string",
+          "description": "Custom assertion message"
+        }
+      },
+      "required": [
+        "variable",
+        "expected"
+      ],
+      "additionalProperties": false
+    },
+    "DocString": {
+      "type": "object",
+      "properties": {
+        "line": {
+          "type": "number"
+        },
+        "value": {
+          "type": "string"
+        },
+        "content_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "line",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "DataTableRow": {
+      "type": "object",
+      "properties": {
+        "cells": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "cells"
+      ],
+      "additionalProperties": false
+    },
+    "Tag": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "line": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
