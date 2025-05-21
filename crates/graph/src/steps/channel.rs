@@ -106,6 +106,9 @@ impl CallGraphGeneratorStep for CallsHandling {
             ; Capture assignment expression (write target extracted in Rust)
             (assignment_expression) @assignment_expr
 
+            ; Capture augmented assignment expression (e.g., +=, -=)
+            (augmented_assignment_expression) @augmented_assignment_expr
+
             ; Capture identifiers used in expressions (potential read)
             ; Exclude identifiers that are part of a call's function name
             ; Exclude identifiers that are the left side of an assignment
@@ -204,6 +207,9 @@ impl CallGraphGeneratorStep for CallsHandling {
             let assignment_capture_index = call_query
                 .capture_index_for_name("assignment_expr")
                 .unwrap_or(u32::MAX);
+            let augmented_assignment_capture_index = call_query // New capture index
+                .capture_index_for_name("augmented_assignment_expr")
+                .unwrap_or(u32::MAX);
             let read_identifier_capture_index =
                 call_query // Renamed
                     .capture_index_for_name("read_candidate_identifier")
@@ -254,6 +260,8 @@ impl CallGraphGeneratorStep for CallsHandling {
                         Some("call")
                     } else if capture_index == assignment_capture_index {
                         Some("write")
+                    } else if capture_index == augmented_assignment_capture_index { // New type
+                        Some("augmented_write")
                     } else if capture_index == read_identifier_capture_index {
                         // Renamed
                         Some("read_identifier") // Differentiate
@@ -286,6 +294,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                     "while" => 3, // Added
                                     "for" => 3,   // Added
                                     "write" => 2,
+                                    "augmented_write" => 2, // Same collection priority as simple write
                                     "delete" => 2, // Same priority as write
                                     "read_identifier" => 1,
                                     "read_subscript" => 1,
@@ -482,6 +491,25 @@ fn process_statements_in_block(
     let mut processed_nested_while_nodes: HashSet<usize> = HashSet::new(); // For TsNode.id() of while stmts
     let mut processed_nested_for_nodes: HashSet<usize> = HashSet::new(); // For TsNode.id() of for stmts
 
+    // Helper to unwrap common expression wrappers like 'expression' or 'parenthesized_expression'
+    fn unwrap_expression_wrapper(mut n: TsNode) -> TsNode {
+        loop {
+            match n.kind() {
+                "expression" | "parenthesized_expression" => {
+                    if n.named_child_count() == 1 {
+                        if let Some(child) = n.named_child(0) {
+                            n = child;
+                            continue; // Continue unwrapping
+                        }
+                    }
+                    break; // Not a simple wrapper or no child
+                }
+                _ => break, // Not a wrapper kind we handle
+            }
+        }
+        n
+    }
+
     // --- Collect potential call, new, emit, if, etc. nodes first within this block_ts_node ---
     let mut potential_nodes: Vec<(TsNode, (usize, usize), &str)> = Vec::new();
     let call_expr_capture_index = call_query
@@ -517,6 +545,9 @@ fn process_statements_in_block(
     let for_statement_capture_index = call_query // New
         .capture_index_for_name("for_statement_node")
         .unwrap_or(u32::MAX);
+    let augmented_assignment_capture_index = call_query
+        .capture_index_for_name("augmented_assignment_expr")
+        .unwrap_or(u32::MAX);
 
     let mut call_matches = call_cursor.matches(call_query, block_ts_node, |node: TsNode| {
         iter::once(&source_bytes[node.byte_range()])
@@ -544,6 +575,8 @@ fn process_statements_in_block(
                 Some("read_subscript")
             } else if capture_index == delete_expression_capture_index {
                 Some("delete")
+            } else if capture_index == augmented_assignment_capture_index { // Added this
+                Some("augmented_write")
             } else if capture_index == if_statement_capture_index {
                 Some("if")
             } else if capture_index == while_statement_capture_index {
@@ -605,7 +638,7 @@ fn process_statements_in_block(
             "call" => 4,
             "if" => 3,
             "while" => 3, // Added
-            "write" | "delete" => 2,
+            "write" | "delete" | "augmented_write" => 2,
             "read_identifier" | "read_subscript" => 1,
             _ => 0,
         }
@@ -961,24 +994,12 @@ fn process_statements_in_block(
                 let assignment_node = node;
                 let assignment_span = span;
                 if let Some(lhs_node_expr) = assignment_node.child_by_field_name("left") {
-                    // Helper to get the actual node if wrapped in 'expression'
-                    fn get_actual_target_node(mut n: TsNode) -> TsNode {
-                        while n.kind() == "expression" && n.named_child_count() == 1 {
-                            if let Some(child) = n.named_child(0) {
-                                n = child;
-                            } else {
-                                break;
-                            }
-                        }
-                        n
-                    }
-
                     // Helper to find the base identifier of a complex expression (identifier, member_expression, array_access)
                     fn find_base_identifier_recursive<'a>(
                         n: TsNode<'a>,
                         input_source: &str,
                     ) -> Option<TsNode<'a>> {
-                        let actual_node = get_actual_target_node(n);
+                        let actual_node = unwrap_expression_wrapper(n); // Use new helper
                         match actual_node.kind() {
                             "identifier" => Some(actual_node),
                             "member_expression" => {
@@ -1046,7 +1067,9 @@ fn process_statements_in_block(
                             //     .get(var_node_id)
                             //     .map_or(false, |n| n.node_type == NodeType::StorageVariable)
                             // {
-                            eprintln!("[Storage DEBUG Deferred] Collecting WRITE modification: CallerID={}, VarID={}, VarName='{}', AssignmentSpan={:?}", owner_node_id, var_node_id, var_name, assignment_span);
+                            eprintln!("[Storage DEBUG Deferred] Collecting WRITE modification (simple assignment): CallerID={}, VarID={}, VarName='{}', AssignmentSpan={:?}", owner_node_id, var_node_id, var_name, assignment_span);
+                            
+                            // This is for simple assignment_expression, only add StorageWrite
                             modifications.push(GraphModification {
                                 source_node_id: owner_node_id,
                                 target_node_id: var_node_id,
@@ -1058,7 +1081,7 @@ fn process_statements_in_block(
                                 event_name: None,
                                 sort_span_start: assignment_span.0,
                                 chain_index: None,
-                                execution_priority: 1000,
+                                execution_priority: 1000, 
                             });
                             // } else {
                             //     eprintln!("[Storage DEBUG Deferred] Write target '{}' (NodeID {}) is not a StorageVariable.", var_name, var_node_id);
@@ -1066,9 +1089,82 @@ fn process_statements_in_block(
                         } else {
                             eprintln!("[Storage DEBUG Deferred] Write target '{}' could not be resolved via inheritance.", var_name);
                         }
+                    } else {
+                        eprintln!("[Storage DEBUG Deferred] Could not find base identifier for LHS of assignment: {}", get_node_text(&lhs_node_expr, &input.source));
                     }
+                } else {
+                    eprintln!("[Storage DEBUG Deferred] Assignment node missing LHS. Span: {:?}", assignment_span);
                 }
                 handled_node_ids.insert(node.id()); // Mark assignment_expression as handled
+            }
+            "augmented_write" => { // New case for augmented_assignment_expression
+                let augmented_assignment_node = node;
+                let assignment_span = span; // Span of the whole augmented_assignment_expression
+                if let Some(lhs_node_expr) = augmented_assignment_node.child_by_field_name("left") {
+                     // Helper to find the base identifier (re-defined for scope or use from outer scope if visible)
+                    fn find_base_identifier_recursive_for_aug<'a>( // Renamed
+                        n: TsNode<'a>,
+                        input_source: &str,
+                    ) -> Option<TsNode<'a>> {
+                        let actual_node = unwrap_expression_wrapper(n); // Use new helper
+                        match actual_node.kind() {
+                            "identifier" => Some(actual_node),
+                            "member_expression" => {
+                                if let Some(object_expr) = actual_node.child_by_field_name("object") {
+                                    find_base_identifier_recursive_for_aug(object_expr, input_source)
+                                } else { None }
+                            }
+                            "array_access" => {
+                                if let Some(base_expr) = actual_node.child_by_field_name("base") {
+                                    find_base_identifier_recursive_for_aug(base_expr, input_source)
+                                } else { None }
+                            }
+                            _ => None,
+                        }
+                    }
+
+                    if let Some(write_target_node) = find_base_identifier_recursive_for_aug(lhs_node_expr, &input.source) {
+                        let var_name = get_node_text(&write_target_node, &input.source);
+                        if let Some(var_node_id) = resolve_storage_variable(&owner_contract_name_opt, &var_name, graph, ctx) {
+                            eprintln!("[Storage DEBUG Deferred] Augmented assignment for '{}'. Adding implicit StorageRead.", var_name);
+                            modifications.push(GraphModification {
+                                source_node_id: owner_node_id,
+                                target_node_id: var_node_id,
+                                edge_type: EdgeType::StorageRead,
+                                span: (write_target_node.start_byte(), write_target_node.end_byte()), // Span of the LHS identifier
+                                modifier: None,
+                                return_value: None,
+                                arguments: None,
+                                event_name: None,
+                                sort_span_start: assignment_span.0, // Group with the assignment
+                                chain_index: None,
+                                execution_priority: 990, // Read happens just before write
+                            });
+
+                            eprintln!("[Storage DEBUG Deferred] Collecting WRITE modification (augmented assignment): CallerID={}, VarID={}, VarName='{}', AssignmentSpan={:?}", owner_node_id, var_node_id, var_name, assignment_span);
+                            modifications.push(GraphModification {
+                                source_node_id: owner_node_id,
+                                target_node_id: var_node_id,
+                                edge_type: EdgeType::StorageWrite,
+                                span: assignment_span, // Span of the whole augmented assignment
+                                modifier: None,
+                                return_value: None,
+                                arguments: None,
+                                event_name: None,
+                                sort_span_start: assignment_span.0,
+                                chain_index: None,
+                                execution_priority: 1000, // Write happens after read
+                            });
+                        } else {
+                            eprintln!("[Storage DEBUG Deferred] Augmented write target '{}' could not be resolved via inheritance.", var_name);
+                        }
+                    } else {
+                        eprintln!("[Storage DEBUG Deferred] Could not find base identifier for LHS of augmented assignment: {}", get_node_text(&lhs_node_expr, &input.source));
+                    }
+                } else {
+                    eprintln!("[Storage DEBUG Deferred] Augmented assignment node missing LHS. Span: {:?}", assignment_span);
+                }
+                handled_node_ids.insert(node.id()); // Mark augmented_assignment_expression as handled
             }
             "read_identifier" => {
                 // --- Handle Storage Reads from Identifiers ---
