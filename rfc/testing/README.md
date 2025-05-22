@@ -68,6 +68,46 @@ graph LR
 
 This approach aims to create a robust and efficient framework for testing Solidity smart contracts, bridging the gap between human-readable specifications and executable tests.
 
+## Grounding LLM Output with a JSON Schema
+
+Ensuring that Large Language Models (LLMs) produce structured, valid, and reliable output is a significant challenge when building LLM-powered applications. While prompt engineering can guide the model, it can become complex and fragile. [Microsoft's TypeChat project](https://github.com/microsoft/Typechat) introduced the concept of "schema engineering," where developers define TypeScript types to represent user intents, and the library handles prompt construction, schema validation, and even repair of the LLM's output.
+
+The proposed approach to converting Gherkin specifications into structured JSON for test generation is conceptually similar to TypeChat, with a key difference: instead of dynamically generating schemas from TypeScript types, we utilize a predefined and fixed JSON schema: [`gherkin-extended-schema.json`](./gherkin-extended-schema.json).
+
+This schema serves as the "ground truth" for the structure of the extended Gherkin language. It meticulously defines the expected format for features, scenarios, backgrounds, steps, Solidity-specific actions (like `deploy`, `call`, `expectRevert`), references to Control Flow Graph (CFG) nodes, and contract metadata.
+
+The core of the grounding process lies in using this deterministic schema to validate and structure the output from the LLM, which is inherently non-deterministic. This validation step is crucial for ensuring the LLM's interpretation accurately captures the intent expressed in the Gherkin feature files, transforming it into a reliable, deterministic format suitable for downstream processing by the test generation engine.
+
+### Workflow for Grounding LLM Output
+
+The process of grounding the LLM's output against our schema involves the following steps:
+
+1.  **Gherkin Input**: The system feeds the extended Gherkin feature files (e.g., [`MyTokenTransfer.feature`](./MyTokenTransfer.feature)) to the LLM, along with a carefully constructed prompt (as detailed in the "Example Prompt" section) that instructs the LLM to generate JSON according to our specific structure.
+2.  **LLM Processing**: The LLM processes the input and generates a raw JSON string, attempting to adhere to the requested format.
+3.  **Schema Validation**: This raw JSON output is then rigorously validated against the [`gherkin-extended-schema.json`](./gherkin-extended-schema.json). This step checks for correct data types, required fields, and overall structural integrity.
+4.  **Repair**: If the validation fails, an optional repair loop could be initiated. This might involve:
+    *   Sending the errors back to the LLM with a request to correct its output.
+    *   Employing simpler, rule-based heuristics to fix common validation errors.
+    (This repair step is a common practice in systems like TypeChat to improve robustness.)
+5.  **Validated JSON Output**: Once the JSON output successfully validates against the schema (either directly or after a repair step), it is considered "grounded." This means it is a reliable, machine-readable representation of the Gherkin specification (e.g., [`example-usage.json`](./example-usage.json)).
+6.  **Downstream Consumption**: The validated and structured JSON is then passed to the Solidity test generation module, which can confidently parse it to create executable test files (e.g., [`MyTokenTransfer.t.sol`](./MyTokenTransfer.t.sol)).
+
+### Grounding Workflow Diagram
+
+```mermaid
+graph TD
+    A["Extended Gherkin Features (.feature)"] --> B{LLM NLU Processing};
+    B --> C["Raw JSON Output from LLM"];
+    C --> D{Schema Validation};
+    H["gherkin-extended-schema.json"] -.->|Validates Against| D;
+    D -- Output is Valid --> F["Validated Structured JSON (.json)"];
+    D -- Output is Invalid --> E{"Repair Loop (Conceptual)"};
+    E -- Attempt Repair --> B;
+    F --> G["Solidity Test Stub Generation"];
+```
+
+This schema-driven validation process is crucial for building a dependable automated test generation pipeline, ensuring that the bridge between natural language test specifications and executable code is robust and accurate.
+
 ## End-to-End Example Scenario
 
 Let's illustrate the proposed workflow using the example files provided:
