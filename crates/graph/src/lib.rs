@@ -8,6 +8,8 @@ pub mod chains;
 pub mod steps;
 pub mod builtin;
 pub mod manifest;
+pub mod reachability;
+pub mod storage_access;
 
 #[cfg(test)]
 mod tests;

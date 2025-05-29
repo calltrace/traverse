@@ -43,6 +43,14 @@ name = "trvd"
 path = "src/bin/trvd.rs"
 
 [[bin]]
+name = "sol-storage-analyzer"
+path = "src/bin/sol-storage-analyzer.rs"
+
+[[bin]]
+name = "storage-trace"
+path = "src/bin/storage-trace.rs"
+
+[[bin]]
 name = "sol2cg"
 path = "src/bin/sol2cg.rs"
 
