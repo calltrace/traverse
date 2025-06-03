@@ -48,7 +48,7 @@ RUN mkdir -p crates/tree-sitter-traverse/bindings/rust && echo "// dummy" > crat
 # This command might fetch and compile dependencies for the whole workspace
 RUN cargo build --release --bin sol2cg
 # Clean up dummy files and build artifacts related to them to keep the layer clean
-RUN rm -rf src crates target/release/.fingerprint target/release/build target/release/deps/sol2cg*
+RUN rm -rf src crates target/release/.fingerprint target/release/build target/release/deps/sol2cg* target/release/deps/storage-trace*
 
 # Copy the entire project source code
 # This includes the actual src/bin/sol2cg.rs and all crate sources
@@ -58,6 +58,7 @@ COPY . .
 # Force removal of potentially outdated build script artifacts before the final build
 RUN rm -rf target/release/build/
 RUN cargo build --release --bin sol2cg
+RUN cargo build --release --bin storage-trace
 
 # Stage 2: Create the final runtime image
 # Use a minimal base image like Debian Slim for the final stage
@@ -70,6 +71,8 @@ RUN groupadd --system --gid 1001 appgroup && \
 # Copy the compiled binary from the builder stage to the final image
 # Place it in a standard location like /usr/local/bin
 COPY --from=builder /usr/src/app/target/release/sol2cg /usr/local/bin/sol2cg
+COPY --from=builder /usr/src/app/target/release/storage-trace /usr/local/bin/storage-trace
+
 
 # Ensure the binary is executable
 RUN chmod +x /usr/local/bin/sol2cg
