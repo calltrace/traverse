@@ -1,21 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/core",
-    "crates/ir", 
     "crates/language",
-    "crates/frontend",
-    "crates/backend",
-    "crates/traverse-cli",
-    "crates/compiler",
-    "crates/tree-sitter-traverse",
-    "crates/sol2seq",
+    "crates/cli",
     "crates/graph"
-]
-
-# exclude workspae members 
-exclude = [
-    "ri/solidity_ddlog",
 ]
 
 

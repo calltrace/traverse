@@ -1,46 +1,8 @@
 [package]
-name = "traverse-cli"
+name = "cli"
 version = "0.1.0"
 edition = "2021"
 resolver = "2"
-
-[[bin]]
-name = "ts-to-ddlog"
-path = "src/bin/ts-to-ddlog.rs"
-
-[[bin]]
-name = "repl"
-path = "src/bin/repl.rs"
-
-[[bin]]
-name = "ts-grammar-to-ddlog"
-path = "src/bin/ts-grammar-to-ddlog.rs"
-
-[[bin]]
-name = "trvc"
-path = "src/bin/trvc.rs"
-
-[[bin]]
-name = "trvf"
-path = "src/bin/trvf.rs"
-
-
-[[bin]]
-name = "ftd"
-path = "src/bin/ftd.rs"
-
-
-#[[bin]]
-#name = "trvh"
-#path = "src/bin/trvh.rs"
-
-[[bin]]
-name = "trvr"
-path = "src/bin/trvr.rs"
-
-[[bin]]
-name = "trvd"
-path = "src/bin/trvd.rs"
 
 [[bin]]
 name = "sol-storage-analyzer"
@@ -61,12 +23,7 @@ path = "src/bin/sol2bnd.rs"
 [dependencies]
 tracing = "0.1"
 tracing-subscriber = "0.3"
-core = { path = "../core" }
-frontend = { path = "../frontend" }
-backend = { path = "../backend" }
-ir = { path = "../ir" }
 language = { path = "../language" }
-compiler = { path = "../compiler" }
 mermaid = { path = "../mermaid" }
 graph = { path = "../graph" }
 proc-macro2 = "1.0.92"

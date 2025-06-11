@@ -22,19 +22,9 @@ serde = "1.0.217"
 serde_derive = "1.0.217"
 serde_json = "1.0.137"
 syn = { version = "2.0.90", features = ["full"] }
-#tree-sitter-solidity = "1.2.10"
 tree-sitter = "0.24.5"
-#tree-sitter = { version = "0.21.4", package = "tree-sitter-facade-sg" }
-#tree-sitter-bash = { version = "0.23.3", optional = true }
-#tree-sitter-json = { version = "0.23.3", optional = true }
 
 #include cc compiler 
 [build-dependencies]
 cc = "1.0"
 
-# Commenting out these 3 as those will be needed only by the generated ddlog crate
-#differential_datalog = {path = "../solidity_ddlog/differential_datalog"}
-#solidity = {path = "../solidity_ddlog"}
-#types = {path = "../solidity_ddlog/types"}
-
-#value = {path = "../solidity_ddlog/value"}
