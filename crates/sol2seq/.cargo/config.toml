@@ -1,2 +1,0 @@
-[alias]
-cleanall = ["run", "--package", "sol2seq", "--bin", "cargo-cleanall", "--"]
