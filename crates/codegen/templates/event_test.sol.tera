@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "forge-std/Test.sol";
+import "../src/{{ contract_name }}.sol"; // Path to the contract under test
+
+/**
+ * @title {{ function_name }}EventTest
+ * @dev Tests for events emitted by the {{ function_name }} function in {{ contract_name }}.
+ * Generated automatically by sol2test @ {{ timestamp }}
+ *
+ * @notice This test contract might require manual setup of function parameters
+ *         and expected event emission values.
+ */
+contract {{ function_name }}EventTest is Test {
+    {{ contract_name }} internal contractInstance;
+
+    // Redefine all events from the original contract to make them accessible for `vm.expectEmit`
+    {% for event_def in all_event_definitions_for_contract %}
+    event {{ event_def.name }}(
+        {%- for param in event_def.params -%}
+        {{ param.param_type }}{% if param.indexed %} indexed{% endif %} {{ param.name | default(value="param" ~ loop.index) }}{% if not loop.last %}, {% endif %}
+        {%- endfor -%}
+    );
+    {% endfor %}
+
+    function setUp() public virtual {
+        // TODO: If {{ contract_name }} has a constructor, deploy it with appropriate arguments.
+        // Example: contractInstance = new {{ contract_name }}(arg1, arg2);
+        contractInstance = new {{ contract_name }}();
+    }
+
+    {% for event in events_to_test %}
+    /**
+     * @dev Tests that {{ function_name }} emits {{ event.event_name }}
+     */
+    function test_{{ function_name | snake_case }}_emits_{{ event.event_name | snake_case }}() public {
+        // --- Arrange ---
+        // TODO: Set up state and prepare function arguments for {{ function_name }}
+        // Example: uint256 valueToSend = 100;
+        {% for f_param in function_params %}
+        {{ f_param.type }} {{ f_param.name }}_val = /* TODO: Provide test value for {{ f_param.name }} (type: {{ f_param.type }}) */;
+        {% endfor %}
+
+        // --- Act & Assert ---
+        // Setup vm.expectEmit for {{ event.event_name }}
+        // You need to specify which topics to check (true/false) and their expected values if checked.
+        // Then, specify if data should be checked and provide the abi.encoded data.
+        // Example for an event MyEvent(address indexed sender, uint256 value):
+        // vm.expectEmit(true, false, false, true); // Check 1st topic (sender), not 2nd/3rd, check data (value)
+        // emit MyEvent(address(this), 123); // Expected emission
+        // More info: https://book.getfoundry.sh/forge/cheatcodes/expect-emit
+
+        // TODO: Correctly configure vm.expectEmit for {{ event.event_name }}
+        // This requires knowing which parameters are indexed and their expected values.
+        // The following is a placeholder.
+        vm.expectEmit(true, true, true, true); // Default: check all topics and data
+
+        emit {{ event.event_name }}(
+            {%- for e_param in event.event_params -%}
+            /* TODO: Provide expected value for {{ e_param.name | default(value="param" ~ loop.index) }} (type: {{ e_param.param_type }}) */{% if not loop.last %}, {% endif %}
+            {%- endfor -%}
+        );
+
+        // Call the function that should emit the event
+        {% if function_return_type and function_return_type != "void" %}
+        {{ function_return_type }} returnedValue = contractInstance.{{ function_name }}(
+        {%- else %}
+        contractInstance.{{ function_name }}(
+        {%- endif %}
+            {%- for f_param in function_params -%}
+            {{ f_param.name }}_val{% if not loop.last %}, {% endif %}
+            {%- endfor -%}
+        );
+
+        // TODO: Add assertions for the return value if applicable
+        // Example: assertEq(returnedValue, expectedReturnValue, "Return value mismatch");
+    }
+    {% endfor %}
+}
+

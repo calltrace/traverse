@@ -20,12 +20,17 @@ path = "src/bin/sol2cg.rs"
 name = "sol2bnd"
 path = "src/bin/sol2bnd.rs"
 
+[[bin]]
+name = "sol2test"
+path = "src/bin/sol2test.rs"
+
 [dependencies]
 tracing = "0.1"
 tracing-subscriber = "0.3"
 language = { path = "../language" }
 mermaid = { path = "../mermaid" }
 graph = { path = "../graph" }
+codegen = { path = "../codegen" }
 proc-macro2 = "1.0.92"
 quote = "1.0.37"
 syn = { version = "2.0.90", features = ["full"] }
@@ -41,3 +46,8 @@ anyhow = "1.0" # For easy error handling
 walkdir = "2"   # For directory traversal
 thiserror = "1.0" # For custom error types
 serde_yaml = "0.9.34"
+tera = "1.20.0"
+chrono = "0.4.41"
+serde_derive = "1.0.219"
+serde_json = "1.0.140"
+serde = "1.0.219"

@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "../src/{{ contract.name }}.sol";
+
+/**
+ * @title Deployer_{{ contract.name }}
+ * @dev Deployer contract for {{ contract.name }}
+ * Generated automatically from CFG analysis @ {{ timestamp }}
+ */
+contract Deployer_{{ contract.name }} {
+    {{ contract.name }} public deployedContract;
+    
+    /**
+     * @dev Deploy {{ contract.name }} with constructor parameters
+     {% if contract.constructor_params -%}
+     {% for param in contract.constructor_params -%}
+     * @param {{ param.name }} {{ param.description | default(value="Parameter " ~ param.name) }}
+     {% endfor -%}
+     {% endif -%}
+     * @return The address of the deployed contract
+     */
+    function deploy(
+        {%- if contract.constructor_params -%}
+        {%- for param in contract.constructor_params -%}
+        {{ param.param_type }} {{ param.name }}{% if not loop.last %},{% endif %}
+        {%- endfor -%}
+        {%- else -%}
+        string memory _greeting
+        {%- endif -%}
+    ) external returns (address) {
+        deployedContract = new {{ contract.name }}(
+            {%- if contract.constructor_params -%}
+            {%- for param in contract.constructor_params -%}
+            {{ param.name }}{% if not loop.last %}, {% endif %}
+            {%- endfor -%}
+            {%- else -%}
+            _greeting
+            {%- endif -%}
+        );
+        return address(deployedContract);
+    }
+    
+    /**
+     * @dev Get the address of the deployed contract
+     * @return The contract address, or zero if not deployed
+     */
+    function getDeployedAddress() external view returns (address) {
+        return address(deployedContract);
+    }
+    
+    /**
+     * @dev Check if contract has been deployed
+     * @return True if contract is deployed
+     */
+    function isDeployed() external view returns (bool) {
+        return address(deployedContract) != address(0);
+    }
+}
