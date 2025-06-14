@@ -24,38 +24,37 @@
 // contract information from a call graph, building test contracts, and interacting
 // with Foundry for code generation and validation.
 
-use graph::cg::{
-    CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput,
-    EdgeType, NodeType, Visibility
-};
 use anyhow::{Context, Result};
-use foundry_compilers::{
-    artifacts::{Settings, Source, Sources},
-    solc::Solc,
+use graph::cg::{
+    CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, EdgeType, NodeType,
+    ParameterInfo, Visibility,
 };
-use foundry_compilers_artifacts_solc::SolcInput;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf};
 use std::str::FromStr;
+use std::{collections::HashMap, path::PathBuf};
 use std::{fs, path::Path};
 
+use crate::deployer_stub; 
+use crate::revert_stub;
+use crate::state_change_stub; 
 use crate::CodeGenError;
 
 #[derive(Debug, serde::Serialize)]
 pub struct ContractInfo {
-    name: String,
-    has_constructor: bool,
-    constructor_params: Vec<ParameterInfo>,
-    functions: Vec<FunctionInfo>,
+    pub name: String,                           
+    pub has_constructor: bool,                  
+    pub constructor_params: Vec<ParameterInfo>,
+    pub functions: Vec<FunctionInfo>,           
 }
 
 #[derive(Debug, serde::Serialize, Clone)]
-struct FunctionInfo {
-    name: String,
-    visibility: String,
-    return_type: Option<String>,
-    parameters: Vec<ParameterInfo>,
+pub struct FunctionInfo {
+    // Made public
+    pub name: String,
+    pub visibility: String,
+    pub return_type: Option<String>,
+    pub parameters: Vec<ParameterInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,14 +81,6 @@ pub struct TestFunction {
     pub visibility: String,
     pub body: Vec<Statement>,
     pub test_type: TestType,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ParameterInfo {
-    pub name: String,
-    #[serde(rename = "type")]
-    pub param_type: String,
-    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -165,77 +156,75 @@ pub enum Expression {
 
 pub struct FoundryIntegration {
     project_root: PathBuf,
-    solc: Solc,
 }
 
 impl FoundryIntegration {
     pub fn new(project_root: PathBuf) -> Result<Self> {
-        let version = Version::from_str("0.8.20").context("Failed to parse Solidity version")?;
-
-        let solc = Solc::find_svm_installed_version(&version)
-            .context("Failed to find Solc version")?
-            .unwrap_or_else(|| {
-                Solc::new("solc").unwrap_or_else(|_| {
-                    Solc::find_or_install(&version)
-                        .unwrap_or_else(|_| Solc::new_with_version("solc", version.clone()))
-                })
-            });
-
-        Ok(Self { project_root, solc })
+        Ok(Self { project_root })
     }
 
     pub fn new_with_project_setup(project_root: PathBuf) -> Result<Self> {
-        // Ensure foundry.toml exists
+        // Create project directory if it doesn't exist
+        if !project_root.exists() {
+            fs::create_dir_all(&project_root).context("Failed to create project directory")?;
+        }
+
+        // Check if this is already a Foundry project
         let foundry_toml_path = project_root.join("foundry.toml");
         if !foundry_toml_path.exists() {
-            Self::create_default_foundry_toml(&foundry_toml_path)?;
-        }
-
-        // Ensure src directory exists
-        let src_dir = project_root.join("src");
-        if !src_dir.exists() {
-            fs::create_dir_all(&src_dir).context("Failed to create src directory")?;
-        }
-
-        // Ensure test directory exists
-        let test_dir = project_root.join("test");
-        if !test_dir.exists() {
-            fs::create_dir_all(&test_dir).context("Failed to create test directory")?;
+            // Initialize Foundry project
+            Self::init_foundry_project(&project_root)?;
         }
 
         Self::new(project_root)
     }
 
-    fn create_default_foundry_toml(path: &Path) -> Result<()> {
-        let foundry_config = r#"[profile.default]
-src = "src"
-out = "out"
-libs = ["lib"]
-test = "test"
-cache_path = "cache"
-solc_version = "0.8.20a
+    fn init_foundry_project(project_root: &Path) -> Result<()> {
+        use std::process::Command;
 
-[fmt]
-line_length = 120
-tab_width = 4
-bracket_spacing = true
-"#;
-        fs::write(path, foundry_config).context("Failed to create foundry.toml")?;
-        Ok(())
+        println!(
+            "🔧 Initializing Foundry project at: {}",
+            project_root.display()
+        );
+
+        let output = Command::new("forge")
+            .arg("init")
+            .arg("--force") 
+            .current_dir(project_root)
+            .output()
+            .context("Failed to execute 'forge init' command")?;
+
+        if output.status.success() {
+            println!("✅ Successfully initialized Foundry project");
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+
+            if stderr.contains("already exists") || stdout.contains("Initialized") {
+                println!("✅ Foundry project initialized (some files already existed)");
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!(
+                    "Failed to initialize Foundry project: {}",
+                    stderr
+                ))
+            }
+        }
     }
 
-    pub fn setup_test_project(&self, contracts: &[&str]) -> Result<()> {
-        // Create BaseTest.sol if it doesn't exist
-        let base_test_path = self.project_root.join("test/BaseTest.sol");
-        if !base_test_path.exists() {
-            self.create_base_test_contract(&base_test_path)?;
-        }
+    pub fn copy_contract_to_src(&self, contract_path: &Path, contract_name: &str) -> Result<()> {
+        let src_dir = self.project_root.join("src");
+        let dest_path = src_dir.join(format!("{}.sol", contract_name));
 
-        for contract_name in contracts {
-            let contract_path = self.project_root.join(format!("src/{}.sol", contract_name));
-            if !contract_path.exists() {
-                self.create_sample_contract(&contract_path, contract_name)?;
-            }
+        if contract_path.exists() {
+            fs::copy(contract_path, &dest_path)
+                .context("Failed to copy contract to src directory")?;
+            println!(
+                "📄 Copied {} to {}",
+                contract_path.display(),
+                dest_path.display()
+            );
         }
 
         Ok(())
@@ -285,91 +274,42 @@ abstract contract BaseTest is Test {
         Ok(())
     }
 
-    fn create_sample_contract(&self, path: &Path, contract_name: &str) -> Result<()> {
-        let contract_content = format!(
-            r#"// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+    pub fn write_solidity_test_file(
+        &self,
+        contract: &SolidityTestContract,
+        test_file_path: &Path,
+    ) -> Result<()> {
+        let source_code = self.generate_solidity_code(contract)?;
 
-/**
- * @title {}
- * @dev Sample contract generated for testing
- */
-contract {} {{
-    string public greeting;
-    uint256 public value;
-    
-    event GreetingChanged(string newGreeting);
-    event ValueChanged(uint256 newValue);
-    
-    constructor(string memory _greeting) {{
-        require(bytes(_greeting).length > 0, "Greeting cannot be empty");
-        greeting = _greeting;
-        value = 0;
-    }}
-    
-    function setGreeting(string memory _greeting) public {{
-        require(bytes(_greeting).length > 0, "Greeting cannot be empty");
-        greeting = _greeting;
-        emit GreetingChanged(_greeting);
-    }}
-    
-    function setValue(uint256 _value) public {{
-        require(_value > 0, "Value must be positive");
-        value = _value;
-        emit ValueChanged(_value);
-    }}
-    
-    function getGreeting() public view returns (string memory) {{
-        return greeting;
-    }}
-    
-    function getValue() public view returns (uint256) {{
-        return value;
-    }}
-}}
-"#,
-            contract_name, contract_name
-        );
-
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+        if let Some(parent_dir) = test_file_path.parent() {
+            fs::create_dir_all(parent_dir).context("Failed to create test directory")?;
         }
-        fs::write(path, contract_content).context("Failed to create sample contract")?;
+        fs::write(test_file_path, &source_code).context(format!(
+            "Failed to write test contract to {}",
+            test_file_path.display()
+        ))?;
         Ok(())
     }
 
-    pub fn compile_test_contract(&self, contract: &SolidityTestContract) -> Result<bool> {
-        let source_code = self.generate_solidity_code(contract)?;
-        let file_name = format!("{}.t.sol", contract.name);
+    pub fn run_project_build(&self) -> Result<bool> {
+        use std::process::Command;
+        let output = Command::new("forge")
+            .arg("build")
+            .current_dir(&self.project_root)
+            .output()
+            .context("Failed to execute 'forge build' command")?;
 
-        let mut sources = Sources::new();
-        sources.insert(PathBuf::from(&file_name), Source::new(source_code));
-
-        let input = SolcInput {
-            language: foundry_compilers_artifacts_solc::SolcLanguage::Solidity,
-            sources,
-            settings: Settings::default(),
-        };
-
-        let output = self
-            .solc
-            .compile(&input)
-            .context("Failed to compile Solidity contract")?;
-
-        if output.has_error() {
-            for error in &output.errors {
-                eprintln!(
-                    "Compilation error: {}",
-                    error
-                        .formatted_message
-                        .as_deref()
-                        .unwrap_or("Unknown error")
-                );
-            }
-            return Ok(false);
+        if output.status.success() {
+            Ok(true)
+        } else {
+            eprintln!(
+                "Forge project build failed:\nProject Root: {}\nStdout:\n{}\nStderr:\n{}",
+                self.project_root.display(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            Ok(false)
         }
-
-        Ok(true)
     }
 
     pub fn generate_solidity_code(&self, contract: &SolidityTestContract) -> Result<String> {
@@ -377,7 +317,6 @@ contract {} {{
 
         code.push_str("pragma solidity ^0.8.0;\n\n");
 
-        // Imports
         for import in &contract.imports {
             code.push_str(&format!("import \"{}\";\n", import));
         }
@@ -405,7 +344,7 @@ contract {} {{
         }
 
         if let Some(setup) = &contract.setup_function {
-            code.push_str("    function setUp() public override {\n");
+            code.push_str("    function setUp() public {\n");
             for statement in &setup.body {
                 code.push_str(&format!(
                     "        {}\n",
@@ -526,10 +465,6 @@ contract {} {{
         }
     }
 
-    pub fn validate_generated_code(&self, contract: &SolidityTestContract) -> Result<bool> {
-        self.compile_test_contract(contract)
-    }
-
     pub fn run_tests(&self, test_pattern: Option<&str>) -> Result<bool> {
         use std::process::Command;
 
@@ -567,11 +502,8 @@ impl SolidityTestBuilder {
         Self {
             contract: SolidityTestContract {
                 name,
-                imports: vec![
-                    "forge-std/Test.sol".to_string(),
-                    "./BaseTest.sol".to_string(),
-                ],
-                inheritance: vec!["Test".to_string(), "BaseTest".to_string()],
+                imports: vec!["forge-std/Test.sol".to_string()],
+                inheritance: vec!["Test".to_string()],
                 state_variables: Vec::new(),
                 functions: Vec::new(),
                 setup_function: None,
@@ -611,29 +543,52 @@ impl SolidityTestBuilder {
 
 pub fn generate_tests_with_foundry(
     graph: &CallGraph,
-    input: &CallGraphGeneratorInput,
     ctx: &CallGraphGeneratorContext,
     verbose: bool,
     output_dir: &Path,
     foundry_root: Option<PathBuf>,
     deployer_only: bool,
     validate_compilation: bool,
+    original_contract_paths: &HashMap<String, PathBuf>,
 ) -> Result<()> {
     if verbose {
         println!("🔧 Initializing Foundry integration...");
     }
 
-    let foundry_root = foundry_root.clone().unwrap_or_else(|| {
-        output_dir
-            .parent()
-            .unwrap_or(Path::new("."))
-            .to_path_buf()
-    });
+    let foundry_root = foundry_root
+        .clone()
+        .unwrap_or_else(|| output_dir.parent().unwrap_or(Path::new(".")).to_path_buf());
 
     let foundry = FoundryIntegration::new_with_project_setup(foundry_root)
         .map_err(|e| CodeGenError::FoundryError(format!("Failed to initialize Foundry: {}", e)))?;
 
-    let contracts = extract_contracts_from_graph(graph, input, ctx);
+    let contracts = extract_contracts_from_graph(graph, ctx);
+
+    for contract_info in &contracts {
+        let contract_name = &contract_info.name;
+        if let Some(original_path) = original_contract_paths.get(contract_name) {
+            if verbose {
+                println!(
+                    "📜 Copying original contract '{}' from {} to Foundry src...",
+                    contract_name,
+                    original_path.display()
+                );
+            }
+            foundry
+                .copy_contract_to_src(original_path, contract_name)
+                .map_err(|e| {
+                    CodeGenError::FoundryError(format!(
+                        "Failed to copy contract {}: {}",
+                        contract_name, e
+                    ))
+                })?;
+        } else {
+            eprintln!(
+                "⚠️ Warning: Original source path for contract '{}' not found. Skipping copy.",
+                contract_name
+            );
+        }
+    }
 
     if verbose {
         println!("🏗️  Found {} contracts in CFG:", contracts.len());
@@ -661,68 +616,186 @@ pub fn generate_tests_with_foundry(
             continue;
         }
 
+        let test_dir = foundry.project_root.join("test");
+        fs::create_dir_all(&test_dir).context("Failed to create test directory")?;
+
         if !deployer_only {
-            generate_foundry_deployer_contract(
-                contract_info,
+            let deployer_test_contract =
+                deployer_stub::generate_foundry_deployer_test_contract(contract_info)?;
+            let deployer_test_filename = format!("{}.t.sol", deployer_test_contract.name);
+            let deployer_test_path = test_dir.join(deployer_test_filename);
+
+            generate_and_write_test_file(
                 &foundry,
-                &output_dir,
+                &deployer_test_contract,
+                &deployer_test_path,
                 verbose,
             )?;
             generated_count += 1;
         }
 
         for function_info in &contract_info.functions {
-            // Generate revert tests
-            if let Ok(revert_tests) = generate_revert_tests_from_cfg(
+            eprintln!(
+                "[MAIN DEBUG] Processing function: {}.{}",
+                contract_info.name, function_info.name
+            );
+            eprintln!(
+                "[MAIN DEBUG] Function visibility: {}",
+                function_info.visibility
+            );
+            eprintln!(
+                "[MAIN DEBUG] Function has {} parameters",
+                function_info.parameters.len()
+            );
+            for (i, param) in function_info.parameters.iter().enumerate() {
+                eprintln!(
+                    "[MAIN DEBUG] Function param {}: {} {}",
+                    i, param.param_type, param.name
+                );
+            }
+
+            eprintln!(
+                "[MAIN DEBUG] Attempting to generate revert tests for {}.{}",
+                contract_info.name, function_info.name
+            );
+            match revert_stub::generate_revert_tests_from_cfg(
                 graph,
                 &contract_info.name,
                 &function_info.name,
                 &function_info.parameters,
             ) {
-                if !revert_tests.is_empty() {
-                    let test_contract =
-                        create_revert_test_contract(contract_info, function_info, revert_tests);
+                Ok(revert_tests) => {
+                    eprintln!(
+                        "[MAIN DEBUG] Successfully generated {} revert tests",
+                        revert_tests.len()
+                    );
+                    if !revert_tests.is_empty() {
+                        eprintln!("[MAIN DEBUG] Creating revert test contract...");
+                        let test_contract = revert_stub::create_revert_test_contract(
+                            contract_info,
+                            function_info,
+                            revert_tests,
+                        );
+                        let test_filename = format!("{}.t.sol", test_contract.name);
+                        let test_path = test_dir.join(test_filename);
 
-                    if generate_and_validate_contract(
-                        &foundry,
-                        &test_contract,
-                        &output_dir,
-                        validate_compilation,
-                        verbose,
-                    )? {
-                        validated_count += 1;
+                        eprintln!(
+                            "[MAIN DEBUG] Writing revert test contract to: {}",
+                            test_path.display()
+                        );
+
+                        generate_and_write_test_file(
+                            &foundry,
+                            &test_contract,
+                            &test_path,
+                            verbose,
+                        )?;
+                        generated_count += 1;
+                        eprintln!("[MAIN DEBUG] Successfully wrote revert test contract");
+                    } else {
+                        eprintln!(
+                            "[MAIN DEBUG] No revert tests generated for {}.{}",
+                            contract_info.name, function_info.name
+                        );
                     }
-                    generated_count += 1;
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[MAIN DEBUG] Error generating revert tests for {}.{}: {}",
+                        contract_info.name, function_info.name, e
+                    );
                 }
             }
 
-            if let Ok(state_tests) = generate_state_change_tests_from_cfg(
+            eprintln!(
+                "[MAIN DEBUG] Attempting to generate state change tests for {}.{}",
+                contract_info.name, function_info.name
+            );
+            match state_change_stub::generate_state_change_tests_from_cfg(
                 graph,
+                ctx, 
                 &contract_info.name,
                 &function_info.name,
                 &function_info.parameters,
             ) {
-                if !state_tests.is_empty() {
-                    let test_contract =
-                        create_state_test_contract(contract_info, function_info, state_tests);
+                Ok(state_tests) => {
+                    eprintln!(
+                        "[MAIN DEBUG] Successfully generated {} state change tests",
+                        state_tests.len()
+                    );
+                    if !state_tests.is_empty() {
+                        let test_contract = state_change_stub::create_state_test_contract(
+                            contract_info,
+                            function_info,
+                            state_tests,
+                        );
+                        let test_filename = format!("{}.t.sol", test_contract.name);
+                        let test_path = test_dir.join(test_filename);
 
-                    if generate_and_validate_contract(
-                        &foundry,
-                        &test_contract,
-                        &output_dir,
-                        validate_compilation,
-                        verbose,
-                    )? {
-                        validated_count += 1;
+                        eprintln!(
+                            "[MAIN DEBUG] Writing revert test contract to: {}",
+                            test_path.display()
+                        );
+
+                        generate_and_write_test_file(
+                            &foundry,
+                            &test_contract,
+                            &test_path,
+                            verbose,
+                        )?;
+                        generated_count += 1;
+                        eprintln!("[MAIN DEBUG] Successfully wrote revert test contract");
+                    } else {
+                        eprintln!(
+                            "[MAIN DEBUG] No revert tests generated for {}.{}",
+                            contract_info.name, function_info.name
+                        );
                     }
-                    generated_count += 1;
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[MAIN DEBUG] Error generating revert tests for {}.{}: {}",
+                        contract_info.name, function_info.name, e
+                    );
                 }
             }
         }
     }
 
+    if validate_compilation && generated_count > 0 {
+        if verbose {
+            println!("\n⚙️ Attempting to compile the entire project with 'forge build'...");
+        }
+        match foundry.run_project_build() {
+            Ok(build_successful) => {
+                if build_successful {
+                    validated_count = generated_count;
+                    if verbose {
+                        println!("✅ Project build successful. All {} generated test contracts are valid.", generated_count);
+                    }
+                } else {
+                    if verbose {
+                        eprintln!("❌ Project build failed. Some of the {} generated test contracts may have errors. Check 'forge build' output above.", generated_count);
+                    }
+                }
+            }
+            Err(e) => {
+                if verbose {
+                    eprintln!(
+                        "⚠️ Error during final project build: {}. Validation status uncertain.",
+                        e
+                    );
+                }
+            }
+        }
+    } else if generated_count == 0 && verbose && validate_compilation {
+        println!("\n🤷 No test contracts were generated, skipping compilation validation.");
+    } else if !validate_compilation && verbose {
+        println!("\nℹ️ Compilation validation was skipped via configuration.");
+    }
+
     if verbose {
-        println!("📊 Generation Summary:");
+        println!("\n📊 Generation Summary:");
         println!("  - Generated: {} test contracts", generated_count);
         if validate_compilation {
             println!("  - Validated: {} test contracts", validated_count);
@@ -742,63 +815,70 @@ pub fn generate_tests_with_foundry(
 
 fn extract_contracts_from_graph(
     graph: &CallGraph,
-    input: &CallGraphGeneratorInput,
     ctx: &CallGraphGeneratorContext,
 ) -> Vec<ContractInfo> {
+    eprintln!("[EXTRACT DEBUG] Starting contract extraction from graph");
+    eprintln!("[EXTRACT DEBUG] Graph has {} nodes", graph.nodes.len());
+    eprintln!("[EXTRACT DEBUG] Graph has {} edges", graph.edges.len());
+
     let mut contracts_map: HashMap<String, ContractInfo> = HashMap::new();
 
-    for node in &graph.nodes {
+    for (node_idx, node) in graph.nodes.iter().enumerate() {
+        eprintln!(
+            "[EXTRACT DEBUG] Node {}: name='{}', type={:?}, contract={:?}",
+            node_idx, node.name, node.node_type, node.contract_name
+        );
         if let Some(contract_name_str) = &node.contract_name {
             let is_interface_scope = ctx.all_interfaces.contains_key(contract_name_str);
+            eprintln!(
+                "[EXTRACT DEBUG] Processing node in contract '{}', is_interface_scope={}",
+                contract_name_str, is_interface_scope
+            );
             if node.node_type == graph::cg::NodeType::Interface && &node.name == contract_name_str {
+                eprintln!(
+                    "[EXTRACT DEBUG] Skipping interface definition node: {}",
+                    contract_name_str
+                );
                 continue;
             }
 
             let contract_info = contracts_map
                 .entry(contract_name_str.clone())
-                .or_insert_with(|| ContractInfo {
-                    name: contract_name_str.clone(),
-                    has_constructor: false,
-                    constructor_params: Vec::new(),
-                    functions: Vec::new(),
+                .or_insert_with(|| {
+                    eprintln!(
+                        "[EXTRACT DEBUG] Creating new ContractInfo for '{}'",
+                        contract_name_str
+                    );
+                    ContractInfo {
+                        name: contract_name_str.clone(),
+                        has_constructor: false,
+                        constructor_params: Vec::new(),
+                        functions: Vec::new(),
+                    }
                 });
 
             match node.node_type {
                 graph::cg::NodeType::Constructor => {
+                    eprintln!(
+                        "[EXTRACT DEBUG] Found constructor for '{}'",
+                        contract_name_str
+                    );
                     contract_info.has_constructor = true;
                     if let Some((_, node_info_for_ctor, _)) = ctx
                         .definition_nodes_info
                         .iter()
                         .find(|(id, _, _)| *id == node.id)
                     {
-                        if let Some(ctor_ts_node) =
-                            input.tree.root_node().descendant_for_byte_range(
-                                node_info_for_ctor.span.0,
-                                node_info_for_ctor.span.1,
-                            )
-                        {
-                            contract_info.constructor_params =
-                                extract_function_parameters(ctor_ts_node, &input.source);
-                        }
+                        contract_info.constructor_params = graph.nodes[node.id].parameters.clone();
                     }
                 }
                 graph::cg::NodeType::Function => {
                     if !is_interface_scope {
-                        let mut params = Vec::new();
-                        if let Some((_, node_info_for_func, _)) = ctx
-                            .definition_nodes_info
-                            .iter()
-                            .find(|(id, _, _)| *id == node.id)
-                        {
-                            if let Some(func_ts_node) =
-                                input.tree.root_node().descendant_for_byte_range(
-                                    node_info_for_func.span.0,
-                                    node_info_for_func.span.1,
-                                )
-                            {
-                                params = extract_function_parameters(func_ts_node, &input.source);
-                            }
-                        }
+                        eprintln!(
+                            "[EXTRACT DEBUG] Found function '{}' in contract '{}'",
+                            node.name, contract_name_str
+                        );
+                        let params = graph.nodes[node.id].parameters.clone();
                         contract_info.functions.push(FunctionInfo {
                             name: node.name.clone(),
                             visibility: format!("{:?}", node.visibility).to_lowercase(),
@@ -812,530 +892,113 @@ fn extract_contracts_from_graph(
         }
     }
 
-    contracts_map.into_values().collect()
-}
-
-fn extract_function_parameters(
-    fn_like_ts_node: tree_sitter::Node,
-    source: &str,
-) -> Vec<ParameterInfo> {
-    let mut parameters = Vec::new();
-    if let Some(param_list_node) = fn_like_ts_node.child_by_field_name("parameters") {
-        let mut cursor = param_list_node.walk();
-        for child in param_list_node.children(&mut cursor) {
-            if child.kind() == "parameter" {
-                let type_node = child.child_by_field_name("type");
-                let name_node = child.child_by_field_name("name");
-
-                if let (Some(tn), Some(nn)) = (type_node, name_node) {
-                    parameters.push(ParameterInfo {
-                        name: graph::parser::get_node_text(&nn, source).to_string(),
-                        param_type: graph::parser::get_node_text(&tn, source).to_string(),
-                        description: None,
-                    });
-                }
-            }
-        }
-    }
-    parameters
-}
-
-
-
-fn create_revert_test_contract(
-    contract_info: &ContractInfo,
-    function_info: &FunctionInfo,
-    revert_tests: Vec<TestFunction>,
-) -> SolidityTestContract {
-    let mut builder = SolidityTestBuilder::new(format!(
-        "{}{}RevertTest",
-        contract_info.name,
-        to_pascal_case(&function_info.name)
-    ))
-    .add_import(format!("../src/{}.sol", contract_info.name))
-    .add_state_variable(StateVariable {
-        name: "contractInstance".to_string(),
-        var_type: contract_info.name.clone(),
-        visibility: "private".to_string(),
-        initial_value: None,
-    })
-    .set_setup_function(SetupFunction {
-        body: vec![
-            Statement::Comment {
-                text: format!("Deploy {} for testing", contract_info.name),
-            },
-            Statement::Assignment {
-                target: "contractInstance".to_string(),
-                value: Expression::FunctionCall {
-                    target: None,
-                    function: format!("new {}", contract_info.name),
-                    args: generate_constructor_args(&contract_info.constructor_params),
-                },
-            },
-        ],
-    });
-
-    for test_func in revert_tests {
-        builder = builder.add_test_function(test_func);
+    let result: Vec<ContractInfo> = contracts_map.into_values().collect();
+    eprintln!("[EXTRACT DEBUG] Extracted {} contracts", result.len());
+    for (i, contract) in result.iter().enumerate() {
+        eprintln!(
+            "[EXTRACT DEBUG] Contract {}: name='{}', has_constructor={}, functions={}",
+            i,
+            contract.name,
+            contract.has_constructor,
+            contract.functions.len()
+        );
     }
 
-    builder.build()
+    result
 }
 
-
-fn create_state_test_contract(
-    contract_info: &ContractInfo,
-    function_info: &FunctionInfo,
-    state_tests: Vec<TestFunction>,
-) -> SolidityTestContract {
-    let mut builder = SolidityTestBuilder::new(format!(
-        "{}{}StateTest",
-        to_pascal_case(&contract_info.name),
-        to_pascal_case(&function_info.name)
-    ))
-    .add_import(format!("../src/{}.sol", contract_info.name))
-    .add_state_variable(StateVariable {
-        name: "contractInstance".to_string(),
-        var_type: contract_info.name.clone(),
-        visibility: "private".to_string(),
-        initial_value: None,
-    })
-    .set_setup_function(SetupFunction {
-        body: vec![
-            Statement::Comment {
-                text: format!("Deploy {} for testing", contract_info.name),
-            },
-            Statement::Assignment {
-                target: "contractInstance".to_string(),
-                value: Expression::FunctionCall {
-                    target: None,
-                    function: format!("new {}", contract_info.name),
-                    args: generate_constructor_args(&contract_info.constructor_params),
-                },
-            },
-        ],
-    });
-
-    for test_func in state_tests {
-        builder = builder.add_test_function(test_func);
-    }
-
-    builder.build()
-}
-
-fn generate_and_validate_contract(
+fn generate_and_write_test_file(
     foundry: &FoundryIntegration,
     contract: &SolidityTestContract,
-    output_dir: &Path,
-    validate_compilation: bool,
-    verbose: bool,
-) -> Result<bool> {
-    // Generate the Solidity code
-    let source_code = foundry
-        .generate_solidity_code(contract)
-        .map_err(|e| CodeGenError::FoundryError(format!("Failed to generate code: {}", e)))?;
-
-    // Validate compilation if requested
-    let is_valid = if validate_compilation {
-        match foundry.validate_generated_code(contract) {
-            Ok(true) => {
-                if verbose {
-                    println!("  ✅ Validation passed: {}", contract.name);
-                }
-                true
-            }
-            Ok(false) => {
-                if verbose {
-                    eprintln!("  ❌ Validation failed: {}", contract.name);
-                }
-                false
-            }
-            Err(e) => {
-                if verbose {
-                    eprintln!("  ⚠️  Validation error for {}: {}", contract.name, e);
-                }
-                false
-            }
-        }
-    } else {
-        true // Skip validation
-    };
-
-    // Write the generated code to file
-    let output_filename = format!("{}.t.sol", contract.name);
-    let output_path = output_dir.join(&output_filename);
-
-    fs::write(&output_path, source_code)
-        .map_err(|e| CodeGenError::OutputWriteError(output_path.clone(), e))?;
-
-    if verbose {
-        let status = if is_valid { "✅" } else { "⚠️ " };
-        println!("  {} Generated: {}", status, output_path.display());
-    }
-
-    Ok(is_valid)
-}
-
-
-fn generate_foundry_deployer_contract(
-    contract_info: &ContractInfo,
-    foundry: &FoundryIntegration,
-    output_dir: &Path,
+    test_file_path: &Path,
     verbose: bool,
 ) -> Result<()> {
-    let deployer_contract = SolidityTestBuilder::new(format!("Deployer_{}", contract_info.name))
-        .add_import(format!("../src/{}.sol", contract_info.name))
-        .add_state_variable(StateVariable {
-            name: "deployedContract".to_string(),
-            var_type: contract_info.name.clone(),
-            visibility: "public".to_string(),
-            initial_value: None,
-        })
-        .add_test_function(TestFunction {
-            name: "deploy".to_string(),
-            visibility: "external".to_string(),
-            body: vec![
-                Statement::Comment {
-                    text: format!("Deploy {} with constructor parameters", contract_info.name),
-                },
-                Statement::Assignment {
-                    target: "deployedContract".to_string(),
-                    value: Expression::FunctionCall {
-                        target: None,
-                        function: format!("new {}", contract_info.name),
-                        args: generate_constructor_args(&contract_info.constructor_params),
-                    },
-                },
-            ],
-            test_type: TestType::StateChangeTest {
-                variable_name: "deployedContract".to_string(),
-                expected_change: "should be deployed".to_string(),
-            },
-        })
-        .build();
-
-    let source_code = foundry
-        .generate_solidity_code(&deployer_contract)
+    foundry
+        .write_solidity_test_file(contract, test_file_path)
         .map_err(|e| {
-            CodeGenError::FoundryError(format!("Failed to generate deployer code: {}", e))
+            CodeGenError::FoundryError(format!(
+                "Failed to write test file {}: {}",
+                test_file_path.display(),
+                e
+            ))
         })?;
 
-    let output_filename = format!("Deployer_{}.sol", contract_info.name);
-    let output_path = output_dir.join(&output_filename);
-
-    fs::write(&output_path, source_code)
-        .map_err(|e| CodeGenError::OutputWriteError(output_path.clone(), e))?;
-
     if verbose {
-        println!("  📦 Generated deployer: {}", output_path.display());
+        println!("  📄 Generated: {}", test_file_path.display());
     }
 
     Ok(())
 }
 
-fn generate_constructor_args(params: &[ParameterInfo]) -> Vec<Expression> {
-    params
+
+pub(crate) fn generate_constructor_args(
+    params: &[ParameterInfo],
+    actual_args_opt: Option<&Vec<String>>,
+) -> Vec<Expression> {
+    eprintln!(
+        "[DEBUG] generate_constructor_args called with {} params",
+        params.len()
+    );
+    for (i, param) in params.iter().enumerate() {
+        eprintln!("[DEBUG] Param {}: {} {}", i, param.param_type, param.name);
+    }
+    eprintln!("[DEBUG] Actual args provided: {:?}", actual_args_opt);
+
+    let result = if let Some(actual_args) = actual_args_opt {
+        eprintln!("[DEBUG] Using actual args: {:?}", actual_args);
+        strings_to_expressions(actual_args)
+    } else {
+        eprintln!("[DEBUG] Using placeholder args based on parameter types");
+        params
+            .iter()
+            .map(|param| {
+                match param.param_type.as_str() {
+                    "string" => Expression::Literal("\"test\"".to_string()),
+                    "address" => Expression::Literal("address(0x1)".to_string()),
+                    "bool" => Expression::Literal("true".to_string()),
+                    t if t.starts_with("uint") => Expression::Literal("1".to_string()),
+                    t if t.starts_with("int") => Expression::Literal("1".to_string()),
+                    _ => Expression::Literal("0".to_string()), // Default fallback
+                }
+            })
+            .collect()
+    };
+
+    eprintln!("[DEBUG] Generated {} constructor args", result.len());
+    result
+}
+
+pub(crate) fn strings_to_expressions(arg_strings: &[String]) -> Vec<Expression> {
+    arg_strings
         .iter()
-        .map(|param| {
-            // Generate appropriate default values based on type
-            match param.param_type.as_str() {
-                "string" => Expression::Literal("\"test\"".to_string()),
-                "address" => Expression::Literal("address(0x1)".to_string()),
-                "bool" => Expression::Literal("true".to_string()),
-                t if t.starts_with("uint") => Expression::Literal("1".to_string()),
-                t if t.starts_with("int") => Expression::Literal("1".to_string()),
-                _ => Expression::Literal("0".to_string()), // Default fallback
-            }
-        })
+        .map(|s| Expression::Literal(s.clone()))
         .collect()
 }
 
-pub fn generate_revert_tests_from_cfg(
-    graph: &CallGraph,
-    contract_name: &str,
-    function_name: &str,
+pub(crate) fn generate_valid_args_for_function(
     function_params: &[ParameterInfo],
-) -> Result<Vec<TestFunction>> {
-    let mut test_functions = Vec::new();
-
-    let func_node = graph.nodes.iter().find(|n| {
-        n.contract_name.as_deref() == Some(contract_name)
-            && n.name == function_name
-            && n.node_type == NodeType::Function
-    });
-
-    if let Some(func_node) = func_node {
-        for edge in &graph.edges {
-            if edge.source_node_id == func_node.id && edge.edge_type == EdgeType::Require {
-                let condition = edge
-                    .argument_names
-                    .as_ref()
-                    .and_then(|args| args.get(0))
-                    .cloned()
-                    .unwrap_or_else(|| "unknown_condition".to_string());
-
-                let error_message = edge
-                    .argument_names
-                    .as_ref()
-                    .and_then(|args| args.get(1))
-                    .cloned()
-                    .unwrap_or_default()
-                    .trim_matches('"')
-                    .to_string();
-
-                let test_name = format!(
-                    "test_{}_reverts_{}",
-                    function_name,
-                    sanitize_identifier(&condition)
-                );
-
-                let mut body = Vec::new();
-
-                body.push(Statement::Comment {
-                    text: format!("Test that {} reverts when: {}", function_name, condition),
-                });
-
-                body.push(Statement::ExpectRevert {
-                    error_message: error_message.clone(),
-                });
-
-                body.push(Statement::FunctionCall {
-                    target: Some("contractInstance".to_string()),
-                    function: function_name.to_string(),
-                    args: generate_valid_args_for_function(function_params)?,
-                });
-
-                test_functions.push(TestFunction {
-                    name: test_name,
-                    visibility: "public".to_string(),
-                    body,
-                    test_type: TestType::RevertTest {
-                        expected_error: error_message,
-                        condition,
-                    },
-                });
-            }
-        }
-    }
-
-    Ok(test_functions)
-}
-
-pub fn generate_state_change_tests_from_cfg(
-    graph: &CallGraph,
-    contract_name: &str,
-    function_name: &str,
-    function_params: &[ParameterInfo],
-) -> Result<Vec<TestFunction>> {
-    let mut test_functions = Vec::new();
-
-    let func_node = graph.nodes.iter().find(|n| {
-        n.contract_name.as_deref() == Some(contract_name)
-            && n.name == function_name
-            && n.node_type == NodeType::Function
-    });
-
-    if let Some(func_node) = func_node {
-        for edge in &graph.edges {
-            if edge.source_node_id == func_node.id && edge.edge_type == EdgeType::StorageWrite {
-                if let Some(var_node) = graph.nodes.get(edge.target_node_id) {
-                    if var_node.node_type == NodeType::StorageVariable {
-                        let var_name = &var_node.name;
-                        let test_name = format!("test_{}_changes_{}", function_name, var_name);
-
-                        let mut body = Vec::new();
-
-                        body.push(Statement::Comment {
-                            text: format!("Test that {} modifies {}", function_name, var_name),
-                        });
-
-                        let getter_name = if var_node.visibility == Visibility::Public {
-                            var_name.clone()
-                        } else {
-                            format!("get{}", capitalize_first_letter(var_name))
-                        };
-
-                        body.push(Statement::VariableDeclaration {
-                            var_type: "uint256".to_string(), // TODO: Extract actual type
-                            name: "initialValue".to_string(),
-                            value: Some(Expression::FunctionCall {
-                                target: Some("contractInstance".to_string()),
-                                function: getter_name.clone(),
-                                args: vec![],
-                            }),
-                        });
-
-                        body.push(Statement::FunctionCall {
-                            target: Some("contractInstance".to_string()),
-                            function: function_name.to_string(),
-                            args: generate_valid_args_for_function(function_params)?,
-                        });
-
-                        body.push(Statement::Assert {
-                            condition: Expression::BinaryOp {
-                                left: Box::new(Expression::FunctionCall {
-                                    target: Some("contractInstance".to_string()),
-                                    function: getter_name,
-                                    args: vec![],
-                                }),
-                                operator: "!=".to_string(),
-                                right: Box::new(Expression::Identifier("initialValue".to_string())),
-                            },
-                        });
-
-                        test_functions.push(TestFunction {
-                            name: test_name,
-                            visibility: "public".to_string(),
-                            body,
-                            test_type: TestType::StateChangeTest {
-                                variable_name: var_name.clone(),
-                                expected_change: "value should change".to_string(),
-                            },
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(test_functions)
-}
-
-pub fn generate_enhanced_revert_tests_from_cfg(
-    graph: &CallGraph,
-    contract_name: &str,
-    function_name: &str,
-) -> Result<Vec<TestFunction>> {
-    let mut test_functions = Vec::new();
-
-    let func_node = graph.nodes.iter().find(|n| {
-        n.contract_name.as_deref() == Some(contract_name)
-            && n.name == function_name
-            && n.node_type == NodeType::Function
-    });
-
-    if let Some(func_node) = func_node {
-        for edge in &graph.edges {
-            if edge.source_node_id == func_node.id && edge.edge_type == EdgeType::Require {
-                let condition = edge
-                    .argument_names
-                    .as_ref()
-                    .and_then(|args| args.get(0))
-                    .cloned()
-                    .unwrap_or_else(|| "unknown_condition".to_string());
-
-                let error_message = edge
-                    .argument_names
-                    .as_ref()
-                    .and_then(|args| args.get(1))
-                    .cloned()
-                    .unwrap_or_default()
-                    .trim_matches('"')
-                    .to_string();
-
-                // Generate test function with enhanced parameter handling
-                let test_name = format!(
-                    "test_{}_reverts_{}",
-                    function_name,
-                    sanitize_identifier(&condition)
-                );
-
-                let mut body = Vec::new();
-
-                // Add setup comments
-                body.push(Statement::Comment {
-                    text: format!("Test that {} reverts when: {}", function_name, condition),
-                });
-
-                // Add expectRevert with proper error handling
-                if error_message.is_empty() {
-                    body.push(Statement::FunctionCall {
-                        target: Some("vm".to_string()),
-                        function: "expectRevert".to_string(),
-                        args: vec![],
-                    });
-                } else {
-                    body.push(Statement::ExpectRevert {
-                        error_message: error_message.clone(),
-                    });
-                }
-
-                // Add function call that should revert with realistic parameters
-                body.push(Statement::FunctionCall {
-                    target: Some("contractInstance".to_string()),
-                    function: function_name.to_string(),
-                    args: generate_realistic_args_for_function(graph, func_node, &condition)?,
-                });
-
-                test_functions.push(TestFunction {
-                    name: test_name,
-                    visibility: "public".to_string(),
-                    body,
-                    test_type: TestType::RevertTest {
-                        expected_error: error_message,
-                        condition,
-                    },
-                });
-            }
-        }
-    }
-
-    Ok(test_functions)
-}
-
-fn generate_revert_args_for_function(
-    function_params: &[ParameterInfo],
-    condition: &str,
+    actual_args_opt: Option<&Vec<String>>,
 ) -> Result<Vec<Expression>> {
-    let mut args = Vec::new();
+    if let Some(actual_args) = actual_args_opt {
+        Ok(strings_to_expressions(actual_args))
+    } else {
+        let args = function_params
+            .iter()
+            .map(|param| match param.param_type.as_str() {
+                "string" => Expression::Literal("\"updated test value\"".to_string()),
+                "address" => Expression::Literal("address(0x1)".to_string()),
+                "bool" => Expression::Literal("true".to_string()),
+                t if t.starts_with("uint") => Expression::Literal("42".to_string()),
+                t if t.starts_with("int") => Expression::Literal("42".to_string()),
+                _ => Expression::Literal("1".to_string()),
+            })
+            .collect();
 
-    for param in function_params {
-        let arg = if condition.contains("empty") || condition.contains("length") {
-            if param.param_type == "string" || param.param_type.contains("string") {
-                Expression::Literal("\"\"".to_string()) // Empty string
-            } else {
-                Expression::Literal("0".to_string()) // Zero for other types
-            }
-        } else if condition.contains("zero") || condition.contains("0") || condition.contains("> 0")
-        {
-            Expression::Literal("0".to_string()) // Zero value to trigger revert
-        } else if condition.contains("negative") {
-            Expression::Literal("-1".to_string()) // Negative value
-        } else if param.param_type == "address" {
-            Expression::Literal("address(0)".to_string()) // Zero address
-        } else {
-            match param.param_type.as_str() {
-                "string" => Expression::Literal("\"\"".to_string()),
-                "address" => Expression::Literal("address(0)".to_string()),
-                "bool" => Expression::Literal("false".to_string()),
-                t if t.starts_with("uint") => Expression::Literal("0".to_string()),
-                t if t.starts_with("int") => Expression::Literal("0".to_string()),
-                _ => Expression::Literal("0".to_string()),
-            }
-        };
-        args.push(arg);
+        Ok(args)
     }
-
-    Ok(args)
 }
 
-fn generate_valid_args_for_function(function_params: &[ParameterInfo]) -> Result<Vec<Expression>> {
-    let args = function_params
-        .iter()
-        .map(|param| match param.param_type.as_str() {
-            "string" => Expression::Literal("\"test\"".to_string()),
-            "address" => Expression::Literal("address(0x1)".to_string()),
-            "bool" => Expression::Literal("true".to_string()),
-            t if t.starts_with("uint") => Expression::Literal("42".to_string()),
-            t if t.starts_with("int") => Expression::Literal("42".to_string()),
-            _ => Expression::Literal("1".to_string()),
-        })
-        .collect();
-
-    Ok(args)
-}
-
-fn sanitize_identifier(input: &str) -> String {
+pub(crate) fn sanitize_identifier(input: &str) -> String {
     input
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '_' })
@@ -1344,7 +1007,7 @@ fn sanitize_identifier(input: &str) -> String {
         .to_string()
 }
 
-fn capitalize_first_letter(s: &str) -> String {
+pub(crate) fn capitalize_first_letter(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
         None => String::new(),
@@ -1352,29 +1015,27 @@ fn capitalize_first_letter(s: &str) -> String {
     }
 }
 
-fn generate_realistic_args_for_function(
+pub(crate) fn generate_realistic_args_for_function(
     _graph: &CallGraph,
     _func_node: &graph::cg::Node,
     condition: &str,
 ) -> Result<Vec<Expression>> {
-    // Analyze the condition to generate appropriate failing arguments
     let args = if condition.contains("empty") || condition.contains("length") {
-        vec![Expression::Literal("\"\"".to_string())] // Empty string
+        vec![Expression::Literal("\"\"".to_string())] 
     } else if condition.contains("zero") || condition.contains("0") {
-        vec![Expression::Literal("0".to_string())] // Zero value
+        vec![Expression::Literal("0".to_string())] 
     } else if condition.contains("negative") {
-        vec![Expression::Literal("-1".to_string())] // Negative value
+        vec![Expression::Literal("-1".to_string())] 
     } else if condition.contains("address") {
-        vec![Expression::Literal("address(0)".to_string())] // Zero address
+        vec![Expression::Literal("address(0)".to_string())] 
     } else {
-        // Default case - try to trigger the condition
         vec![Expression::Literal("0".to_string())]
     };
 
     Ok(args)
 }
 
-fn to_pascal_case(s: &str) -> String {
+pub(crate) fn to_pascal_case(s: &str) -> String {
     let mut result = String::new();
     let mut capitalize_next = true;
 
@@ -1390,8 +1051,6 @@ fn to_pascal_case(s: &str) -> String {
     }
     result
 }
-
-
 
 #[cfg(test)]
 mod tests {

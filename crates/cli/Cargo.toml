@@ -39,7 +39,6 @@ clap = { version = "4.5.23", features = ["derive"] }
 tempfile = "3.14.0"
 which = "7.0.1"
 bytes = "1.9.0"
-tempdir = "0.3.7"
 reedline = "0.38.0"
 regex = "1.11.1"
 anyhow = "1.0" # For easy error handling

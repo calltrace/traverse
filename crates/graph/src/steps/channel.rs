@@ -2121,43 +2121,117 @@ fn process_statements_in_block(
                     require_span
                 );
 
-                // Extract arguments
                 let argument_texts = extract_arguments(require_node, &input);
+                let argument_nodes_ts = crate::cg::extract_argument_nodes(require_node);
 
-                // --- Get or Create Require Node ---
-                let require_key = (None, REQUIRE_NODE_NAME.to_string());
-                let require_node_id = if let Some(id) = graph.node_lookup.get(&require_key) {
-                    *id
-                } else {
-                    eprintln!("[CallsHandling DEBUG]           Creating Require node.");
-                    let new_id = graph.add_node(
-                        REQUIRE_NODE_NAME.to_string(),
-                        NodeType::RequireCondition,
-                        None,
-                        Visibility::Default,
-                        (0, 0),
-                    );
-                    graph.node_lookup.insert(require_key, new_id); // Insert after add_node
-                    new_id
-                };
+                // Condition expression TsNode and its source text
+                let condition_ts_node_opt = argument_nodes_ts.get(0);
+                let condition_source_text_opt = condition_ts_node_opt
+                    .map(|n| get_node_text(n, &input.source).to_string());
 
-                // --- Collect Modification: Caller -> Require ---
-                eprintln!("[Require DEBUG]   Collecting modification: Source={}, Target={}, Type=Require, Span={:?}, Args={:?}", owner_node_id, require_node_id, require_span, argument_texts);
-                eprintln!("[CallsHandling DEBUG]         >>> Collecting modification (Require Caller->RequireNode): CallerID={}, TargetID={}, Args={:?}", owner_node_id, require_node_id, argument_texts);
+                // Revert message (optional second argument)
+                let revert_message_text_opt = argument_nodes_ts.get(1).and_then(|call_arg_node| {
+                    // A call_argument node's first child is the actual expression.
+                    call_arg_node.child(0).and_then(|inner_expr_node| {
+                        // Now, this inner_expr_node might be wrapped further, e.g. (expression (string_literal))
+                        // So, unwrap it.
+                        let actual_literal_node = unwrap_expression_wrapper(inner_expr_node);
+                        if actual_literal_node.kind() == "string_literal" {
+                            let text = get_node_text(&actual_literal_node, &input.source);
+                            if text.starts_with('"') && text.ends_with('"') && text.len() >= 2 {
+                                Some(text[1..text.len() - 1].to_string()) // Unquote
+                            } else {
+                                // This case might occur if the string literal is not properly quoted.
+                                // For safety, return the raw text, but log a warning.
+                                eprintln!("[Revert Message DEBUG] Unexpected string literal format for revert message: '{}'", text);
+                                Some(text.to_string())
+                            }
+                        } else {
+                            None // The second argument's effective expression is not a string literal
+                        }
+                    })
+                });
+
+                // Determine the name for the RequireCondition node.
+                // Priority: Revert message > Condition text > Fallback
+                let require_condition_node_name = revert_message_text_opt
+                    .as_ref() // Borrow for filter
+                    .filter(|s| !s.is_empty())
+                    .cloned() // Clone if found and non-empty
+                    .or_else(|| condition_source_text_opt.clone()) // Use cloned condition text if no revert message
+                    .unwrap_or_else(|| format!("unknown_condition_at_{}", require_span.0));
+
+                // Create a unique key for this specific require statement's node
+                let unique_require_node_key = (
+                    owner_contract_name_opt.clone(),
+                    format!("{}_{}", require_condition_node_name, require_span.0),
+                );
+
+                let specific_require_condition_node_id =
+                    if let Some(id) = graph.node_lookup.get(&unique_require_node_key) {
+                        let node_id = *id;
+                        // If node already exists, ensure its fields are up-to-date (should ideally be set on creation)
+                        if let Some(graph_node_mut) = graph.nodes.get_mut(node_id) {
+                            if graph_node_mut.condition_expression.is_none() && condition_source_text_opt.is_some() {
+                                graph_node_mut.condition_expression = condition_source_text_opt.clone();
+                            }
+                            if graph_node_mut.revert_message.is_none() && revert_message_text_opt.is_some() {
+                                graph_node_mut.revert_message = revert_message_text_opt.clone();
+                            }
+                        }
+                        node_id
+                    } else {
+                        let condition_display_span = condition_ts_node_opt
+                            .map_or(require_span, |n| (n.start_byte(), n.end_byte()));
+
+                        let new_id = graph.add_node(
+                            require_condition_node_name.clone(), // Node's primary name
+                            NodeType::RequireCondition,
+                            owner_contract_name_opt.clone(), // Scoped to the contract
+                            Visibility::Default,
+                            condition_display_span, // Span of the condition expression
+                        );
+
+                        // Populate the new fields for the RequireCondition node
+                        if let Some(graph_node_mut) = graph.nodes.get_mut(new_id) {
+                            graph_node_mut.condition_expression = condition_source_text_opt.clone();
+                            graph_node_mut.revert_message = revert_message_text_opt.clone();
+                            eprintln!("[CallsHandling DEBUG] Created RequireCondition node {}: name='{}', expr='{:?}', msg='{:?}'", new_id, graph_node_mut.name, graph_node_mut.condition_expression, graph_node_mut.revert_message);
+                        }
+                        graph.node_lookup.insert(unique_require_node_key, new_id);
+
+                        // Add NodeInfo for this synthetic RequireCondition node
+                        let require_condition_node_info = NodeInfo {
+                            span: condition_display_span,
+                            kind: condition_ts_node_opt
+                                .map_or("require_condition_expr".to_string(), |n| {
+                                    n.kind().to_string()
+                                }),
+                        };
+                        ctx.definition_nodes_info.push((
+                            new_id,
+                            require_condition_node_info,
+                            owner_contract_name_opt.clone(),
+                        ));
+                        new_id
+                    };
+
+                // Collect Modification: Caller -> SpecificRequireConditionNode
+                eprintln!("[Require DEBUG]   Collecting modification: Source={}, Target={}, Type=Require, Span={:?}, Args={:?}", owner_node_id, specific_require_condition_node_id, require_span, argument_texts);
                 modifications.push(GraphModification {
-                    source_node_id: owner_node_id,
-                    target_node_id: require_node_id,
-                    edge_type: EdgeType::Require, // Use specific Require type
-                    span: require_span,
+                    source_node_id: owner_node_id, // The function containing the require
+                    target_node_id: specific_require_condition_node_id, // The unique RequireCondition node
+                    edge_type: EdgeType::Require,
+                    span: require_span, // Span of the entire require(...) call
                     modifier: None,
                     return_value: None,
-                    arguments: Some(argument_texts),
+                    arguments: Some(argument_texts), // Arguments to the require() call
                     event_name: None,
-                    sort_span_start: require_span.0, // Use require call start for sorting
+                    sort_span_start: require_span.0,
                     chain_index: None,
-                    execution_priority: 10, // Base priority 10 for require (1 * 10)
+                    execution_priority: 10,
                 });
-                handled_node_ids.insert(node.id()); // Mark require_node as handled
+                handled_node_ids.insert(require_node.id());
             }
             "emit" => {
                 // --- Handle Emit Statements ---

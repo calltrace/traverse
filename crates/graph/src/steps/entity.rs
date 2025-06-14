@@ -347,6 +347,12 @@ impl CallGraphGeneratorStep for ContractHandling {
                             visibility,
                             (def_node.start_byte(), def_node.end_byte()),
                         );
+                        // Extract and store parameters for this node
+                        let params = crate::cg::extract_function_parameters(*def_node, &input.source);
+                        if let Some(graph_node_mut) = graph.nodes.get_mut(node_id) {
+                            graph_node_mut.parameters = params;
+                        }
+
                         let node_info = NodeInfo {
                             span: (def_node.start_byte(), def_node.end_byte()),
                             kind: def_node.kind().to_string(),

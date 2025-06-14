@@ -866,6 +866,7 @@ mod tests {
             span: (0, 0),
             has_explicit_return: true,
             declared_return_type: None,
+            parameters: vec![],
         };
         let node2 = Node {
             id: 1,
@@ -876,6 +877,7 @@ mod tests {
             span: (0, 0),
             has_explicit_return: true,
             declared_return_type: None,
+            parameters: vec![],
         };
 
         // Test with a node that has a contract name

@@ -77,6 +77,16 @@ pub struct Node {
     pub span: (usize, usize),
     pub has_explicit_return: bool, // Added flag
     pub declared_return_type: Option<String>, // Added: Store declared return type of the function
+    pub parameters: Vec<ParameterInfo>, // Added: Store parameters for function-like nodes
+    pub revert_message: Option<String>, // Added: Store revert message for RequireCondition nodes
+    pub condition_expression: Option<String>, // Added: Store raw condition expression for RequireCondition nodes
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord)] // Added derive for ParameterInfo
+pub struct ParameterInfo {
+    pub name: String,
+    pub param_type: String,
+    pub description: Option<String>, // Keep description if used by codegen
 }
 
 /// Information about a state variable mapping.
@@ -172,6 +182,9 @@ impl CallGraph {
             span,
             has_explicit_return: false,
             declared_return_type: None, // Initialize with None
+            parameters: Vec::new(), // Initialize parameters as empty
+            revert_message: None, // Initialize new field
+            condition_expression: None, // Initialize new field
         };
         self.nodes.push(node);
 
@@ -580,7 +593,70 @@ pub trait CallGraphGeneratorStep {
         graph: &mut CallGraph,
     ) -> Result<()>;
 }
+
 // --- Helper Function Implementations ---
+
+pub(crate) fn extract_function_parameters(
+    fn_like_ts_node: TsNode, // This is function_definition or constructor_definition
+    source: &str,
+) -> Vec<ParameterInfo> {
+    let mut parameters = Vec::new();
+    eprintln!("[cg::extract_function_parameters DEBUG] Analyzing TsNode kind: '{}', text snippet: '{}'", fn_like_ts_node.kind(), get_node_text(&fn_like_ts_node, source).chars().take(70).collect::<String>());
+
+    let mut child_cursor = fn_like_ts_node.walk();
+    // Iterate through direct children of fn_like_ts_node (constructor_definition or function_definition)
+    // The 'parameter' nodes are direct children, not nested under a 'parameter_list' node.
+    for child_node in fn_like_ts_node.children(&mut child_cursor) {
+        eprintln!("[cg::extract_function_parameters DEBUG] Child of fn_like_ts_node: Kind='{}', Text='{}'", child_node.kind(), get_node_text(&child_node, source).chars().take(30).collect::<String>());
+        if child_node.kind() == "parameter" { // These are the actual parameter definitions
+            let type_node = child_node.child_by_field_name("type");
+            let name_node = child_node.child_by_field_name("name");
+
+            // Both type and name are expected for function/constructor parameters
+            if let (Some(tn), Some(nn)) = (type_node, name_node) {
+                let param_name = crate::parser::get_node_text(&nn, source).to_string();
+                let param_type = crate::parser::get_node_text(&tn, source).to_string();
+                eprintln!("[cg::extract_function_parameters DEBUG]   Extracted param: name='{}', type='{}'", param_name, param_type);
+                parameters.push(ParameterInfo {
+                    name: param_name,
+                    param_type: param_type,
+                    description: None,
+                });
+            } else {
+                eprintln!("[cg::extract_function_parameters DEBUG]   Found 'parameter' node (Kind: '{}', Text: '{}') but missing type or name field.", child_node.kind(), get_node_text(&child_node, source).chars().take(30).collect::<String>());
+            }
+        }
+    }
+
+    // Log if no parameters were found, which might indicate an issue if parameters were expected.
+    if parameters.is_empty() {
+        // Check if the function/constructor signature actually has parameters in the source
+        // This is a heuristic based on text, as we've already failed to parse them structurally.
+        let signature_text = get_node_text(&fn_like_ts_node, source);
+        if signature_text.contains('(') && signature_text.contains(')') && !signature_text.contains("()") {
+             // A more robust check would be to see if there are any 'parameter' kind nodes between '(' and ')'
+            let mut has_parameter_nodes_in_signature = false;
+            let mut temp_cursor = fn_like_ts_node.walk();
+            for child in fn_like_ts_node.children(&mut temp_cursor) {
+                if child.kind() == "parameter" {
+                    has_parameter_nodes_in_signature = true;
+                    break;
+                }
+            }
+
+            if has_parameter_nodes_in_signature {
+                 eprintln!("[cg::extract_function_parameters DEBUG] No parameters extracted, but 'parameter' nodes were found as direct children. This indicates the loop logic might be incorrect or tree-sitter grammar differs from expectation.");
+            } else {
+                 eprintln!("[cg::extract_function_parameters DEBUG] No parameters extracted, and no 'parameter' nodes found as direct children. This might be a function/constructor with no parameters, or an issue with identifying 'parameter' nodes.");
+            }
+        } else {
+            eprintln!("[cg::extract_function_parameters DEBUG] No parameters extracted. This appears to be a function/constructor with no parameters based on signature text: '{}'", signature_text.chars().take(50).collect::<String>());
+        }
+    }
+
+    eprintln!("[cg::extract_function_parameters DEBUG] For node kind '{}', extracted {} parameters: {:?}", fn_like_ts_node.kind(), parameters.len(), parameters);
+    parameters
+}
 
 /// Helper function to extract argument texts from a call expression node.
 pub(crate) fn extract_arguments<'a>(
@@ -589,50 +665,75 @@ pub(crate) fn extract_arguments<'a>(
 ) -> Vec<String> {
     let mut argument_texts: Vec<String> = Vec::new();
     eprintln!(
-        "[CallsHandling DEBUG] Extracting arguments for Call Expr Node: Kind='{}', Span={:?}",
+        "[cg::extract_arguments DEBUG] Extracting argument texts for Call Expr Node: Kind='{}', Span=({:?})",
         call_expr_node.kind(),
         (call_expr_node.start_byte(), call_expr_node.end_byte())
     );
 
-    let mut cursor = call_expr_node.walk(); // Walk the children of the call expression node directly
-    for child_node in call_expr_node.children(&mut cursor) {
-        eprintln!(
-            "[CallsHandling DEBUG]   Checking child of call_expr: Kind='{}', Span={:?}",
-            child_node.kind(),
-            (child_node.start_byte(), child_node.end_byte())
-        );
-        // Check if the child is a 'call_argument' node
-        if child_node.kind() == "call_argument" {
-            eprintln!("[CallsHandling DEBUG]     Found call_argument node.");
-            // The expression is typically the first child of 'call_argument'
-            if let Some(expression_node) = child_node.child(0) {
-                eprintln!("[CallsHandling DEBUG]       Found expression node inside call_argument: Kind='{}', Span={:?}", expression_node.kind(), (expression_node.start_byte(), expression_node.end_byte()));
-                let arg_text = get_node_text(&expression_node, &input.source).to_string();
-                eprintln!("[CallsHandling DEBUG]       Extracted text: '{}'", arg_text);
+    if let Some(arguments_field_node) = call_expr_node.child_by_field_name("arguments") {
+        eprintln!("[cg::extract_arguments DEBUG]   Found 'arguments' field. Iterating its children.");
+        let mut arg_cursor = arguments_field_node.walk();
+        for arg_node in arguments_field_node.children(&mut arg_cursor) { // Iterate children of 'arguments'
+            // These children should be 'call_argument' nodes, which are expressions
+            if arg_node.kind() == "call_argument" { // Ensure it's a call_argument
+                let arg_text = get_node_text(&arg_node, &input.source).to_string();
+                eprintln!("[cg::extract_arguments DEBUG]     Extracted argument text (from 'arguments' field, child is call_argument): '{}'", arg_text);
                 argument_texts.push(arg_text);
-            } else {
-                eprintln!("[CallsHandling DEBUG]       Could not find expression node (child 0) inside call_argument.");
             }
         }
-    }
-
-    if argument_texts.is_empty() {
-        eprintln!(
-            "[CallsHandling DEBUG]   No 'call_argument' children found for this call expression."
-        );
-        // Log children if none found
-        let mut cursor_debug = call_expr_node.walk();
-        eprintln!("[CallsHandling DEBUG]   Children of call expression node were:");
-        for child_node_debug in call_expr_node.children(&mut cursor_debug) {
-            eprintln!(
-                "[CallsHandling DEBUG]     - Kind: '{}', Span: {:?}",
-                child_node_debug.kind(),
-                (child_node_debug.start_byte(), child_node_debug.end_byte())
-            );
+    } else {
+        // If 'arguments' field is not found, iterate direct children of call_expr_node
+        // and look for 'call_argument' nodes. This handles cases like `require(arg)`.
+        eprintln!("[cg::extract_arguments DEBUG]   No 'arguments' field found. Iterating direct children of call_expression for 'call_argument' nodes.");
+        let mut direct_child_cursor = call_expr_node.walk();
+        for child_node in call_expr_node.children(&mut direct_child_cursor) {
+            if child_node.kind() == "call_argument" {
+                // child_node is the 'call_argument', which is an _expression node.
+                let arg_text = get_node_text(&child_node, &input.source).to_string();
+                eprintln!("[cg::extract_arguments DEBUG]     Extracted argument text (direct child call_argument): '{}'", arg_text);
+                argument_texts.push(arg_text);
+            }
+        }
+        if argument_texts.is_empty() {
+             eprintln!("[cg::extract_arguments DEBUG]   No 'call_argument' nodes found as direct children either (after checking 'arguments' field).");
         }
     }
+    argument_texts
+}
 
-    argument_texts // Return the extracted arguments
+/// Helper function to extract argument TsNode objects from a call expression node.
+pub(crate) fn extract_argument_nodes<'a>(call_expr_node: TsNode<'a>) -> Vec<TsNode<'a>> {
+    let mut argument_nodes_ts: Vec<TsNode<'a>> = Vec::new();
+    eprintln!(
+        "[cg::extract_argument_nodes DEBUG] Extracting argument nodes for Call Expr Node: Kind='{}', Span=({:?})",
+        call_expr_node.kind(),
+        (call_expr_node.start_byte(), call_expr_node.end_byte())
+    );
+
+    if let Some(arguments_field_node) = call_expr_node.child_by_field_name("arguments") {
+        eprintln!("[cg::extract_argument_nodes DEBUG]   Found 'arguments' field. Iterating its children.");
+        let mut arg_cursor = arguments_field_node.walk();
+        for arg_node in arguments_field_node.children(&mut arg_cursor) { // Iterate children of 'arguments'
+            if arg_node.kind() == "call_argument" { // Ensure it's a call_argument
+                eprintln!("[cg::extract_argument_nodes DEBUG]     Extracted argument node (from 'arguments' field, child is call_argument): Kind='{}', Span=({:?})", arg_node.kind(), (arg_node.start_byte(), arg_node.end_byte()));
+                argument_nodes_ts.push(arg_node);
+            }
+        }
+    } else {
+        eprintln!("[cg::extract_argument_nodes DEBUG]   No 'arguments' field found. Iterating direct children of call_expression for 'call_argument' nodes.");
+        let mut direct_child_cursor = call_expr_node.walk();
+        for child_node in call_expr_node.children(&mut direct_child_cursor) {
+            if child_node.kind() == "call_argument" {
+                // child_node is the 'call_argument', which is an _expression node.
+                eprintln!("[cg::extract_argument_nodes DEBUG]     Extracted argument node (direct child call_argument): Kind='{}', Span=({:?})", child_node.kind(), (child_node.start_byte(), child_node.end_byte()));
+                argument_nodes_ts.push(child_node);
+            }
+        }
+        if argument_nodes_ts.is_empty() {
+            eprintln!("[cg::extract_argument_nodes DEBUG]   No 'call_argument' nodes found as direct children either (after checking 'arguments' field).");
+        }
+    }
+    argument_nodes_ts
 }
 
 /// Resolves the target node ID for a given call expression node.

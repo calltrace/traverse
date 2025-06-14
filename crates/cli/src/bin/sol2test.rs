@@ -177,17 +177,51 @@ fn main() -> Result<()> {
         println!("📂 Created output directory: {}", cli.output_dir.display());
     }
 
+    // Construct original_contract_paths
+    let project_root_for_paths = fs::canonicalize(
+        cli.input_paths
+            .first()
+            .map(|p| p.parent().unwrap_or_else(|| Path::new(".")))
+            .unwrap_or_else(|| Path::new(".")),
+    )
+    .context("Failed to determine project root for original_contract_paths in main")?;
+
+    let mut original_contract_paths: HashMap<String, PathBuf> = HashMap::new();
+    if let Some(manifest) = &ctx.manifest {
+        for entry in &manifest.entries {
+            if entry.item_kind == graph::natspec::extract::SourceItemKind::Contract {
+                if let Some(contract_name) = &entry.item_name {
+                    let absolute_path = project_root_for_paths.join(&entry.file_path);
+                    original_contract_paths.insert(contract_name.clone(), absolute_path);
+                    if cli.verbose {
+                        println!(
+                            "🗺️ Mapping contract '{}' to original path: {}",
+                            contract_name,
+                            original_contract_paths.get(contract_name).unwrap().display()
+                        );
+                    }
+                }
+            }
+        }
+    }
+    if cli.verbose && original_contract_paths.is_empty() && ctx.manifest.is_some() {
+        println!("🗺️ No contract paths found in manifest for copying original sources.");
+    }
+    if cli.verbose && ctx.manifest.is_none() {
+        println!("🗺️ Manifest not available, cannot determine original contract paths for copying.");
+    }
+
+
     generate_tests_with_foundry(
         &graph,
-        &input,
-        &ctx,
+        &ctx, // Pass &ctx instead of &input
         cli.verbose,
         &cli.output_dir,
-        cli.foundry_root,
+        cli.foundry_root.clone(), // Clone Option<PathBuf>
         cli.deployer_only,
         cli.validate_compilation,
+        &original_contract_paths, // Pass the newly constructed map
     )?;
-
     if cli.verbose {
         println!("✅ Test generation completed successfully!");
     }
