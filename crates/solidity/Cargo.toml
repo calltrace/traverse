@@ -1,12 +1,11 @@
 [package]
-name = "mermaid"
+name = "solidity"
 version = "0.1.0"
 edition = "2021"
 resolver = "2"
 
-# add lib target with source code in src/lib.rs
-
 [lib]
+name = "solidity"
 path = "src/lib.rs"
 
 [dependencies]

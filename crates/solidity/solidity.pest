@@ -1,0 +1,346 @@
+// Solidity Pest Grammar
+// Based on the official Solidity ANTLR grammar and EBNF specification
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT = _{ block_comment | line_comment }
+block_comment = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+line_comment = _{ "//" ~ (!("\r" | "\n") ~ ANY)* }
+
+source_unit = { SOI ~ (pragma_directive | import_directive | using_directive | contract_definition | interface_definition | library_definition | function_definition | constant_variable_declaration | struct_definition | enum_definition | user_defined_value_type_definition | error_definition | event_definition)* ~ EOI }
+
+pragma_directive = { "pragma" ~ pragma_token+ ~ ";" }
+pragma_token = { identifier | version_literal | "^" | "~" | ">=" | ">" | "<=" | "<" | "=" | "." | "*" }
+
+import_directive = { "import" ~ (
+    (path ~ ("as" ~ unit_alias)?) |
+    (symbol_aliases ~ "from" ~ path) |
+    ("*" ~ "as" ~ unit_alias ~ "from" ~ path)
+) ~ ";" }
+
+import_aliases = { symbol ~ ("as" ~ alias)? }
+symbol = { identifier }
+alias = { identifier }
+unit_alias = { identifier }
+path = { string_literal }
+symbol_aliases = { "{" ~ import_aliases ~ ("," ~ import_aliases)* ~ "}" }
+
+using_directive = { "using" ~ (
+    identifier_path |
+    ("{" ~ using_aliases ~ ("," ~ using_aliases)* ~ "}")
+) ~ "for" ~ ("*" | type_name) ~ "global"? ~ ";" }
+
+using_aliases = { identifier_path ~ ("as" ~ user_definable_operator)? }
+
+user_definable_operator = { "&" | "~" | "|" | "^" | "+" | "/" | "%" | "*" | "-" | "==" | ">" | ">=" | "<" | "<=" | "!=" }
+
+contract_definition = { "abstract"? ~ "contract" ~ identifier ~ inheritance_specifier_list? ~ "{" ~ contract_body_element* ~ "}" }
+
+interface_definition = { "interface" ~ identifier ~ inheritance_specifier_list? ~ "{" ~ contract_body_element* ~ "}" }
+
+library_definition = { "library" ~ identifier ~ "{" ~ contract_body_element* ~ "}" }
+
+inheritance_specifier_list = { "is" ~ inheritance_specifier ~ ("," ~ inheritance_specifier)* }
+inheritance_specifier = { identifier_path ~ call_argument_list? }
+
+contract_body_element = {
+    constructor_definition |
+    function_definition |
+    modifier_definition |
+    fallback_function_definition |
+    receive_function_definition |
+    struct_definition |
+    enum_definition |
+    user_defined_value_type_definition |
+    state_variable_declaration |
+    event_definition |
+    error_definition |
+    using_directive
+}
+
+constructor_definition = { "constructor" ~ "(" ~ parameter_list? ~ ")" ~ (modifier_invocation | "payable" | "internal" | "public")* ~ block }
+
+function_definition = { "function" ~ (identifier | "fallback" | "receive")? ~ "(" ~ parameter_list? ~ ")" ~ (visibility | state_mutability | modifier_invocation | "virtual" | override_specifier)* ~ ("returns" ~ "(" ~ parameter_list ~ ")")? ~ (";" | block) }
+
+modifier_definition = { "modifier" ~ identifier ~ ("(" ~ parameter_list? ~ ")")? ~ ("virtual" | override_specifier)* ~ (";" | block) }
+
+fallback_function_definition = { "fallback" ~ "(" ~ parameter_list? ~ ")" ~ ("external" | state_mutability | modifier_invocation | "virtual" | override_specifier)* ~ ("returns" ~ "(" ~ parameter_list ~ ")")? ~ (";" | block) }
+
+receive_function_definition = { "receive" ~ "(" ~ ")" ~ ("external" | "payable" | modifier_invocation | "virtual" | override_specifier)* ~ (";" | block) }
+
+modifier_invocation = { identifier_path ~ call_argument_list? }
+
+visibility = { "internal" | "external" | "private" | "public" }
+
+state_mutability = { "pure" | "view" | "payable" }
+
+override_specifier = { "override" ~ ("(" ~ identifier_path ~ ("," ~ identifier_path)* ~ ")")? }
+
+parameter_list = { parameter_declaration ~ ("," ~ parameter_declaration)* }
+parameter_declaration = { type_name ~ data_location? ~ identifier? }
+
+data_location = { "memory" | "storage" | "calldata" }
+
+state_variable_declaration = { type_name ~ ("public" | "private" | "internal" | "constant" | override_specifier | "immutable" | "transient")* ~ identifier ~ ("=" ~ expression)? ~ ";" }
+
+constant_variable_declaration = { type_name ~ "constant" ~ identifier ~ "=" ~ expression ~ ";" }
+
+struct_definition = { "struct" ~ identifier ~ "{" ~ struct_member+ ~ "}" }
+struct_member = { type_name ~ identifier ~ ";" }
+
+enum_definition = { "enum" ~ identifier ~ "{" ~ identifier ~ ("," ~ identifier)* ~ "}" }
+
+user_defined_value_type_definition = { "type" ~ identifier ~ "is" ~ elementary_type_name ~ ";" }
+
+event_definition = { "event" ~ identifier ~ "(" ~ (event_parameter ~ ("," ~ event_parameter)*)? ~ ")" ~ "anonymous"? ~ ";" }
+event_parameter = { type_name ~ "indexed"? ~ identifier? }
+
+error_definition = { "error" ~ identifier ~ "(" ~ (error_parameter ~ ("," ~ error_parameter)*)? ~ ")" ~ ";" }
+error_parameter = { type_name ~ identifier? }
+
+type_name = { base_type_name ~ array_suffix* }
+base_type_name = { elementary_type_name | function_type_name | mapping_type | identifier_path }
+array_suffix = { "[" ~ expression? ~ "]" }
+
+elementary_type_name = { 
+    "address" ~ "payable"? |
+    "bool" |
+    "string" |
+    "bytes" |
+    signed_integer_type |
+    unsigned_integer_type |
+    fixed_bytes |
+    "fixed" |
+    "ufixed"
+}
+
+function_type_name = { "function" ~ "(" ~ parameter_list? ~ ")" ~ (visibility | state_mutability)* ~ ("returns" ~ "(" ~ parameter_list ~ ")")? }
+
+mapping_type = { "mapping" ~ "(" ~ mapping_key_type ~ identifier? ~ "=>" ~ type_name ~ identifier? ~ ")" }
+mapping_key_type = { elementary_type_name | identifier_path }
+
+variable_declaration = { type_name ~ data_location? ~ identifier }
+
+additive_expression = { multiplicative_expression ~ (additive_op ~ multiplicative_expression)* }
+additive_op = { "+" | "-" }
+
+multiplicative_expression = { exponential_expression ~ (multiplicative_op ~ exponential_expression)* }
+multiplicative_op = { "*" | "/" | "%" }
+
+relational_expression = { bitwise_or_expression ~ (relational_op ~ bitwise_or_expression)* }
+relational_op = { "<=" | ">=" | "<" | ">" }
+
+equality_expression = { relational_expression ~ (equality_op ~ relational_expression)* }
+equality_op = { "==" | "!=" }
+
+logical_and_expression = { equality_expression ~ (logical_and_op ~ equality_expression)* }
+logical_and_op = { "&&" }
+
+logical_or_expression = { logical_and_expression ~ (logical_or_op ~ logical_and_expression)* }
+logical_or_op = { "||" }
+
+bitwise_and_expression = { shift_expression ~ (bitwise_and_op ~ shift_expression)* }
+bitwise_and_op = { "&" }
+
+bitwise_xor_expression = { bitwise_and_expression ~ (bitwise_xor_op ~ bitwise_and_expression)* }
+bitwise_xor_op = { "^" }
+
+bitwise_or_expression = { bitwise_xor_expression ~ (bitwise_or_op ~ bitwise_xor_expression)* }
+bitwise_or_op = { "|" }
+
+shift_expression = { additive_expression ~ (shift_op ~ additive_expression)* }
+shift_op = { "<<" | ">>>" | ">>" }
+
+expression = { assignment_expression }
+complete_expression = { SOI ~ expression ~ EOI }
+
+assignment_expression = { conditional_expression ~ (assign_op ~ assignment_expression)? }
+assign_op = { "=" | "|=" | "^=" | "&=" | "<<=" | ">>=" | ">>>=" | "+=" | "-=" | "*=" | "/=" | "%=" }
+
+conditional_expression = { logical_or_expression ~ ("?" ~ expression ~ ":" ~ conditional_expression)? }
+
+exponential_expression = { unary_expression ~ ("**" ~ exponential_expression)? }
+
+unary_expression = {
+    ("++" | "--" | "!" | "~" | "delete" | "-" | "+") ~ unary_expression |
+    postfix_expression
+}
+
+postfix_expression = {
+    primary_expression ~ (
+        "[" ~ expression? ~ "]" |
+        "[" ~ expression? ~ ":" ~ expression? ~ "]" |
+        "." ~ (identifier | "address") |
+        "{" ~ (named_argument ~ ("," ~ named_argument)*)? ~ "}" |
+        call_argument_list |
+        "++" |
+        "--"
+    )*
+}
+
+primary_expression = {
+    "payable" ~ call_argument_list |
+    "type" ~ "(" ~ type_name ~ ")" |
+    "new" ~ type_name |
+    tuple_expression |
+    inline_array_expression |
+    identifier |
+    literal_with_sub_denomination |
+    literal |
+    elementary_type_name
+}
+
+named_argument = { identifier ~ ":" ~ expression }
+
+call_argument_list = { "(" ~ (expression_list | named_argument_list)? ~ ")" }
+expression_list = { expression ~ ("," ~ expression)* }
+named_argument_list = { "{" ~ (named_argument ~ ("," ~ named_argument)*)? ~ "}" }
+
+tuple_expression = { "(" ~ (expression? ~ ("," ~ expression?)*)? ~ ")" }
+
+inline_array_expression = { "[" ~ (expression ~ ("," ~ expression)*)? ~ "]" }
+
+identifier_path = { identifier ~ ("." ~ identifier)* }
+
+literal = { string_literal | number_literal | boolean_literal | hex_string_literal | unicode_string_literal }
+literal_with_sub_denomination = { number_literal ~ sub_denomination }
+
+boolean_literal = { "true" | "false" }
+string_literal = { "\"" ~ (!"\"" ~ (escape_sequence | ANY))* ~ "\"" | "'" ~ (!"'" ~ (escape_sequence | ANY))* ~ "'" }
+hex_string_literal = { "hex" ~ ("\"" ~ hex_pair* ~ "\"" | "'" ~ hex_pair* ~ "'") }
+unicode_string_literal = { "unicode" ~ ("\"" ~ (!("\"") ~ ANY)* ~ "\"" | "'" ~ (!"'" ~ ANY)* ~ "'") }
+
+number_literal = { hex_number | decimal_number }
+decimal_number = { (decimal_digits? ~ ".")? ~ decimal_digits ~ (^"e" ~ decimal_digits)? }
+hex_number = { "0" ~ ^"x" ~ hex_digits }
+
+decimal_digits = @{ ASCII_DIGIT ~ ("_"? ~ ASCII_DIGIT)* }
+hex_digits = @{ hex_character ~ ("_"? ~ hex_character)* }
+hex_pair = { hex_character ~ hex_character }
+hex_character = { ASCII_HEX_DIGIT }
+
+sub_denomination = { "wei" | "gwei" | "ether" | "seconds" | "minutes" | "hours" | "days" | "weeks" | "years" }
+
+escape_sequence = { "\\" ~ ANY }
+
+signed_integer_type = { "int" ~ ("8" | "16" | "24" | "32" | "40" | "48" | "56" | "64" | "72" | "80" | "88" | "96" | "104" | "112" | "120" | "128" | "136" | "144" | "152" | "160" | "168" | "176" | "184" | "192" | "200" | "208" | "216" | "224" | "232" | "240" | "248" | "256")? }
+
+unsigned_integer_type = { "uint" ~ ("8" | "16" | "24" | "32" | "40" | "48" | "56" | "64" | "72" | "80" | "88" | "96" | "104" | "112" | "120" | "128" | "136" | "144" | "152" | "160" | "168" | "176" | "184" | "192" | "200" | "208" | "216" | "224" | "232" | "240" | "248" | "256")? }
+
+fixed_bytes = { "bytes" ~ ("1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "10" | "11" | "12" | "13" | "14" | "15" | "16" | "17" | "18" | "19" | "20" | "21" | "22" | "23" | "24" | "25" | "26" | "27" | "28" | "29" | "30" | "31" | "32")? }
+
+version_literal = { ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
+
+block = { "{" ~ (statement | unchecked_block)* ~ "}" }
+unchecked_block = { "unchecked" ~ block }
+
+statement = {
+    block |
+    simple_statement |
+    if_statement |
+    for_statement |
+    while_statement |
+    do_while_statement |
+    continue_statement |
+    break_statement |
+    try_statement |
+    return_statement |
+    emit_statement |
+    revert_statement |
+    assembly_statement
+}
+
+simple_statement = { variable_declaration_statement | expression_statement }
+
+if_statement = { "if" ~ "(" ~ expression ~ ")" ~ statement ~ ("else" ~ statement)? }
+for_statement = { "for" ~ "(" ~ (simple_statement | ";") ~ (expression_statement | ";") ~ expression? ~ ")" ~ statement }
+while_statement = { "while" ~ "(" ~ expression ~ ")" ~ statement }
+do_while_statement = { "do" ~ statement ~ "while" ~ "(" ~ expression ~ ")" ~ ";" }
+continue_statement = { "continue" ~ ";" }
+break_statement = { "break" ~ ";" }
+return_statement = { "return" ~ expression? ~ ";" }
+emit_statement = { "emit" ~ expression ~ call_argument_list ~ ";" }
+revert_statement = { "revert" ~ expression ~ call_argument_list ~ ";" }
+
+try_statement = { "try" ~ expression ~ ("returns" ~ "(" ~ parameter_list ~ ")")? ~ block ~ catch_clause+ }
+catch_clause = { "catch" ~ (identifier? ~ "(" ~ parameter_list ~ ")")? ~ block }
+
+variable_declaration_statement = { (variable_declaration ~ ("=" ~ expression)? | variable_declaration_tuple ~ "=" ~ expression) ~ ";" }
+variable_declaration_tuple = { "(" ~ ("," * ~ variable_declaration) ~ ("," ~ (variable_declaration)?)* ~ ")" }
+
+expression_statement = { expression ~ ";" }
+
+assembly_statement = { "assembly" ~ assembly_dialect? ~ assembly_flags? ~ "{" ~ yul_statement* ~ "}" }
+assembly_dialect = { string_literal }
+assembly_flags = { "(" ~ string_literal ~ ("," ~ string_literal)* ~ ")" }
+
+// Yul statements (work in progress)
+yul_statement = {
+    yul_block |
+    yul_variable_declaration |
+    yul_assignment |
+    yul_function_call |
+    yul_if_statement |
+    yul_for_statement |
+    yul_switch_statement |
+    "leave" |
+    "break" |
+    "continue" |
+    yul_function_definition
+}
+
+yul_block = { "{" ~ yul_statement* ~ "}" }
+yul_variable_declaration = { "let" ~ yul_identifier ~ ("," ~ yul_identifier)* ~ (":=" ~ (yul_expression | yul_function_call))? }
+yul_assignment = { yul_path ~ (("," ~ yul_path)+ ~ ":=" ~ yul_function_call | ":=" ~ yul_expression) }
+yul_if_statement = { "if" ~ yul_expression ~ yul_block }
+yul_for_statement = { "for" ~ yul_block ~ yul_expression ~ yul_block ~ yul_block }
+yul_switch_statement = { "switch" ~ yul_expression ~ (yul_switch_case+ ~ ("default" ~ yul_block)? | "default" ~ yul_block) }
+yul_switch_case = { "case" ~ yul_literal ~ yul_block }
+yul_function_definition = { "function" ~ yul_identifier ~ "(" ~ (yul_identifier ~ ("," ~ yul_identifier)*)? ~ ")" ~ ("->" ~ yul_identifier ~ ("," ~ yul_identifier)*)? ~ yul_block }
+
+yul_path = { yul_identifier ~ ("." ~ (yul_identifier | yul_evm_builtin))* }
+yul_function_call = { (yul_identifier | yul_evm_builtin) ~ "(" ~ (yul_expression ~ ("," ~ yul_expression)*)? ~ ")" }
+yul_expression = { yul_path | yul_function_call | yul_literal }
+yul_literal = { yul_decimal_number | yul_string_literal | yul_hex_number | yul_boolean | yul_hex_string_literal }
+yul_boolean = { "true" | "false" }
+
+yul_identifier = { (ASCII_ALPHA | "_" | "$") ~ (ASCII_ALPHANUMERIC | "_" | "$")* }
+yul_decimal_number = { ASCII_DIGIT+ }
+yul_hex_number = { "0x" ~ ASCII_HEX_DIGIT+ }
+yul_string_literal = { "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
+yul_hex_string_literal = { "hex" ~ "\"" ~ hex_pair* ~ "\"" }
+yul_evm_builtin = { 
+    "stop" | "add" | "sub" | "mul" | "div" | "sdiv" | "mod" | "smod" | "addmod" | "mulmod" | "exp" | "signextend" |
+    "lt" | "gt" | "slt" | "sgt" | "eq" | "iszero" | "and" | "or" | "xor" | "not" | "byte" | "shl" | "shr" | "sar" |
+    "sha3" | "address" | "balance" | "origin" | "caller" | "callvalue" | "calldataload" | "calldatasize" |
+    "calldatacopy" | "codesize" | "codecopy" | "gasprice" | "extcodesize" | "extcodecopy" | "returndatasize" |
+    "returndatacopy" | "extcodehash" | "blockhash" | "coinbase" | "timestamp" | "number" | "difficulty" |
+    "gaslimit" | "chainid" | "selfbalance" | "basefee" | "pop" | "mload" | "mstore" | "mstore8" | "sload" |
+    "sstore" | "jump" | "jumpi" | "pc" | "msize" | "gas" | "jumpdest" | "push1" | "push2" | "push3" | "push4" |
+    "push5" | "push6" | "push7" | "push8" | "push9" | "push10" | "push11" | "push12" | "push13" | "push14" |
+    "push15" | "push16" | "push17" | "push18" | "push19" | "push20" | "push21" | "push22" | "push23" | "push24" |
+    "push25" | "push26" | "push27" | "push28" | "push29" | "push30" | "push31" | "push32" | "dup1" | "dup2" |
+    "dup3" | "dup4" | "dup5" | "dup6" | "dup7" | "dup8" | "dup9" | "dup10" | "dup11" | "dup12" | "dup13" |
+    "dup14" | "dup15" | "dup16" | "swap1" | "swap2" | "swap3" | "swap4" | "swap5" | "swap6" | "swap7" | "swap8" |
+    "swap9" | "swap10" | "swap11" | "swap12" | "swap13" | "swap14" | "swap15" | "swap16" | "log0" | "log1" |
+    "log2" | "log3" | "log4" | "create" | "call" | "callcode" | "return" | "delegatecall" | "create2" |
+    "staticcall" | "revert" | "selfdestruct"
+}
+
+reserved_keyword = @{
+    ("abstract" | "address" | "after" | "anonymous" | "as" | "assembly" | "bool" | "break" | "bytes" | "calldata" |
+    "case" | "catch" | "constant" | "constructor" | "continue" | "contract" | "default" | "delete" | "do" |
+    "else" | "emit" | "enum" | "error" | "event" | "external" | "fallback" | "false" | "final" | "fixed" |
+  "for" | "function" | "global" | "hex" | "if" | "immutable" | "import" | "in" | "indexed" |
+    "inline" | "int" | "interface" | "internal" | "is" | "layout" | "leave" | "let" | "library" | "mapping" |
+    "match" | "memory" | "modifier" | "new" | "null" | "of" | "override" | "payable" | "pragma" | "private" |
+    "public" | "pure" | "receive" | "relocatable" | "return" | "returns" | "revert" | "static" | "storage" |
+    "string" | "struct" | "switch" | "transient" | "true" | "try" | "type" | "typeof" | "ufixed" | "uint" |
+    "unchecked" | "unicode" | "using" | "view" | "virtual" | "while") ~
+    !(ASCII_ALPHANUMERIC | "_" | "$")
+}
+
+identifier = @{ 
+    !reserved_keyword ~ 
+    (ASCII_ALPHA | "_" | "$") ~ 
+    (ASCII_ALPHANUMERIC | "_" | "$")* 
+}

@@ -4,10 +4,7 @@ members = [
     "crates/language",
     "crates/cli",
     "crates/graph",
-    "crates/codegen"
+    "crates/codegen",
+    "crates/solidity",
+    "crates/mermaid"
 ]
-
-
-
-
-
