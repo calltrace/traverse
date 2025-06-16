@@ -1,7 +1,7 @@
-use pest::iterators::Pair;
 use crate::ast::*;
-use pest_derive::Parser;
+use pest::iterators::Pair;
 use pest::Parser;
+use pest_derive::Parser;
 use std::fmt;
 
 #[derive(Parser)]
@@ -39,11 +39,8 @@ pub fn parse_solidity(source: &str) -> Result<SourceUnit, SolidityParseError> {
     }
 
     let pairs = SolidityParser::parse(Rule::source_unit, source)?;
-    let source_unit = pairs
-        .peek()
-        .map(SourceUnit::from)
-        .unwrap_or_default();
-    
+    let source_unit = pairs.peek().map(SourceUnit::from).unwrap_or_default();
+
     Ok(source_unit)
 }
 
@@ -56,27 +53,32 @@ pub fn parse_expression(source: &str) -> Result<Expression, SolidityParseError> 
     let expression = pairs
         .peek()
         .map(|pair| {
-            pair.into_inner().next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)))
+            pair.into_inner()
+                .next()
+                .map(Expression::from)
+                .unwrap_or(Expression::Literal(Literal::Boolean(false)))
         })
-        .ok_or_else(|| SolidityParseError::ParseError("Failed to parse complete expression".to_string()))?;
-    
+        .ok_or_else(|| {
+            SolidityParseError::ParseError("Failed to parse complete expression".to_string())
+        })?;
+
     Ok(expression)
 }
 
 impl From<Pair<'_, Rule>> for SourceUnit {
     fn from(pair: Pair<'_, Rule>) -> Self {
         let mut items = Vec::new();
-        
+
         for inner_pair in pair.into_inner() {
             if inner_pair.as_rule() == Rule::EOI {
                 break;
             }
-            
+
             if let Some(item) = SourceUnitItem::from_pair(inner_pair) {
                 items.push(item);
             }
         }
-        
+
         SourceUnit { items }
     }
 }
@@ -85,7 +87,9 @@ impl SourceUnitItem {
     pub fn from_pair(pair: Pair<'_, Rule>) -> Option<Self> {
         match pair.as_rule() {
             Rule::pragma_directive => Some(SourceUnitItem::Pragma(PragmaDirective::from(pair))),
-            Rule::contract_definition => Some(SourceUnitItem::Contract(ContractDefinition::from(pair))),
+            Rule::contract_definition => {
+                Some(SourceUnitItem::Contract(ContractDefinition::from(pair)))
+            }
             Rule::struct_definition => Some(SourceUnitItem::Struct(StructDefinition::from(pair))),
             Rule::enum_definition => Some(SourceUnitItem::Enum(EnumDefinition::from(pair))),
             _ => None,
@@ -100,7 +104,7 @@ impl From<Pair<'_, Rule>> for PragmaDirective {
             .filter(|p| p.as_rule() == Rule::pragma_token)
             .map(|p| p.as_str().to_string())
             .collect();
-        
+
         PragmaDirective { tokens }
     }
 }
@@ -111,11 +115,11 @@ impl From<Pair<'_, Rule>> for ContractDefinition {
         let mut name = String::new();
         let inheritance = Vec::new();
         let body = Vec::new();
-        
+
         if pair.as_str().trim_start().starts_with("abstract") {
             is_abstract = true;
         }
-        
+
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
                 Rule::identifier => {
@@ -126,8 +130,13 @@ impl From<Pair<'_, Rule>> for ContractDefinition {
                 _ => {}
             }
         }
-        
-        ContractDefinition { is_abstract, name, inheritance, body }
+
+        ContractDefinition {
+            is_abstract,
+            name,
+            inheritance,
+            body,
+        }
     }
 }
 
@@ -135,7 +144,7 @@ impl From<Pair<'_, Rule>> for StructDefinition {
     fn from(pair: Pair<'_, Rule>) -> Self {
         let mut name = String::new();
         let mut members = Vec::new();
-        
+
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
                 Rule::identifier => {
@@ -149,7 +158,7 @@ impl From<Pair<'_, Rule>> for StructDefinition {
                 _ => {}
             }
         }
-        
+
         StructDefinition { name, members }
     }
 }
@@ -158,7 +167,7 @@ impl From<Pair<'_, Rule>> for StructMember {
     fn from(pair: Pair<'_, Rule>) -> Self {
         let mut type_name = TypeName::Elementary(ElementaryTypeName::Bool);
         let mut name = String::new();
-        
+
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
                 Rule::type_name => {
@@ -170,7 +179,7 @@ impl From<Pair<'_, Rule>> for StructMember {
                 _ => {}
             }
         }
-        
+
         StructMember { type_name, name }
     }
 }
@@ -179,7 +188,7 @@ impl From<Pair<'_, Rule>> for EnumDefinition {
     fn from(pair: Pair<'_, Rule>) -> Self {
         let mut name = String::new();
         let mut values = Vec::new();
-        
+
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
                 Rule::identifier => {
@@ -192,7 +201,7 @@ impl From<Pair<'_, Rule>> for EnumDefinition {
                 _ => {}
             }
         }
-        
+
         EnumDefinition { name, values }
     }
 }
@@ -208,13 +217,13 @@ impl From<Pair<'_, Rule>> for TypeName {
                     // This is simplified - in a real implementation you'd handle array types properly
                     return TypeName::Array(
                         Box::new(TypeName::Elementary(ElementaryTypeName::Bool)),
-                        None
+                        None,
                     );
                 }
                 _ => {}
             }
         }
-        
+
         TypeName::Elementary(ElementaryTypeName::Bool)
     }
 }
@@ -222,7 +231,7 @@ impl From<Pair<'_, Rule>> for TypeName {
 impl From<Pair<'_, Rule>> for ElementaryTypeName {
     fn from(pair: Pair<'_, Rule>) -> Self {
         let text = pair.as_str();
-        
+
         if text == "address" {
             ElementaryTypeName::Address
         } else if text == "bool" {
@@ -258,14 +267,14 @@ impl From<Pair<'_, Rule>> for IdentifierPath {
             .filter(|p| p.as_rule() == Rule::identifier)
             .map(|p| p.as_str().to_string())
             .collect();
-        
+
         IdentifierPath { parts }
     }
 }
 
 fn parse_call_arguments(pair: Pair<'_, Rule>) -> Vec<Expression> {
     let mut arguments = Vec::new();
-    
+
     for inner_pair in pair.into_inner() {
         match inner_pair.as_rule() {
             Rule::expression_list => {
@@ -281,7 +290,7 @@ fn parse_call_arguments(pair: Pair<'_, Rule>) -> Vec<Expression> {
             _ => {}
         }
     }
-    
+
     arguments
 }
 
@@ -297,12 +306,18 @@ impl From<Pair<'_, Rule>> for Expression {
             }
             Rule::assignment_expression => {
                 let mut inner_pairs = pair.into_inner();
-                let first = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                
+                let first = inner_pairs
+                    .next()
+                    .map(Expression::from)
+                    .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+
                 if let Some(op_pair) = inner_pairs.next() {
                     let operator = AssignmentOperator::from(op_pair);
-                    let right = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                    
+                    let right = inner_pairs
+                        .next()
+                        .map(Expression::from)
+                        .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+
                     Expression::Assignment(AssignmentExpression {
                         left: Box::new(first),
                         operator,
@@ -314,12 +329,21 @@ impl From<Pair<'_, Rule>> for Expression {
             }
             Rule::conditional_expression => {
                 let mut inner_pairs = pair.into_inner();
-                let condition = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                
+                let condition = inner_pairs
+                    .next()
+                    .map(Expression::from)
+                    .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+
                 if inner_pairs.peek().is_some() {
-                    let true_expr = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                    let false_expr = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                    
+                    let true_expr = inner_pairs
+                        .next()
+                        .map(Expression::from)
+                        .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+                    let false_expr = inner_pairs
+                        .next()
+                        .map(Expression::from)
+                        .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+
                     Expression::Conditional(ConditionalExpression {
                         condition: Box::new(condition),
                         true_expr: Box::new(true_expr),
@@ -331,8 +355,11 @@ impl From<Pair<'_, Rule>> for Expression {
             }
             Rule::additive_expression => {
                 let mut inner_pairs = pair.into_inner();
-                let mut left = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                
+                let mut left = inner_pairs
+                    .next()
+                    .map(Expression::from)
+                    .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+
                 while let Some(op_pair) = inner_pairs.next() {
                     if let Some(right_pair) = inner_pairs.next() {
                         let operator = match op_pair.as_str() {
@@ -341,7 +368,7 @@ impl From<Pair<'_, Rule>> for Expression {
                             _ => BinaryOperator::Add,
                         };
                         let right = Expression::from(right_pair);
-                        
+
                         left = Expression::Binary(BinaryExpression {
                             left: Box::new(left),
                             operator,
@@ -349,13 +376,16 @@ impl From<Pair<'_, Rule>> for Expression {
                         });
                     }
                 }
-                
+
                 left
             }
             Rule::multiplicative_expression => {
                 let mut inner_pairs = pair.into_inner();
-                let mut left = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                
+                let mut left = inner_pairs
+                    .next()
+                    .map(Expression::from)
+                    .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+
                 while let Some(op_pair) = inner_pairs.next() {
                     if let Some(right_pair) = inner_pairs.next() {
                         let operator = match op_pair.as_str() {
@@ -365,7 +395,7 @@ impl From<Pair<'_, Rule>> for Expression {
                             _ => BinaryOperator::Mul,
                         };
                         let right = Expression::from(right_pair);
-                        
+
                         left = Expression::Binary(BinaryExpression {
                             left: Box::new(left),
                             operator,
@@ -373,13 +403,16 @@ impl From<Pair<'_, Rule>> for Expression {
                         });
                     }
                 }
-                
+
                 left
             }
             Rule::relational_expression => {
                 let mut inner_pairs = pair.into_inner();
-                let mut left = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                
+                let mut left = inner_pairs
+                    .next()
+                    .map(Expression::from)
+                    .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+
                 while let Some(op_pair) = inner_pairs.next() {
                     if let Some(right_pair) = inner_pairs.next() {
                         let operator = match op_pair.as_str() {
@@ -390,7 +423,7 @@ impl From<Pair<'_, Rule>> for Expression {
                             _ => BinaryOperator::GreaterThan,
                         };
                         let right = Expression::from(right_pair);
-                        
+
                         left = Expression::Binary(BinaryExpression {
                             left: Box::new(left),
                             operator,
@@ -398,13 +431,16 @@ impl From<Pair<'_, Rule>> for Expression {
                         });
                     }
                 }
-                
+
                 left
             }
             Rule::equality_expression => {
                 let mut inner_pairs = pair.into_inner();
-                let mut left = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                
+                let mut left = inner_pairs
+                    .next()
+                    .map(Expression::from)
+                    .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+
                 while let Some(op_pair) = inner_pairs.next() {
                     if let Some(right_pair) = inner_pairs.next() {
                         let operator = match op_pair.as_str() {
@@ -413,7 +449,7 @@ impl From<Pair<'_, Rule>> for Expression {
                             _ => BinaryOperator::Equal,
                         };
                         let right = Expression::from(right_pair);
-                        
+
                         left = Expression::Binary(BinaryExpression {
                             left: Box::new(left),
                             operator,
@@ -421,13 +457,16 @@ impl From<Pair<'_, Rule>> for Expression {
                         });
                     }
                 }
-                
+
                 left
             }
             Rule::logical_and_expression => {
                 let mut inner_pairs = pair.into_inner();
-                let mut left = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                
+                let mut left = inner_pairs
+                    .next()
+                    .map(Expression::from)
+                    .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+
                 while let Some(_op_pair) = inner_pairs.next() {
                     if let Some(right_pair) = inner_pairs.next() {
                         let right = Expression::from(right_pair);
@@ -438,13 +477,16 @@ impl From<Pair<'_, Rule>> for Expression {
                         });
                     }
                 }
-                
+
                 left
             }
             Rule::logical_or_expression => {
                 let mut inner_pairs = pair.into_inner();
-                let mut left = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                
+                let mut left = inner_pairs
+                    .next()
+                    .map(Expression::from)
+                    .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+
                 while let Some(_op_pair) = inner_pairs.next() {
                     if let Some(right_pair) = inner_pairs.next() {
                         let right = Expression::from(right_pair);
@@ -455,13 +497,16 @@ impl From<Pair<'_, Rule>> for Expression {
                         });
                     }
                 }
-                
+
                 left
             }
             Rule::bitwise_and_expression => {
                 let mut inner_pairs = pair.into_inner();
-                let mut left = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                
+                let mut left = inner_pairs
+                    .next()
+                    .map(Expression::from)
+                    .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+
                 while let Some(_op_pair) = inner_pairs.next() {
                     if let Some(right_pair) = inner_pairs.next() {
                         let right = Expression::from(right_pair);
@@ -472,13 +517,16 @@ impl From<Pair<'_, Rule>> for Expression {
                         });
                     }
                 }
-                
+
                 left
             }
             Rule::bitwise_xor_expression => {
                 let mut inner_pairs = pair.into_inner();
-                let mut left = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                
+                let mut left = inner_pairs
+                    .next()
+                    .map(Expression::from)
+                    .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+
                 while let Some(_op_pair) = inner_pairs.next() {
                     if let Some(right_pair) = inner_pairs.next() {
                         let right = Expression::from(right_pair);
@@ -489,13 +537,16 @@ impl From<Pair<'_, Rule>> for Expression {
                         });
                     }
                 }
-                
+
                 left
             }
             Rule::bitwise_or_expression => {
                 let mut inner_pairs = pair.into_inner();
-                let mut left = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                
+                let mut left = inner_pairs
+                    .next()
+                    .map(Expression::from)
+                    .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+
                 while let Some(_op_pair) = inner_pairs.next() {
                     if let Some(right_pair) = inner_pairs.next() {
                         let right = Expression::from(right_pair);
@@ -506,13 +557,16 @@ impl From<Pair<'_, Rule>> for Expression {
                         });
                     }
                 }
-                
+
                 left
             }
             Rule::shift_expression => {
                 let mut inner_pairs = pair.into_inner();
-                let mut left = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                
+                let mut left = inner_pairs
+                    .next()
+                    .map(Expression::from)
+                    .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+
                 while let Some(op_pair) = inner_pairs.next() {
                     if let Some(right_pair) = inner_pairs.next() {
                         let operator = match op_pair.as_str() {
@@ -522,7 +576,7 @@ impl From<Pair<'_, Rule>> for Expression {
                             _ => BinaryOperator::ShiftLeft,
                         };
                         let right = Expression::from(right_pair);
-                        
+
                         left = Expression::Binary(BinaryExpression {
                             left: Box::new(left),
                             operator,
@@ -530,13 +584,16 @@ impl From<Pair<'_, Rule>> for Expression {
                         });
                     }
                 }
-                
+
                 left
             }
             Rule::exponential_expression => {
                 let mut inner_pairs = pair.into_inner();
-                let left = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                
+                let left = inner_pairs
+                    .next()
+                    .map(Expression::from)
+                    .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+
                 if let Some(right_pair) = inner_pairs.next() {
                     let right = Expression::from(right_pair);
                     Expression::Binary(BinaryExpression {
@@ -551,33 +608,47 @@ impl From<Pair<'_, Rule>> for Expression {
             Rule::unary_expression => {
                 let full_text = pair.as_str();
                 let mut inner_pairs = pair.into_inner();
-                
+
                 if let Some(operand_pair) = inner_pairs.next() {
                     let operand_text = operand_pair.as_str();
-                    
+
                     // Check if this is a prefix unary expression by comparing texts
                     if full_text != operand_text {
                         // This is a prefix unary expression
                         // Extract the operator by finding what comes before the operand
-                        let operator_str = if full_text.starts_with("++") && full_text[2..].trim_start() == operand_text {
+                        let operator_str = if full_text.starts_with("++")
+                            && full_text[2..].trim_start() == operand_text
+                        {
                             "++"
-                        } else if full_text.starts_with("--") && full_text[2..].trim_start() == operand_text {
+                        } else if full_text.starts_with("--")
+                            && full_text[2..].trim_start() == operand_text
+                        {
                             "--"
-                        } else if full_text.starts_with("!") && full_text[1..].trim_start() == operand_text {
+                        } else if full_text.starts_with("!")
+                            && full_text[1..].trim_start() == operand_text
+                        {
                             "!"
-                        } else if full_text.starts_with("~") && full_text[1..].trim_start() == operand_text {
+                        } else if full_text.starts_with("~")
+                            && full_text[1..].trim_start() == operand_text
+                        {
                             "~"
-                        } else if full_text.starts_with("delete ") && full_text[7..].trim_start() == operand_text {
+                        } else if full_text.starts_with("delete ")
+                            && full_text[7..].trim_start() == operand_text
+                        {
                             "delete"
-                        } else if full_text.starts_with("-") && full_text[1..].trim_start() == operand_text {
+                        } else if full_text.starts_with("-")
+                            && full_text[1..].trim_start() == operand_text
+                        {
                             "-"
-                        } else if full_text.starts_with("+") && full_text[1..].trim_start() == operand_text {
+                        } else if full_text.starts_with("+")
+                            && full_text[1..].trim_start() == operand_text
+                        {
                             "+"
                         } else {
                             // Fallback: couldn't determine operator, treat as regular expression
                             return Expression::from(operand_pair);
                         };
-                        
+
                         let operator = match operator_str {
                             "+" => UnaryOperator::Plus,
                             "-" => UnaryOperator::Minus,
@@ -588,9 +659,9 @@ impl From<Pair<'_, Rule>> for Expression {
                             "delete" => UnaryOperator::Delete,
                             _ => UnaryOperator::Plus, // fallback
                         };
-                        
+
                         let operand = Expression::from(operand_pair);
-                        
+
                         Expression::Unary(UnaryExpression {
                             operator,
                             operand: Box::new(operand),
@@ -606,8 +677,11 @@ impl From<Pair<'_, Rule>> for Expression {
             }
             Rule::postfix_expression => {
                 let mut inner_pairs = pair.into_inner();
-                let mut expr = inner_pairs.next().map(Expression::from).unwrap_or(Expression::Literal(Literal::Boolean(false)));
-                
+                let mut expr = inner_pairs
+                    .next()
+                    .map(Expression::from)
+                    .unwrap_or(Expression::Literal(Literal::Boolean(false)));
+
                 for suffix_pair in inner_pairs {
                     match suffix_pair.as_rule() {
                         Rule::identifier => {
@@ -656,20 +730,16 @@ impl From<Pair<'_, Rule>> for Expression {
                         }
                     }
                 }
-                
+
                 expr
             }
             Rule::primary_expression => {
                 let mut inner_pairs = pair.into_inner();
-                
+
                 if let Some(inner_pair) = inner_pairs.next() {
                     match inner_pair.as_rule() {
-                        Rule::identifier => {
-                            Expression::Identifier(inner_pair.as_str().to_string())
-                        }
-                        Rule::literal => {
-                            Expression::Literal(Literal::from(inner_pair))
-                        }
+                        Rule::identifier => Expression::Identifier(inner_pair.as_str().to_string()),
+                        Rule::literal => Expression::Literal(Literal::from(inner_pair)),
                         Rule::literal_with_sub_denomination => {
                             Expression::Literal(Literal::from(inner_pair))
                         }
@@ -683,23 +753,15 @@ impl From<Pair<'_, Rule>> for Expression {
                         Rule::inline_array_expression => {
                             Expression::Array(ArrayExpression::from(inner_pair))
                         }
-                        _ => {
-                            Expression::Literal(Literal::Boolean(false))
-                        }
+                        _ => Expression::Literal(Literal::Boolean(false)),
                     }
                 } else {
                     Expression::Literal(Literal::Boolean(false))
                 }
             }
-            Rule::identifier => {
-                Expression::Identifier(pair.as_str().to_string())
-            }
-            Rule::literal => {
-                Expression::Literal(Literal::from(pair))
-            }
-            _ => {
-                Expression::Literal(Literal::Boolean(false))
-            }
+            Rule::identifier => Expression::Identifier(pair.as_str().to_string()),
+            Rule::literal => Expression::Literal(Literal::from(pair)),
+            _ => Expression::Literal(Literal::Boolean(false)),
         }
     }
 }
@@ -746,7 +808,7 @@ impl From<Pair<'_, Rule>> for TupleExpression {
             .filter(|p| p.as_rule() == Rule::expression)
             .map(|p| Some(Expression::from(p)))
             .collect();
-        
+
         TupleExpression { elements }
     }
 }
@@ -758,7 +820,7 @@ impl From<Pair<'_, Rule>> for ArrayExpression {
             .filter(|p| p.as_rule() == Rule::expression)
             .map(Expression::from)
             .collect();
-        
+
         ArrayExpression { elements }
     }
 }
@@ -770,10 +832,15 @@ impl Literal {
             Rule::number_literal => Literal::Number(NumberLiteral::from(pair)),
             Rule::string_literal => Literal::String(StringLiteral::from(pair)),
             Rule::hex_string_literal => Literal::HexString(HexStringLiteral::from(pair)),
-            Rule::unicode_string_literal => Literal::UnicodeString(UnicodeStringLiteral::from(pair)),
+            Rule::unicode_string_literal => {
+                Literal::UnicodeString(UnicodeStringLiteral::from(pair))
+            }
             _ => {
-                eprintln!("Unexpected rule in from_specific_literal_rule: {:?}", pair.as_rule());
-                Literal::Boolean(false) 
+                eprintln!(
+                    "Unexpected rule in from_specific_literal_rule: {:?}",
+                    pair.as_rule()
+                );
+                Literal::Boolean(false)
             }
         }
     }
@@ -794,7 +861,7 @@ impl From<Pair<'_, Rule>> for Literal {
             Rule::literal_with_sub_denomination => {
                 let mut number_value = String::new();
                 let mut sub_denomination = None;
-                
+
                 for inner_pair in pair.into_inner() {
                     match inner_pair.as_rule() {
                         Rule::number_literal => {
@@ -806,7 +873,7 @@ impl From<Pair<'_, Rule>> for Literal {
                         _ => {}
                     }
                 }
-                
+
                 Literal::Number(NumberLiteral {
                     value: number_value,
                     sub_denomination,
@@ -816,7 +883,9 @@ impl From<Pair<'_, Rule>> for Literal {
             Rule::number_literal => Literal::Number(NumberLiteral::from(pair)),
             Rule::string_literal => Literal::String(StringLiteral::from(pair)),
             Rule::hex_string_literal => Literal::HexString(HexStringLiteral::from(pair)),
-            Rule::unicode_string_literal => Literal::UnicodeString(UnicodeStringLiteral::from(pair)),
+            Rule::unicode_string_literal => {
+                Literal::UnicodeString(UnicodeStringLiteral::from(pair))
+            }
             _ => {
                 eprintln!("Unexpected rule in Literal::from: {:?}", pair.as_rule());
                 Literal::Boolean(false)
@@ -871,7 +940,7 @@ mod tests {
         let source = "a + b";
         let result = parse_expression(source);
         assert!(result.is_ok());
-        
+
         if let Ok(Expression::Binary(binary)) = result {
             assert!(matches!(binary.operator, BinaryOperator::Add));
         } else {
@@ -884,7 +953,7 @@ mod tests {
         let source = "a + b * c";
         let result = parse_expression(source);
         assert!(result.is_ok());
-        
+
         // Should parse as: a + (b * c) due to operator precedence
         if let Ok(Expression::Binary(binary)) = result {
             assert!(matches!(binary.operator, BinaryOperator::Add));
@@ -903,7 +972,7 @@ mod tests {
         let source = "x > 10";
         let result = parse_expression(source);
         assert!(result.is_ok());
-        
+
         if let Ok(Expression::Binary(binary)) = result {
             assert!(matches!(binary.operator, BinaryOperator::GreaterThan));
         } else {
@@ -916,7 +985,7 @@ mod tests {
         let source = "a && b || c";
         let result = parse_expression(source);
         assert!(result.is_ok());
-        
+
         // Should parse as: (a && b) || c due to operator precedence
         if let Ok(Expression::Binary(binary)) = result {
             assert!(matches!(binary.operator, BinaryOperator::Or));
@@ -930,7 +999,7 @@ mod tests {
         let source = "x = y + z";
         let result = parse_expression(source);
         assert!(result.is_ok());
-        
+
         if let Ok(Expression::Assignment(assignment)) = result {
             assert!(matches!(assignment.operator, AssignmentOperator::Assign));
         } else {
@@ -943,7 +1012,7 @@ mod tests {
         let source = "!flag";
         let result = parse_expression(source);
         assert!(result.is_ok());
-        
+
         if let Ok(Expression::Unary(unary)) = result {
             assert!(matches!(unary.operator, UnaryOperator::Not));
             assert!(unary.is_prefix);
@@ -985,7 +1054,7 @@ mod tests {
         let source = "myVariable";
         let result = parse_expression(source);
         assert!(result.is_ok());
-        
+
         if let Ok(Expression::Identifier(name)) = result {
             assert_eq!(name, "myVariable");
         } else {
@@ -999,7 +1068,7 @@ mod tests {
         let source = "1 + 2 * 3";
         let result = parse_expression(source);
         assert!(result.is_ok());
-        
+
         // Should parse as: 1 + (2 * 3)
         if let Ok(Expression::Binary(binary)) = result {
             assert!(matches!(binary.operator, BinaryOperator::Add));

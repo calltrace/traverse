@@ -97,12 +97,16 @@ impl SolidityBuilder {
         }))
     }
 
-    pub fn import_symbols(&mut self, path: impl Into<String>, symbols: Vec<(String, Option<String>)>) -> &mut Self {
+    pub fn import_symbols(
+        &mut self,
+        path: impl Into<String>,
+        symbols: Vec<(String, Option<String>)>,
+    ) -> &mut Self {
         let import_symbols = symbols
             .into_iter()
             .map(|(name, alias)| ImportSymbol { name, alias })
             .collect();
-        
+
         self.add_item(SourceUnitItem::Import(ImportDirective {
             path: path.into(),
             alias: None,
@@ -116,7 +120,7 @@ impl SolidityBuilder {
     {
         let mut contract_builder = ContractBuilder::new(name.into(), false);
         build_contract(&mut contract_builder);
-        
+
         self.add_item(SourceUnitItem::Contract(contract_builder.build()))
     }
 
@@ -126,7 +130,7 @@ impl SolidityBuilder {
     {
         let mut contract_builder = ContractBuilder::new(name.into(), true);
         build_contract(&mut contract_builder);
-        
+
         self.add_item(SourceUnitItem::Contract(contract_builder.build()))
     }
 
@@ -136,7 +140,7 @@ impl SolidityBuilder {
     {
         let mut interface_builder = ContractBuilder::new(name.into(), false);
         build_interface(&mut interface_builder);
-        
+
         let contract = interface_builder.build();
         self.add_item(SourceUnitItem::Interface(InterfaceDefinition {
             name: contract.name,
@@ -151,7 +155,7 @@ impl SolidityBuilder {
     {
         let mut library_builder = ContractBuilder::new(name.into(), false);
         build_library(&mut library_builder);
-        
+
         let contract = library_builder.build();
         self.add_item(SourceUnitItem::Library(LibraryDefinition {
             name: contract.name,
@@ -165,13 +169,17 @@ impl SolidityBuilder {
     {
         let mut struct_builder = StructBuilder::new(name.into());
         build_struct(&mut struct_builder);
-        
+
         self.add_item(SourceUnitItem::Struct(struct_builder.build()))
     }
 
-    pub fn enum_def(&mut self, name: impl Into<String>, values: Vec<impl Into<String>>) -> &mut Self {
+    pub fn enum_def(
+        &mut self,
+        name: impl Into<String>,
+        values: Vec<impl Into<String>>,
+    ) -> &mut Self {
         let enum_values = values.into_iter().map(Into::into).collect();
-        
+
         self.add_item(SourceUnitItem::Enum(EnumDefinition {
             name: name.into(),
             values: enum_values,
@@ -184,7 +192,7 @@ impl SolidityBuilder {
     {
         let mut error_builder = ErrorBuilder::new(name.into());
         build_error(&mut error_builder);
-        
+
         self.add_item(SourceUnitItem::Error(error_builder.build()))
     }
 
@@ -194,7 +202,7 @@ impl SolidityBuilder {
     {
         let mut event_builder = EventBuilder::new(name.into());
         build_event(&mut event_builder);
-        
+
         self.add_item(SourceUnitItem::Event(event_builder.build()))
     }
 }
@@ -234,7 +242,11 @@ impl ContractBuilder {
         self
     }
 
-    pub fn inherits_with_args(&mut self, name: impl Into<String>, args: Vec<Expression>) -> &mut Self {
+    pub fn inherits_with_args(
+        &mut self,
+        name: impl Into<String>,
+        args: Vec<Expression>,
+    ) -> &mut Self {
         self.inheritance.push(InheritanceSpecifier {
             name: IdentifierPath::single(name.into()),
             arguments: Some(args),
@@ -249,16 +261,18 @@ impl ContractBuilder {
         visibility: Option<Visibility>,
         initial_value: Option<Expression>,
     ) -> &mut Self {
-        self.body.push(ContractBodyElement::StateVariable(StateVariableDeclaration {
-            type_name,
-            visibility,
-            is_constant: false,
-            is_immutable: false,
-            is_transient: false,
-            override_specifier: None,
-            name: name.into(),
-            initial_value,
-        }));
+        self.body.push(ContractBodyElement::StateVariable(
+            StateVariableDeclaration {
+                type_name,
+                visibility,
+                is_constant: false,
+                is_immutable: false,
+                is_transient: false,
+                override_specifier: None,
+                name: name.into(),
+                initial_value,
+            },
+        ));
         self
     }
 
@@ -268,16 +282,18 @@ impl ContractBuilder {
         name: impl Into<String>,
         initial_value: Expression,
     ) -> &mut Self {
-        self.body.push(ContractBodyElement::StateVariable(StateVariableDeclaration {
-            type_name,
-            visibility: None,
-            is_constant: true,
-            is_immutable: false,
-            is_transient: false,
-            override_specifier: None,
-            name: name.into(),
-            initial_value: Some(initial_value),
-        }));
+        self.body.push(ContractBodyElement::StateVariable(
+            StateVariableDeclaration {
+                type_name,
+                visibility: None,
+                is_constant: true,
+                is_immutable: false,
+                is_transient: false,
+                override_specifier: None,
+                name: name.into(),
+                initial_value: Some(initial_value),
+            },
+        ));
         self
     }
 
@@ -287,8 +303,9 @@ impl ContractBuilder {
     {
         let mut function_builder = FunctionBuilder::new(Some(name.into()));
         build_function(&mut function_builder);
-        
-        self.body.push(ContractBodyElement::Function(function_builder.build()));
+
+        self.body
+            .push(ContractBodyElement::Function(function_builder.build()));
         self
     }
 
@@ -298,8 +315,10 @@ impl ContractBuilder {
     {
         let mut constructor_builder = ConstructorBuilder::new();
         build_constructor(&mut constructor_builder);
-        
-        self.body.push(ContractBodyElement::Constructor(constructor_builder.build()));
+
+        self.body.push(ContractBodyElement::Constructor(
+            constructor_builder.build(),
+        ));
         self
     }
 
@@ -309,8 +328,9 @@ impl ContractBuilder {
     {
         let mut modifier_builder = ModifierBuilder::new(name.into());
         build_modifier(&mut modifier_builder);
-        
-        self.body.push(ContractBodyElement::Modifier(modifier_builder.build()));
+
+        self.body
+            .push(ContractBodyElement::Modifier(modifier_builder.build()));
         self
     }
 
@@ -320,8 +340,9 @@ impl ContractBuilder {
     {
         let mut event_builder = EventBuilder::new(name.into());
         build_event(&mut event_builder);
-        
-        self.body.push(ContractBodyElement::Event(event_builder.build()));
+
+        self.body
+            .push(ContractBodyElement::Event(event_builder.build()));
         self
     }
 
@@ -331,8 +352,9 @@ impl ContractBuilder {
     {
         let mut error_builder = ErrorBuilder::new(name.into());
         build_error(&mut error_builder);
-        
-        self.body.push(ContractBodyElement::Error(error_builder.build()));
+
+        self.body
+            .push(ContractBodyElement::Error(error_builder.build()));
         self
     }
 
@@ -342,14 +364,19 @@ impl ContractBuilder {
     {
         let mut struct_builder = StructBuilder::new(name.into());
         build_struct(&mut struct_builder);
-        
-        self.body.push(ContractBodyElement::Struct(struct_builder.build()));
+
+        self.body
+            .push(ContractBodyElement::Struct(struct_builder.build()));
         self
     }
 
-    pub fn enum_def(&mut self, name: impl Into<String>, values: Vec<impl Into<String>>) -> &mut Self {
+    pub fn enum_def(
+        &mut self,
+        name: impl Into<String>,
+        values: Vec<impl Into<String>>,
+    ) -> &mut Self {
         let enum_values = values.into_iter().map(Into::into).collect();
-        
+
         self.body.push(ContractBodyElement::Enum(EnumDefinition {
             name: name.into(),
             values: enum_values,
@@ -441,7 +468,11 @@ impl FunctionBuilder {
         self
     }
 
-    pub fn modifier_with_args(&mut self, name: impl Into<String>, args: Vec<Expression>) -> &mut Self {
+    pub fn modifier_with_args(
+        &mut self,
+        name: impl Into<String>,
+        args: Vec<Expression>,
+    ) -> &mut Self {
         self.modifiers.push(ModifierInvocation {
             name: IdentifierPath::single(name.into()),
             arguments: Some(args),
@@ -472,7 +503,7 @@ impl FunctionBuilder {
     {
         let mut block_builder = BlockBuilder::new();
         build_body(&mut block_builder);
-        
+
         self.body = Some(block_builder.build());
         self
     }
@@ -504,7 +535,9 @@ impl ConstructorBuilder {
             modifiers: self.modifiers,
             is_payable: self.is_payable,
             visibility: self.visibility,
-            body: self.body.unwrap_or(Block { statements: Vec::new() }),
+            body: self.body.unwrap_or(Block {
+                statements: Vec::new(),
+            }),
         }
     }
 
@@ -542,7 +575,7 @@ impl ConstructorBuilder {
     {
         let mut block_builder = BlockBuilder::new();
         build_body(&mut block_builder);
-        
+
         self.body = Some(block_builder.build());
         self
     }
@@ -605,7 +638,7 @@ impl ModifierBuilder {
     {
         let mut block_builder = BlockBuilder::new();
         build_body(&mut block_builder);
-        
+
         self.body = Some(block_builder.build());
         self
     }
@@ -742,7 +775,8 @@ impl BlockBuilder {
 
     /// Adds an expression statement.
     pub fn expression(&mut self, expression: Expression) -> &mut Self {
-        self.statements.push(Statement::Expression(ExpressionStatement { expression }));
+        self.statements
+            .push(Statement::Expression(ExpressionStatement { expression }));
         self
     }
 
@@ -757,11 +791,12 @@ impl BlockBuilder {
             data_location: None,
             name: name.into(),
         };
-        
-        self.statements.push(Statement::Variable(VariableDeclarationStatement {
-            declaration,
-            initial_value,
-        }));
+
+        self.statements
+            .push(Statement::Variable(VariableDeclarationStatement {
+                declaration,
+                initial_value,
+            }));
         self
     }
 
@@ -771,12 +806,13 @@ impl BlockBuilder {
             operator: AssignmentOperator::Assign,
             right: Box::new(Expression::Identifier(right.into())),
         });
-        
+
         self.expression(assignment)
     }
 
     pub fn return_statement(&mut self, expression: Option<Expression>) -> &mut Self {
-        self.statements.push(Statement::Return(ReturnStatement { expression }));
+        self.statements
+            .push(Statement::Return(ReturnStatement { expression }));
         self
     }
 
@@ -786,7 +822,7 @@ impl BlockBuilder {
     {
         let mut then_builder = BlockBuilder::new();
         build_then(&mut then_builder);
-        
+
         self.statements.push(Statement::If(IfStatement {
             condition,
             then_statement: Box::new(Statement::Block(then_builder.build())),
@@ -807,10 +843,10 @@ impl BlockBuilder {
     {
         let mut then_builder = BlockBuilder::new();
         build_then(&mut then_builder);
-        
+
         let mut else_builder = BlockBuilder::new();
         build_else(&mut else_builder);
-        
+
         self.statements.push(Statement::If(IfStatement {
             condition,
             then_statement: Box::new(Statement::Block(then_builder.build())),
@@ -1026,10 +1062,7 @@ mod tests {
 
     #[test]
     fn test_expression_helpers() {
-        let expr = add(
-            identifier("a"),
-            mul(identifier("b"), number("10"))
-        );
+        let expr = add(identifier("a"), mul(identifier("b"), number("10")));
 
         if let Expression::Binary(binary) = expr {
             assert!(matches!(binary.operator, BinaryOperator::Add));
@@ -1045,22 +1078,40 @@ mod tests {
 
     #[test]
     fn test_type_helpers() {
-        assert!(matches!(uint256(), TypeName::Elementary(ElementaryTypeName::UnsignedInteger(Some(256)))));
-        assert!(matches!(address(), TypeName::Elementary(ElementaryTypeName::Address)));
-        assert!(matches!(bool(), TypeName::Elementary(ElementaryTypeName::Bool)));
-        
+        assert!(matches!(
+            uint256(),
+            TypeName::Elementary(ElementaryTypeName::UnsignedInteger(Some(256)))
+        ));
+        assert!(matches!(
+            address(),
+            TypeName::Elementary(ElementaryTypeName::Address)
+        ));
+        assert!(matches!(
+            bool(),
+            TypeName::Elementary(ElementaryTypeName::Bool)
+        ));
+
         let arr_type = array(uint256(), Some(number("10")));
         if let TypeName::Array(element_type, size) = arr_type {
-            assert!(matches!(*element_type, TypeName::Elementary(ElementaryTypeName::UnsignedInteger(Some(256)))));
+            assert!(matches!(
+                *element_type,
+                TypeName::Elementary(ElementaryTypeName::UnsignedInteger(Some(256)))
+            ));
             assert!(size.is_some());
         } else {
             panic!("Expected array type");
         }
-        
+
         let map_type = mapping(address(), uint256());
         if let TypeName::Mapping(mapping_type) = map_type {
-            assert!(matches!(*mapping_type.key_type, TypeName::Elementary(ElementaryTypeName::Address)));
-            assert!(matches!(*mapping_type.value_type, TypeName::Elementary(ElementaryTypeName::UnsignedInteger(Some(256)))));
+            assert!(matches!(
+                *mapping_type.key_type,
+                TypeName::Elementary(ElementaryTypeName::Address)
+            ));
+            assert!(matches!(
+                *mapping_type.value_type,
+                TypeName::Elementary(ElementaryTypeName::UnsignedInteger(Some(256)))
+            ));
         } else {
             panic!("Expected mapping type");
         }
@@ -1079,7 +1130,7 @@ mod tests {
                         mapping(address(), uint256()),
                         "balances",
                         Some(Visibility::Private),
-                        None
+                        None,
                     )
                     .state_variable(uint256(), "totalSupply", Some(Visibility::Public), None)
                     .constructor(|constructor| {
@@ -1103,10 +1154,13 @@ mod tests {
                                     gt(identifier("balances[msg.sender]"), identifier("amount")),
                                     |then_block| {
                                         then_block
-                                            .assignment("balances[msg.sender]", "balances[msg.sender] - amount")
+                                            .assignment(
+                                                "balances[msg.sender]",
+                                                "balances[msg.sender] - amount",
+                                            )
                                             .assignment("balances[to]", "balances[to] + amount")
                                             .return_statement(Some(boolean(true)));
-                                    }
+                                    },
                                 );
                             });
                     })
