@@ -1,5 +1,5 @@
 pub mod deployer_stub;
-//pub mod falsifier;
+pub mod invariant_breaker;
 pub mod revert_stub;
 pub mod state_change_stub;
 pub mod teststubs;

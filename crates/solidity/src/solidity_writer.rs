@@ -911,7 +911,7 @@ fn write_yul_literal(output: &mut String, literal: &YulLiteral) {
 }
 
 impl Visibility {
-    fn to_string(&self) -> &'static str {
+    pub fn to_string(&self) -> &'static str {
         match self {
             Visibility::Public => "public",
             Visibility::Private => "private",
@@ -922,7 +922,7 @@ impl Visibility {
 }
 
 impl StateMutability {
-    fn to_string(&self) -> &'static str {
+    pub fn to_string(&self) -> &'static str {
         match self {
             StateMutability::Pure => "pure",
             StateMutability::View => "view",
@@ -932,7 +932,7 @@ impl StateMutability {
 }
 
 impl DataLocation {
-    fn to_string(&self) -> &'static str {
+    pub fn to_string(&self) -> &'static str {
         match self {
             DataLocation::Memory => "memory",
             DataLocation::Storage => "storage",
@@ -942,7 +942,7 @@ impl DataLocation {
 }
 
 impl BinaryOperator {
-    fn to_string(&self) -> &'static str {
+    pub fn to_string(&self) -> &'static str {
         match self {
             BinaryOperator::Add => "+",
             BinaryOperator::Sub => "-",
@@ -969,7 +969,7 @@ impl BinaryOperator {
 }
 
 impl UnaryOperator {
-    fn to_string(&self) -> &'static str {
+    pub fn to_string(&self) -> &'static str {
         match self {
             UnaryOperator::Plus => "+",
             UnaryOperator::Minus => "-",
@@ -983,7 +983,7 @@ impl UnaryOperator {
 }
 
 impl AssignmentOperator {
-    fn to_string(&self) -> &'static str {
+    pub fn to_string(&self) -> &'static str {
         match self {
             AssignmentOperator::Assign => "=",
             AssignmentOperator::AddAssign => "+=",
@@ -998,5 +998,42 @@ impl AssignmentOperator {
             AssignmentOperator::ShiftRightAssign => ">>=",
             AssignmentOperator::ShiftRightArithmeticAssign => ">>>=",
         }
+    }
+}
+
+// Public functions for use by other modules like falsifier
+
+/// Writes an expression to a string
+pub fn write_expression_to_string(expression: &Expression) -> String {
+    let mut output = String::new();
+    write_expression(&mut output, expression);
+    output
+}
+
+/// Writes a literal to a string
+pub fn write_literal_to_string(literal: &Literal) -> String {
+    let mut output = String::new();
+    write_literal(&mut output, literal);
+    output
+}
+
+/// Writes a type name to a string
+pub fn write_type_name_to_string(type_name: &TypeName) -> String {
+    let mut output = String::new();
+    write_type_name(&mut output, type_name);
+    output
+}
+
+/// Formats a Value for use in expressions
+pub fn format_value_for_expression(value: &crate::interpreter::Value) -> String {
+    use crate::interpreter::Value;
+    match value {
+        Value::Bool(b) => b.to_string(),
+        Value::UInt(n) => n.to_string(),
+        Value::Int(n) => n.to_string(),
+        Value::String(s) => format!("\"{}\"", s),
+        Value::Address(addr) => addr.clone(),
+        Value::Bytes(b) => format!("0x{}", hex::encode(b)),
+        Value::Null => "null".to_string(),
     }
 }
