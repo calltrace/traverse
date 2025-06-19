@@ -121,13 +121,8 @@ impl From<Pair<'_, Rule>> for ContractDefinition {
         }
 
         for inner_pair in pair.into_inner() {
-            match inner_pair.as_rule() {
-                Rule::identifier => {
-                    if name.is_empty() {
-                        name = inner_pair.as_str().to_string();
-                    }
-                }
-                _ => {}
+            if inner_pair.as_rule() == Rule::identifier && name.is_empty() {
+                name = inner_pair.as_str().to_string();
             }
         }
 
@@ -190,15 +185,12 @@ impl From<Pair<'_, Rule>> for EnumDefinition {
         let mut values = Vec::new();
 
         for inner_pair in pair.into_inner() {
-            match inner_pair.as_rule() {
-                Rule::identifier => {
-                    if name.is_empty() {
-                        name = inner_pair.as_str().to_string();
-                    } else {
-                        values.push(inner_pair.as_str().to_string());
-                    }
+            if let Rule::identifier = inner_pair.as_rule() {
+                if name.is_empty() {
+                    name = inner_pair.as_str().to_string();
+                } else {
+                    values.push(inner_pair.as_str().to_string());
                 }
-                _ => {}
             }
         }
 
@@ -1023,7 +1015,6 @@ mod tests {
 
     #[test]
     fn test_parse_literal_expressions() {
-        // Boolean literal
         let result = parse_expression("true");
         assert!(result.is_ok());
         if let Ok(Expression::Literal(Literal::Boolean(true))) = result {

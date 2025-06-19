@@ -21,38 +21,6 @@ impl fmt::Display for BuilderError {
 
 impl Error for BuilderError {}
 
-/// Builder for creating Solidity AST programmatically.
-///
-/// Provides a fluent interface to construct a `SourceUnit` AST.
-///
-/// # Example
-/// ```rust
-/// use solidity::builder::SolidityBuilder;
-/// use solidity::ast::*;
-///
-/// let mut builder = SolidityBuilder::new();
-/// builder.pragma("solidity", "^0.8.0")
-///     .contract("MyContract", |contract| {
-///         contract.state_variable(
-///             TypeName::Elementary(ElementaryTypeName::UnsignedInteger(Some(256))),
-///             "value",
-///             Some(Visibility::Public),
-///             None
-///         )
-///         .function("setValue", |func| {
-///             func.parameter(
-///                 TypeName::Elementary(ElementaryTypeName::UnsignedInteger(Some(256))),
-///                 "_value"
-///             )
-///             .visibility(Visibility::Public)
-///             .body(|body| {
-///                 body.assignment("value", "_value");
-///             });
-///         });
-///     });
-///
-/// let source_unit = builder.build();
-/// ```
 #[derive(Debug, Default, Clone)]
 pub struct SolidityBuilder {
     items: Vec<SourceUnitItem>,
@@ -581,6 +549,12 @@ impl ConstructorBuilder {
     }
 }
 
+impl Default for ConstructorBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ModifierBuilder {
     name: String,
@@ -853,6 +827,12 @@ impl BlockBuilder {
             else_statement: Some(Box::new(Statement::Block(else_builder.build()))),
         }));
         self
+    }
+}
+
+impl Default for BlockBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1178,7 +1158,7 @@ mod tests {
         if let SourceUnitItem::Contract(contract) = &source_unit.items[2] {
             assert_eq!(contract.name, "Token");
             assert_eq!(contract.inheritance.len(), 1);
-            assert!(contract.body.len() > 0);
+            assert!(!contract.body.is_empty());
         } else {
             panic!("Expected contract definition");
         }

@@ -7,14 +7,14 @@ const INDENT_STEP: &str = "    ";
 
 pub fn write_source_unit(source_unit: &SourceUnit) -> String {
     let mut output = String::new();
-    let mut indent = String::new(); // Start with no indentation
+    let mut indent = String::new(); 
 
     for item in &source_unit.items {
         write_source_unit_item(&mut output, item, &mut indent);
-        writeln!(output).unwrap(); 
+        writeln!(output).unwrap();
     }
 
-    output.trim_end().to_string() 
+    output.trim_end().to_string()
 }
 
 fn write_source_unit_item(output: &mut String, item: &SourceUnitItem, indent: &mut String) {
@@ -145,7 +145,7 @@ fn write_library(output: &mut String, library: &LibraryDefinition, indent: &mut 
 fn write_contract_body_element(
     output: &mut String,
     element: &ContractBodyElement,
-    indent: &mut String,
+    indent: &mut str,
 ) {
     match element {
         ContractBodyElement::Constructor(constructor) => {
@@ -1001,30 +1001,24 @@ impl AssignmentOperator {
     }
 }
 
-// Public functions for use by other modules like falsifier
-
-/// Writes an expression to a string
 pub fn write_expression_to_string(expression: &Expression) -> String {
     let mut output = String::new();
     write_expression(&mut output, expression);
     output
 }
 
-/// Writes a literal to a string
 pub fn write_literal_to_string(literal: &Literal) -> String {
     let mut output = String::new();
     write_literal(&mut output, literal);
     output
 }
 
-/// Writes a type name to a string
 pub fn write_type_name_to_string(type_name: &TypeName) -> String {
     let mut output = String::new();
     write_type_name(&mut output, type_name);
     output
 }
 
-/// Formats a Value for use in expressions
 pub fn format_value_for_expression(value: &crate::interpreter::Value) -> String {
     use crate::interpreter::Value;
     match value {
