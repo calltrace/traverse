@@ -1,3 +1,4 @@
+pub mod access_control_stub;
 pub mod deployer_stub;
 pub mod invariant_breaker;
 pub mod revert_stub;
@@ -7,6 +8,8 @@ pub mod teststubs;
 use std::{fmt, path::PathBuf};
 
 pub use teststubs::{generate_tests_with_foundry};
+pub use revert_stub::{generate_revert_tests_from_cfg, create_revert_test_contract};
+pub use access_control_stub::{generate_access_control_tests_from_cfg, create_access_control_test_contract};
 
 #[derive(Debug)]
 pub enum CodeGenError {

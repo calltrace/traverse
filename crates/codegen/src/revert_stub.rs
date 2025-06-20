@@ -1,20 +1,23 @@
 use crate::teststubs::{
-    capitalize_first_letter, generate_constructor_args, generate_realistic_args_for_function,
-    generate_valid_args_for_function, sanitize_identifier, to_pascal_case, ContractInfo,
+    generate_constructor_args,
+    sanitize_identifier, to_pascal_case, ContractInfo,
     Expression, FunctionInfo, SolidityTestBuilder, SolidityTestContract, StateVariable, Statement,
     TestFunction, TestType,
 };
+use crate::invariant_breaker::{break_invariant, InvariantBreakerValue};
 use anyhow::Result;
 use graph::cg::{CallGraph, EdgeType, NodeType, ParameterInfo};
+use std::collections::HashMap;
 
-pub(crate) fn generate_revert_tests_from_cfg(
+/// Revert test generation that uses invariant breaker to find counterexamples
+pub fn generate_revert_tests_from_cfg(
     graph: &CallGraph,
     contract_name: &str,
     function_name: &str,
     function_params: &[ParameterInfo],
 ) -> Result<Vec<TestFunction>> {
     eprintln!(
-        "[REVERT DEBUG] Starting revert test generation for {}.{}",
+        "[REVERT DEBUG] Starting enhanced revert test generation for {}.{}",
         contract_name, function_name
     );
     eprintln!(
@@ -42,7 +45,6 @@ pub(crate) fn generate_revert_tests_from_cfg(
             func_node.id
         );
 
-        // Count require edges for this function
         let require_edges: Vec<_> = graph
             .edges
             .iter()
@@ -79,6 +81,52 @@ pub(crate) fn generate_revert_tests_from_cfg(
 
             let error_message = condition_node.revert_message.clone().unwrap_or_default();
 
+            eprintln!(
+                "[REVERT DEBUG] Processing condition: '{}'",
+                descriptive_condition_text
+            );
+
+            let condition_expression = descriptive_condition_text.clone();
+            
+            eprintln!(
+                "[REVERT DEBUG] Attempting to break invariant for condition: '{}'",
+                condition_expression
+            );
+            
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let invariant_result = match rt.block_on(break_invariant(&condition_expression)) {
+                Ok(result) => {
+                    eprintln!(
+                        "[REVERT DEBUG] Invariant breaker for '{}': success={}, entries={}",
+                        condition_expression, result.success, result.entries.len()
+                    );
+                    if result.success && !result.entries.is_empty() {
+                        Some(result)
+                    } else {
+                        eprintln!(
+                            "[REVERT DEBUG] Invariant breaker did not find a counterexample for '{}'",
+                            condition_expression
+                        );
+                        None
+                    }
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[REVERT DEBUG] Error calling invariant breaker for '{}': {}",
+                        condition_expression, e
+                    );
+                    None
+                }
+            };
+
+            if invariant_result.is_none() {
+                eprintln!(
+                    "[REVERT DEBUG] Skipping test for condition '{}' - invariant breaker did not provide a usable counterexample or failed.",
+                    condition_expression
+                );
+                continue;
+            }
+
             let mut test_name_condition_identifier = sanitize_identifier(&descriptive_condition_text);
             if test_name_condition_identifier.len() > 40 { 
                 test_name_condition_identifier.truncate(40);
@@ -100,45 +148,65 @@ pub(crate) fn generate_revert_tests_from_cfg(
 
             let mut body = Vec::new();
 
-            let needs_prank = condition_node
-                 .condition_expression 
-                 .as_ref()
-                 .map_or(false, |expr_text| {
-                     let lower_expr = expr_text.to_lowercase();
-                     // Heuristic: check for common access control patterns
-                     (lower_expr.contains("msg.sender") || lower_expr.contains("caller"))
-                         && (lower_expr.contains("owner")
-                             || lower_expr.contains("admin")
-                             || lower_expr.contains("role")
-                         )
-                 });
+            // Step a.3: Extract computed variables and use them for vm.prank() if needed
+            let invariant_result = invariant_result.unwrap(); // Safe unwrap based on check above
+            let first_entry = &invariant_result.entries[0];
+            
+            let (needs_prank, prank_address) = extract_prank_info(&first_entry.variables, &condition_expression);
+
             eprintln!(
-                "[REVERT DEBUG] Checking if prank is needed for condition expression '{}'",
-                condition_node.condition_expression.as_deref().unwrap_or("unknown")
+                "[REVERT DEBUG] Prank analysis: needs_prank={}, address={:?}",
+                needs_prank, prank_address
             );
             
             if needs_prank {
-                body.push(Statement::FunctionCall {
-                    target: Some("vm".to_string()),
-                    function: "prank".to_string(),
-                    args: vec![Expression::Literal("address(1)".to_string())], // Prank with a non-owner address
-                });
+                if let Some(prank_addr) = prank_address {
+                    body.push(Statement::FunctionCall {
+                        target: Some("vm".to_string()),
+                        function: "prank".to_string(),
+                        args: vec![Expression::Literal(prank_addr)],
+                    });
+                } else {
+                    eprintln!(
+                        "[REVERT DEBUG] Prank needed but no address found in invariant breaker results"
+                    );
+                    continue; // Skip this test if we need a prank but don't have an address
+                }
             }
 
             body.push(Statement::Comment {
                 text: format!("Test that {} reverts when: {}", function_name, descriptive_condition_text),
             });
 
+            // Add invariant breaker information as comments
+            body.push(Statement::Comment {
+                text: format!("Invariant breaker found {} counterexample(s)", invariant_result.entries.len()),
+            });
+            
+            for (var_name, var_value) in &first_entry.variables {
+                body.push(Statement::Comment {
+                    text: format!("Counterexample: {} = {}", var_name, format_invariant_value(var_value)),
+                });
+            }
+
             body.push(Statement::ExpectRevert {
                 error_message: error_message.clone(),
             });
 
-            // Generate function arguments
+            // Generate function arguments using invariant breaker results
             eprintln!("[REVERT DEBUG] Generating function arguments...");
 
-            // For revert tests, we typically want to use placeholder values that might trigger the revert
-            // rather than actual call-site arguments (which would be successful calls)
-            let function_args = generate_valid_args_for_function(function_params, None)?;
+            let function_args = match generate_args_from_invariant_result(function_params, &first_entry.variables) {
+                Ok(args) => args,
+                Err(e) => {
+                    eprintln!(
+                        "[REVERT DEBUG] Failed to generate arguments from invariant result: {}",
+                        e
+                    );
+                    continue; // Skip this test if we can't generate arguments
+                }
+            };
+
             eprintln!(
                 "[REVERT DEBUG] Generated {} function arguments",
                 function_args.len()
@@ -166,12 +234,12 @@ pub(crate) fn generate_revert_tests_from_cfg(
                 visibility: "public".to_string(),
                 body,
                 test_type: TestType::RevertTest {
-                    expected_error: error_message, // This remains the actual error string or empty for panic
-                    condition: descriptive_condition_text, // Store the more descriptive condition text
+                    expected_error: error_message,
+                    condition: descriptive_condition_text,
                 },
             };
 
-            eprintln!("[REVERT DEBUG] Created test function: '{}'", test_name);
+            eprintln!("[REVERT DEBUG] Created enhanced test function: '{}'", test_name);
             test_functions.push(test_function);
         }
     } else {
@@ -189,19 +257,108 @@ pub(crate) fn generate_revert_tests_from_cfg(
     }
 
     eprintln!(
-        "[REVERT DEBUG] Generated {} revert test functions",
+        "[REVERT DEBUG] Generated {} enhanced revert test functions",
         test_functions.len()
     );
     Ok(test_functions)
 }
 
-pub(crate) fn create_revert_test_contract(
+fn extract_prank_info(
+    variables: &HashMap<String, InvariantBreakerValue>,
+    condition: &str,
+) -> (bool, Option<String>) {
+    // Check if condition involves msg.sender or similar access control
+    let lower_condition = condition.to_lowercase();
+    let involves_sender = lower_condition.contains("msg.sender") || lower_condition.contains("caller");
+    let involves_access_control = lower_condition.contains("owner") 
+        || lower_condition.contains("admin") 
+        || lower_condition.contains("role");
+    
+    if involves_sender && involves_access_control {
+        // Look for address variables in the counterexample
+        for (var_name, var_value) in variables {
+            if let InvariantBreakerValue::Address(addr) = var_value {
+                eprintln!(
+                    "[REVERT DEBUG] Found address variable '{}' = '{}' for prank",
+                    var_name, addr
+                );
+                return (true, Some(addr.clone()));
+            }
+        }
+        
+        // No address found in variables
+        eprintln!(
+            "[REVERT DEBUG] No address variable found in invariant breaker results for condition: {}",
+            condition
+        );
+        (true, None) // We need a prank but don't have an address
+    } else {
+        (false, None)
+    }
+}
+
+fn format_invariant_value(value: &InvariantBreakerValue) -> String {
+    match value {
+        InvariantBreakerValue::Bool(b) => b.to_string(),
+        InvariantBreakerValue::UInt(n) => n.to_string(),
+        InvariantBreakerValue::Int(n) => n.to_string(),
+        InvariantBreakerValue::String(s) => format!("\"{}\"", s),
+        InvariantBreakerValue::Address(addr) => addr.clone(),
+        InvariantBreakerValue::Bytes(b) => format!("0x{}", hex::encode(b)),
+    }
+}
+
+fn generate_args_from_invariant_result(
+    function_params: &[ParameterInfo],
+    variables: &HashMap<String, InvariantBreakerValue>,
+) -> Result<Vec<Expression>> {
+    let mut args = Vec::new();
+    let mut missing_params = Vec::new();
+    
+    for param in function_params {
+        if let Some(var_value) = variables.get(&param.name) {
+            eprintln!(
+                "[REVERT DEBUG] Using invariant value for param '{}': {:?}",
+                param.name, var_value
+            );
+            args.push(invariant_value_to_expression(var_value));
+        } else {
+            eprintln!(
+                "[REVERT DEBUG] No invariant value found for param '{}'",
+                param.name
+            );
+            missing_params.push(param.name.clone());
+        }
+    }
+    
+    if !missing_params.is_empty() {
+        return Err(anyhow::anyhow!(
+            "Missing invariant values for parameters: {}",
+            missing_params.join(", ")
+        ));
+    }
+    
+    Ok(args)
+}
+
+fn invariant_value_to_expression(value: &InvariantBreakerValue) -> Expression {
+    match value {
+        InvariantBreakerValue::Bool(b) => Expression::Literal(b.to_string()),
+        InvariantBreakerValue::UInt(n) => Expression::Literal(n.to_string()),
+        InvariantBreakerValue::Int(n) => Expression::Literal(n.to_string()),
+        InvariantBreakerValue::String(s) => Expression::Literal(format!("\"{}\"", s)),
+        InvariantBreakerValue::Address(addr) => Expression::Literal(addr.clone()),
+        InvariantBreakerValue::Bytes(b) => Expression::Literal(format!("0x{}", hex::encode(b))),
+    }
+}
+
+pub fn create_revert_test_contract(
     contract_info: &ContractInfo,
     function_info: &FunctionInfo,
     revert_tests: Vec<TestFunction>,
 ) -> SolidityTestContract {
     eprintln!(
-        "[REVERT DEBUG] Creating revert test contract for {}.{}",
+        "[REVERT DEBUG] Creating enhanced revert test contract for {}.{}",
         contract_info.name, function_info.name
     );
     eprintln!(
@@ -218,7 +375,7 @@ pub(crate) fn create_revert_test_contract(
     );
 
     let contract_name = format!(
-        "{}{}RevertTest",
+        "{}{}EnhancedRevertTest",
         contract_info.name,
         to_pascal_case(&function_info.name)
     );
@@ -273,7 +430,7 @@ pub(crate) fn create_revert_test_contract(
 
     let contract = builder.build();
     eprintln!(
-        "[REVERT DEBUG] Built revert test contract with {} functions",
+        "[REVERT DEBUG] Built enhanced revert test contract with {} functions",
         contract.functions.len()
     );
     contract

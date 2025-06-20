@@ -1,43 +1,41 @@
-// crates/codegen/src/teststubs.rs
 //
-// This module is responsible for generating Solidity test stubs, primarily for Foundry projects.
-// It defines data structures representing Solidity test contracts, functions, statements,
-// and expressions, allowing for programmatic construction of test files.
+// This module provides a comprehensive framework for generating Solidity test contracts
+// programmatically from call graph analysis, targeting Foundry-based testing environments.
 //
-// Key functionalities include:
-// - Defining structures for test contracts (`SolidityTestContract`), functions (`TestFunction`),
-//   state variables (`StateVariable`), and various statement/expression types.
-// - A `SolidityTestBuilder` for fluently constructing `SolidityTestContract` instances.
-// - `FoundryIntegration` for interacting with a Foundry project, including:
-//    - Setting up a test project structure (foundry.toml, src, test directories).
-//    - Creating default `BaseTest.sol` and sample contracts.
-//    - Compiling generated test contracts using `solc`.
-//    - Generating Solidity code from `SolidityTestContract` structures.
-//    - Validating generated code by attempting compilation.
-//    - Running tests using `forge test`.
-// - Functions to generate specific types of tests (revert tests, state change tests)
-//   based on a `CallGraph` and contract/function information.
-// - Helper functions for string manipulation (e.g., `to_pascal_case`, `sanitize_identifier`).
+// Core Architecture:
+// - Type-safe AST-like structures (`SolidityTestContract`, `TestFunction`, `Statement`, 
+//   `Expression`) for representing Solidity test code without string templates
+// - `SolidityTestBuilder` for fluent construction of test contracts
+// - `FoundryIntegration` for project setup, compilation, and test execution
+// - Contract extraction from call graphs with automatic test generation
 //
-// The main entry point for test generation using this module is typically
-// `generate_tests_with_foundry`, which orchestrates the process of extracting
-// contract information from a call graph, building test contracts, and interacting
-// with Foundry for code generation and validation.
+// Test Generation Pipeline:
+// 1. Extract contract/function metadata from `CallGraph` and `CallGraphGeneratorContext`
+// 2. Generate multiple test types per function via specialized modules:
+//    - Deployer tests (via `deployer_stub`)
+//    - Revert condition tests (via `revert_stub` + `invariant_breaker`)
+//    - State change tests (via `state_change_stub`)
+//    - Access control tests (via `access_control_stub`)
+// 3. Build type-safe test contract representations using structured data
+// 4. Generate Solidity source code from structured representations
+// 5. Integrate with Foundry for compilation validation and test execution
+//
+// The main orchestration function `generate_tests_with_foundry` coordinates this entire
+// pipeline, from call graph analysis through final test execution.
 
 use anyhow::{Context, Result};
 use graph::cg::{
-    CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, EdgeType, NodeType,
-    ParameterInfo, Visibility,
+    CallGraph, CallGraphGeneratorContext,
+    ParameterInfo,
 };
-use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 use std::{collections::HashMap, path::PathBuf};
 use std::{fs, path::Path};
 
 use crate::deployer_stub; 
 use crate::revert_stub;
 use crate::state_change_stub; 
+use crate::access_control_stub;
 use crate::CodeGenError;
 
 #[derive(Debug, serde::Serialize)]
@@ -102,6 +100,16 @@ pub enum TestType {
         event_name: String,
         expected_args: Vec<String>,
     },
+    InvariantViolationTest {
+        condition: String,
+        counter_example: String,
+        variable_assignments: HashMap<String, crate::invariant_breaker::InvariantBreakerValue>,
+    },
+    AccessControlTest {
+        modifier_name: String,
+        expected_error: String,
+        unauthorized_caller: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,7 +163,8 @@ pub enum Expression {
 }
 
 pub struct FoundryIntegration {
-    project_root: PathBuf,
+    pub project_root: PathBuf,
+
 }
 
 impl FoundryIntegration {
@@ -475,8 +484,6 @@ abstract contract BaseTest is Test {
             cmd.arg("--match-test").arg(pattern);
         }
 
-        cmd.arg("--verbose");
-
         let output = cmd
             .output()
             .context("Failed to execute forge test command")?;
@@ -733,7 +740,7 @@ pub fn generate_tests_with_foundry(
                         let test_path = test_dir.join(test_filename);
 
                         eprintln!(
-                            "[MAIN DEBUG] Writing revert test contract to: {}",
+                            "[MAIN DEBUG] Writing state change test contract to: {}",
                             test_path.display()
                         );
 
@@ -744,17 +751,69 @@ pub fn generate_tests_with_foundry(
                             verbose,
                         )?;
                         generated_count += 1;
-                        eprintln!("[MAIN DEBUG] Successfully wrote revert test contract");
+                        eprintln!("[MAIN DEBUG] Successfully wrote state change test contract");
                     } else {
                         eprintln!(
-                            "[MAIN DEBUG] No revert tests generated for {}.{}",
+                            "[MAIN DEBUG] No state change tests generated for {}.{}",
                             contract_info.name, function_info.name
                         );
                     }
                 }
                 Err(e) => {
                     eprintln!(
-                        "[MAIN DEBUG] Error generating revert tests for {}.{}: {}",
+                        "[MAIN DEBUG] Error generating state change tests for {}.{}: {}",
+                        contract_info.name, function_info.name, e
+                    );
+                }
+            }
+
+            eprintln!(
+                "[MAIN DEBUG] Attempting to generate access control tests for {}.{}",
+                contract_info.name, function_info.name
+            );
+            match access_control_stub::generate_access_control_tests_from_cfg(
+                graph,
+                &contract_info.name,
+                &function_info.name,
+                &function_info.parameters,
+            ) {
+                Ok(access_tests) => {
+                    eprintln!(
+                        "[MAIN DEBUG] Successfully generated {} access control tests",
+                        access_tests.len()
+                    );
+                    if !access_tests.is_empty() {
+                        let test_contract = access_control_stub::create_access_control_test_contract(
+                            contract_info,
+                            function_info,
+                            access_tests,
+                        );
+                        let test_filename = format!("{}.t.sol", test_contract.name);
+                        let test_path = test_dir.join(test_filename);
+
+                        eprintln!(
+                            "[MAIN DEBUG] Writing access control test contract to: {}",
+                            test_path.display()
+                        );
+
+                        generate_and_write_test_file(
+                            &foundry,
+                            &test_contract,
+                            &test_path,
+                            verbose,
+                        )?;
+                        generated_count += 1;
+                        eprintln!("[MAIN DEBUG] Successfully wrote access control test contract");
+                    } else {
+                        eprintln!(
+                            "[MAIN DEBUG] No access control tests generated for {}.{}",
+                            contract_info.name, function_info.name
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[MAIN DEBUG] Error generating access control tests for {}.{}: {}",
                         contract_info.name, function_info.name, e
                     );
                 }
@@ -772,6 +831,29 @@ pub fn generate_tests_with_foundry(
                     validated_count = generated_count;
                     if verbose {
                         println!("✅ Project build successful. All {} generated test contracts are valid.", generated_count);
+                    }
+                    
+                    // Run tests after successful build
+                    if verbose {
+                        println!("\n🧪 Running generated tests with 'forge test'...");
+                    }
+                    match foundry.run_tests(None) {
+                        Ok(tests_passed) => {
+                            if tests_passed {
+                                if verbose {
+                                    println!("✅ All tests passed successfully!");
+                                }
+                            } else {
+                                if verbose {
+                                    println!("❌ Some tests failed. Check 'forge test' output above for details.");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            if verbose {
+                                eprintln!("⚠️ Error running tests: {}", e);
+                            }
+                        }
                     }
                 } else {
                     if verbose {
@@ -813,7 +895,7 @@ pub fn generate_tests_with_foundry(
     Ok(())
 }
 
-fn extract_contracts_from_graph(
+pub(crate) fn extract_contracts_from_graph(
     graph: &CallGraph,
     ctx: &CallGraphGeneratorContext,
 ) -> Vec<ContractInfo> {
@@ -907,7 +989,7 @@ fn extract_contracts_from_graph(
     result
 }
 
-fn generate_and_write_test_file(
+pub(crate) fn generate_and_write_test_file(
     foundry: &FoundryIntegration,
     contract: &SolidityTestContract,
     test_file_path: &Path,

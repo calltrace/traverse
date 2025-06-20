@@ -260,9 +260,10 @@ impl SolidityInterpreter {
     }
 
     fn evaluate_number_literal(&self, num_lit: &NumberLiteral) -> Result<Value, InterpreterError> {
-        if let Ok(uint_val) = num_lit.value.parse::<u64>() {
+        let trimmed_value = num_lit.value.trim();
+        if let Ok(uint_val) = trimmed_value.parse::<u64>() {
             Ok(Value::UInt(uint_val))
-        } else if let Ok(int_val) = num_lit.value.parse::<i64>() {
+        } else if let Ok(int_val) = trimmed_value.parse::<i64>() {
             Ok(Value::Int(int_val))
         } else {
             Err(InterpreterError::InvalidLiteral(format!(
@@ -765,6 +766,7 @@ impl SolidityInterpreter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::parse_expression; // Added for parsing expressions in tests
 
     #[test]
     fn test_evaluate_boolean_literal() {
@@ -909,4 +911,119 @@ mod tests {
         assert!(!Value::String("".to_string()).to_bool().unwrap());
         assert!(!Value::Null.to_bool().unwrap());
     }
+
+    #[test]
+    fn test_evaluate_new_value_gt_zero_predicate() {
+        let mut interpreter = SolidityInterpreter::new();
+
+        // Construct the expression: _newValue > 0
+        let new_value_ident = Expression::Identifier("_newValue".to_string());
+        let zero_literal = Expression::Literal(Literal::Number(NumberLiteral {
+            value: "0".to_string(),
+            sub_denomination: None,
+        }));
+        let expr = Expression::Binary(BinaryExpression {
+            left: Box::new(new_value_ident),
+            operator: BinaryOperator::GreaterThan,
+            right: Box::new(zero_literal),
+        });
+
+        // Case 1: _newValue = 42 (positive)
+        // Expected: _newValue > 0  =>  42 > 0  =>  true
+        interpreter.context_mut().set_variable("_newValue".to_string(), Value::UInt(42));
+        match interpreter.evaluate_predicate(&expr) {
+            Ok(result) => assert!(result, "Expected '42 > 0' to be true"),
+            Err(e) => panic!("Evaluation failed for _newValue = 42: {}", e),
+        }
+
+        // Case 2: _newValue = 0
+        // Expected: _newValue > 0  =>  0 > 0  =>  false
+        interpreter.context_mut().set_variable("_newValue".to_string(), Value::UInt(0));
+        match interpreter.evaluate_predicate(&expr) {
+            Ok(result) => assert!(!result, "Expected '0 > 0' to be false"),
+            Err(e) => panic!("Evaluation failed for _newValue = 0: {}", e),
+        }
+        
+        // Case 3: _newValue = 1 (positive, edge case near 0)
+        // Expected: _newValue > 0  =>  1 > 0  =>  true
+        interpreter.context_mut().set_variable("_newValue".to_string(), Value::UInt(1));
+        match interpreter.evaluate_predicate(&expr) {
+            Ok(result) => assert!(result, "Expected '1 > 0' to be true"),
+            Err(e) => panic!("Evaluation failed for _newValue = 1: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_evaluate_parsed_expression_new_value_gt_zero() {
+        let mut interpreter = SolidityInterpreter::new();
+
+        // Parse the expression string into an AST
+        let expression_str = "_newValue > 0";
+        let parsed_expr = match parse_expression(expression_str) {
+            Ok(expr) => expr,
+            Err(e) => panic!("Failed to parse expression '{}': {}", expression_str, e),
+        };
+
+        // Case 1: _newValue = 42 (positive)
+        // Expected: _newValue > 0  =>  42 > 0  =>  true
+        interpreter.context_mut().set_variable("_newValue".to_string(), Value::UInt(42));
+        match interpreter.evaluate_predicate(&parsed_expr) {
+            Ok(result) => assert!(result, "Expected '42 > 0' (parsed) to be true"),
+            Err(e) => panic!("Parsed evaluation failed for _newValue = 42: {}", e),
+        }
+
+        // Case 2: _newValue = 0
+        // Expected: _newValue > 0  =>  0 > 0  =>  false
+        interpreter.context_mut().set_variable("_newValue".to_string(), Value::UInt(0));
+        match interpreter.evaluate_predicate(&parsed_expr) {
+            Ok(result) => assert!(!result, "Expected '0 > 0' (parsed) to be false"),
+            Err(e) => panic!("Parsed evaluation failed for _newValue = 0: {}", e),
+        }
+        
+        // Case 3: _newValue = 1 (positive, edge case near 0)
+        // Expected: _newValue > 0  =>  1 > 0  =>  true
+        interpreter.context_mut().set_variable("_newValue".to_string(), Value::UInt(1));
+        match interpreter.evaluate_predicate(&parsed_expr) {
+            Ok(result) => assert!(result, "Expected '1 > 0' (parsed) to be true"),
+            Err(e) => panic!("Parsed evaluation failed for _newValue = 1: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_evaluate_parsed_expression_new_value_gt_zero_signed() {
+        let mut interpreter = SolidityInterpreter::new();
+
+        // Parse the expression string into an AST
+        let expression_str = "_newValue > 0";
+        let parsed_expr = match parse_expression(expression_str) {
+            Ok(expr) => expr,
+            Err(e) => panic!("Failed to parse expression '{}': {}", expression_str, e),
+        };
+
+        // Case 1: _newValue = 42 (positive)
+        // Expected: _newValue > 0  =>  42 > 0  =>  true
+        interpreter.context_mut().set_variable("_newValue".to_string(), Value::Int(42));
+        match interpreter.evaluate_predicate(&parsed_expr) {
+            Ok(result) => assert!(result, "Expected '42 > 0' (parsed) to be true"),
+            Err(e) => panic!("Parsed evaluation failed for _newValue = 42: {}", e),
+        }
+
+        // Case 2: _newValue = 0
+        // Expected: _newValue > 0  =>  0 > 0  =>  false
+        interpreter.context_mut().set_variable("_newValue".to_string(), Value::Int(0));
+        match interpreter.evaluate_predicate(&parsed_expr) {
+            Ok(result) => assert!(!result, "Expected '0 > 0' (parsed) to be false"),
+            Err(e) => panic!("Parsed evaluation failed for _newValue = 0: {}", e),
+        }
+        
+        // Case 3: _newValue = 1 (positive, edge case near 0)
+        // Expected: _newValue > 0  =>  1 > 0  =>  true
+        interpreter.context_mut().set_variable("_newValue".to_string(), Value::Int(1));
+        match interpreter.evaluate_predicate(&parsed_expr) {
+            Ok(result) => assert!(result, "Expected '1 > 0' (parsed) to be true"),
+            Err(e) => panic!("Parsed evaluation failed for _newValue = 1: {}", e),
+        }
+    }
+
+
 }

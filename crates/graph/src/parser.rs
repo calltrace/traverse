@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use language::{Language, Mermaid, Solidity};
+use language::{Language, Solidity};
 use tree_sitter::{Parser, Tree};
 
 /// Represents a parsed Solidity AST

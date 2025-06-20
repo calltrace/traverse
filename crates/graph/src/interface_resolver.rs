@@ -27,12 +27,11 @@ use crate::natspec::{
 };
 // NatSpec struct itself is not directly used in this file, only its kinds.
 use anyhow::{Context, Result};
-use nom::Finish;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

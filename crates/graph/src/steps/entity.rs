@@ -180,7 +180,7 @@ impl CallGraphGeneratorStep for ContractHandling {
             for capture in match_.captures {
                 let capture_name = &definition_query.capture_names()[capture.index as usize];
                 let captured_ts_node = capture.node;
-                let text = get_node_text(&captured_ts_node, &input.source);
+                let _text = get_node_text(&captured_ts_node, &input.source);
 
                 match *capture_name {
                     "contract_def_item" => {

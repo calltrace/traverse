@@ -164,7 +164,7 @@ impl CallGraph {
         Default::default()
     }
 
-    pub(crate) fn add_node(
+    pub fn add_node(
         &mut self,
         name: String,
         node_type: NodeType,
@@ -192,7 +192,7 @@ impl CallGraph {
         id
     }
 
-    pub(crate) fn add_edge(
+    pub fn add_edge(
         &mut self,
         source_node_id: usize,
         target_node_id: usize,

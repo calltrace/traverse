@@ -500,7 +500,7 @@ pub(crate) fn analyze_chained_call<'a>(
                         .map_or(false, |n| n.kind() == "new_expression") =>
                 {
                     // Recursively analyze the new_expression itself to get its step(s)
-                    let object_steps: Vec<ResolvedCallStep> = Vec::new(); // To satisfy structure, though new_steps is what's used
+                    let _object_steps: Vec<ResolvedCallStep> = Vec::new(); // To satisfy structure, though new_steps is what's used
                     let _outer_object_type: Option<String>; // To satisfy structure
 
                     let new_expression_node = function_node.child(0).unwrap();
@@ -812,7 +812,7 @@ fn resolve_expression_type_v2<'a>(
                         .iter()
                         .find(|(id, _, _)| *id == caller_node_id)
                 {
-                    if let Some(definition_ts_node) =
+                    if let Some(_definition_ts_node) =
                         input.tree.root_node().descendant_for_byte_range(
                             caller_node_info_for_span.span.0,
                             caller_node_info_for_span.span.1,
@@ -937,7 +937,7 @@ fn resolve_expression_type_v2<'a>(
                         eprintln!("[Resolve Type V2 - LocalVar Upward] Finished upward search for '{}'. Not found as local variable in accessible scope.", name);
                         // --- End: Check local variables ---
                     } else {
-                        // This 'else' corresponds to: if let Some(definition_ts_node) = input.tree.root_node()...
+                        // This 'else' corresponds to: if let Some(_definition_ts_node) = input.tree.root_node()...
                         eprintln!("[Resolve Type V2 - LocalVar]   Could not find definition TsNode for Caller Node ID: {}", caller_node_id);
                     }
                 } else {

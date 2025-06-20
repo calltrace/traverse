@@ -11,5 +11,8 @@ pub mod manifest;
 pub mod reachability;
 pub mod storage_access;
 
+// Re-export commonly used types for easier access
+pub use cg::{CallGraph, Node, Edge, NodeType, EdgeType, ParameterInfo, Visibility};
+
 #[cfg(test)]
 mod tests;

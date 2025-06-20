@@ -1,5 +1,5 @@
 use crate::cg::{CallGraph, Edge, EdgeType, Node, NodeType};
-use mermaid::sequence_diagram_ast::{ActivationMarker, Arrow, Message, SequenceDiagram, Statement};
+use mermaid::sequence_diagram_ast::SequenceDiagram;
 use mermaid::sequence_diagram_builder::SequenceDiagramBuilder;
 use std::collections::{HashMap, HashSet}; // Import HashMap
 
@@ -151,8 +151,10 @@ impl MermaidGenerator {
     const USER_ALIAS: &str = "User";
     // Use constants from cg.rs for synthetic nodes
     const EVM_ID: &str = crate::cg::EVM_NODE_NAME; // "EVM"
+    #[allow(dead_code)]
     const EVM_ALIAS: &str = "EVM";
     const LISTENER_ID: &str = crate::cg::EVENT_LISTENER_NODE_NAME; // "EventListener"
+    #[allow(dead_code)]
     const LISTENER_ALIAS: &str = "EventListener";
 
     /// Generates a unique and Mermaid-compatible participant ID.
@@ -184,7 +186,7 @@ impl MermaidGenerator {
 
     /// Generates a display alias for a participant.
     /// Handles contracts and global scope based on node name and contract scope.
-    fn get_participant_alias(node_name: &str, contract_name: Option<&String>) -> String {
+    fn get_participant_alias(_node_name: &str, contract_name: Option<&String>) -> String {
         // Removed EVM/Listener specific handling
         match contract_name {
             Some(contract) => contract.clone(),
@@ -219,7 +221,7 @@ impl MermaidGenerator {
         let mut sorted_edges = outgoing_edges;
         sorted_edges.sort_by_key(|(_, edge)| (edge.sequence_number, edge.edge_type.clone())); // Clone edge_type for sorting
 
-        for (edge_index, edge) in sorted_edges {
+        for (_edge_index, edge) in sorted_edges {
             // Note: The check for already processed non-Call edges has been removed
             // to allow internal actions (storage, require, emit) to be shown on every call.
             // The `processed_return_edges` set is now used *only* to prevent duplicate return signals.

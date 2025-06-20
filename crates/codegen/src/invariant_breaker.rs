@@ -183,6 +183,14 @@ pub async fn break_invariant_with_config(
         rand::rngs::StdRng::from_entropy()
     };
 
+    // Heuristic: Identify variables likely to be uints based on comparisons with non-negative literals
+    let mut uint_candidates = std::collections::HashSet::new();
+    collect_comparison_vars_recursive(&parsed_expr, &variables, &mut uint_candidates);
+
+    eprintln!("[INV_BREAK DEBUG] Original Expression: {}", expression);
+    eprintln!("[INV_BREAK DEBUG] Extracted Variables: {:?}", variables);
+    eprintln!("[INV_BREAK DEBUG] Uint Candidates: {:?}", uint_candidates);
+
     let mut entries = Vec::new();
     let mut attempts = 0;
 
@@ -191,7 +199,19 @@ pub async fn break_invariant_with_config(
 
         let mut variable_assignments = HashMap::new();
         for var_name in &variables {
-            let value = generate_random_value(&mut rng);
+            let value = if uint_candidates.contains(var_name) {
+                // Strongly prefer UInt, especially 0 and 1 for these candidates
+                let choice = rng.gen_range(0..10); // 10% for 0, 10% for 1
+                if choice == 0 {
+                    Value::UInt(0)
+                } else if choice == 1 {
+                    Value::UInt(1)
+                } else {
+                    Value::UInt(rng.gen_range(2..5000))
+                } // Other small positive uints, expanded range
+            } else {
+                generate_random_value(&mut rng) // Existing general random generation
+            };
             variable_assignments.insert(var_name.clone(), value);
         }
 
@@ -199,11 +219,14 @@ pub async fn break_invariant_with_config(
         for (name, value) in &variable_assignments {
             interpreter
                 .context_mut()
-                .set_variable(name.clone(), value.clone().into());
+                .set_variable(name.clone(), value.clone());
         }
+
+        eprintln!("[INV_BREAK DEBUG] Attempt {}: Variable Assignments: {:?}", attempts, variable_assignments.iter().map(|(k,v)| (k, format!("{}", v))).collect::<HashMap<_,_>>());
 
         match interpreter.evaluate_predicate(&parsed_expr) {
             Ok(false) => {
+                eprintln!("[INV_BREAK DEBUG] Attempt {}: Found counterexample (predicate returned false)", attempts);
                 let concrete_expr =
                     substitute_variables_in_expression(&parsed_expr, &variable_assignments)?;
                 entries.push(InvariantBreakerEntry {
@@ -215,13 +238,21 @@ pub async fn break_invariant_with_config(
                 });
             }
             Ok(true) => {
+                eprintln!("[INV_BREAK DEBUG] Attempt {}: Predicate returned true", attempts);
                 // Expression evaluated to true, continue searching
             }
-            Err(_) => {
+            Err(e) => {
+                eprintln!("[INV_BREAK DEBUG] Attempt {}: Error evaluating predicate: {}. Skipping.", attempts, e);
                 // Error evaluating expression, skip this assignment
                 continue;
             }
         }
+    }
+
+    if entries.is_empty() {
+        eprintln!("[INV_BREAK DEBUG] No counterexamples found after {} attempts for expression: '{}'", attempts, expression);
+    } else {
+        eprintln!("[INV_BREAK DEBUG] Found {} counterexamples for expression: '{}'", entries.len(), expression);
     }
 
     Ok(InvariantBreakerResult {
@@ -245,6 +276,93 @@ fn extract_variables(expr: &Expression) -> Vec<String> {
     variables.sort();
     variables.dedup();
     variables
+}
+
+fn collect_comparison_vars_recursive(
+    expr: &Expression,
+    all_vars: &Vec<String>,
+    candidates: &mut std::collections::HashSet<String>,
+) {
+    match expr {
+        Expression::Binary(bin_expr) => {
+            // Check if the current binary expression involves an identifier and a non-negative number literal
+            if matches!(
+                bin_expr.operator,
+                BinaryOperator::GreaterThan
+                    | BinaryOperator::GreaterThanOrEqual
+                    | BinaryOperator::LessThan
+                    | BinaryOperator::LessThanOrEqual
+                    | BinaryOperator::Equal
+                    | BinaryOperator::NotEqual
+            ) {
+                // Case 1: Identifier on the left, Literal on the right
+                if let Expression::Identifier(ref var_name) = *bin_expr.left {
+                    if all_vars.contains(var_name) {
+                        if let Expression::Literal(Literal::Number(ref num_lit)) = *bin_expr.right {
+                            if num_lit.value.parse::<u64>().is_ok()
+                                || num_lit.value.parse::<i64>().map_or(false, |n| n >= 0)
+                            {
+                                candidates.insert(var_name.clone());
+                            }
+                        }
+                    }
+                }
+                // Case 2: Literal on the left, Identifier on the right
+                if let Expression::Identifier(ref var_name) = *bin_expr.right {
+                    if all_vars.contains(var_name) {
+                        if let Expression::Literal(Literal::Number(ref num_lit)) = *bin_expr.left {
+                            if num_lit.value.parse::<u64>().is_ok()
+                                || num_lit.value.parse::<i64>().map_or(false, |n| n >= 0)
+                            {
+                                candidates.insert(var_name.clone());
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Recursively check sub-expressions
+            collect_comparison_vars_recursive(&bin_expr.left, all_vars, candidates);
+            collect_comparison_vars_recursive(&bin_expr.right, all_vars, candidates);
+        }
+        Expression::Unary(unary_expr) => {
+            collect_comparison_vars_recursive(&unary_expr.operand, all_vars, candidates);
+        }
+        Expression::FunctionCall(call_expr) => {
+            // It's unlikely the function name itself is a candidate, so we focus on arguments
+            // collect_comparison_vars_recursive(&call_expr.function, all_vars, candidates);
+            for arg in &call_expr.arguments {
+                collect_comparison_vars_recursive(arg, all_vars, candidates);
+            }
+        }
+        Expression::Conditional(cond_expr) => {
+            collect_comparison_vars_recursive(&cond_expr.condition, all_vars, candidates);
+            collect_comparison_vars_recursive(&cond_expr.true_expr, all_vars, candidates);
+            collect_comparison_vars_recursive(&cond_expr.false_expr, all_vars, candidates);
+        }
+        Expression::Assignment(assign_expr) => {
+            // Typically, we are interested in conditions, but assignments might contain comparisons
+            collect_comparison_vars_recursive(&assign_expr.left, all_vars, candidates);
+            collect_comparison_vars_recursive(&assign_expr.right, all_vars, candidates);
+        }
+        Expression::Tuple(tuple_expr) => {
+            for element in &tuple_expr.elements {
+                if let Some(expr_element) = element {
+                    collect_comparison_vars_recursive(expr_element, all_vars, candidates);
+                }
+            }
+        }
+        Expression::Array(array_expr) => {
+            for element in &array_expr.elements {
+                collect_comparison_vars_recursive(element, all_vars, candidates);
+            }
+        }
+        Expression::TypeConversion(conv_expr) => {
+            collect_comparison_vars_recursive(&conv_expr.expression, all_vars, candidates);
+        }
+        // Base cases like Identifier, Literal, New don't need further recursion for this purpose.
+        _ => {}
+    }
 }
 
 fn extract_variables_recursive(expr: &Expression, variables: &mut Vec<String>) {
@@ -328,13 +446,33 @@ fn is_builtin_identifier(name: &str) -> bool {
             | "revert"
             | "require"
             | "assert"
+            // Solidity types that can be used in function-like casts
+            | "address"
+            | "bool"
+            | "string"
+            | "bytes"
+            | "byte"
+            | "int"
+            | "uint"
+            // Common fixed-size byte arrays
+            | "bytes1" | "bytes2" | "bytes3" | "bytes4" | "bytes5" | "bytes6" | "bytes7" | "bytes8"
+            | "bytes9" | "bytes10" | "bytes11" | "bytes12" | "bytes13" | "bytes14" | "bytes15" | "bytes16"
+            | "bytes17" | "bytes18" | "bytes19" | "bytes20" | "bytes21" | "bytes22" | "bytes23" | "bytes24"
+            | "bytes25" | "bytes26" | "bytes27" | "bytes28" | "bytes29" | "bytes30" | "bytes31" | "bytes32"
+            // Common integer types ( Solidity allows uint8 to uint256, int8 to int256 in steps of 8)
+            // Adding a few common ones, though a regex might be better for full coverage
+            | "uint8" | "uint16" | "uint32" | "uint64" | "uint128" | "uint256"
+            | "int8" | "int16" | "int32" | "int64" | "int128" | "int256"
+            // Other global functions/objects that might appear in expressions but aren't variables to assign
+            | "abi" // e.g. abi.encode
+            | "type" // e.g. type(MyContract).creationCode
     )
 }
 
 fn generate_random_value(rng: &mut impl Rng) -> Value {
     match rng.gen_range(0..6) {
         0 => Value::Bool(rng.gen()),
-        1 => Value::UInt(rng.gen_range(0..1000)),
+        1 => Value::UInt(rng.gen_range(0..5000)), // Expanded range
         2 => Value::Int(rng.gen_range(-500..500)),
         3 => {
             let strings = ["", "hello", "world", "test", "value"];
@@ -401,6 +539,63 @@ fn substitute_expression_recursive(
 mod tests {
     use super::*;
     use tokio;
+
+    #[tokio::test]
+    async fn test_break_invariant_newvalue_gt_zero() {
+        let expression = "_newValue > 0";
+        let config = InvariantBreakerConfig {
+            max_attempts: 250, // Increased attempts for robustness, especially if 0 isn't hit early
+            max_results: 1,
+            seed: None, // Let's rely on the random generation and prioritization
+        };
+
+        let result = break_invariant_with_config(expression, config)
+            .await
+            .unwrap();
+
+        assert!(
+            result.success,
+            "Invariant breaker should succeed for '{}'. Error: {:?}",
+            expression, result.error
+        );
+        assert!(
+            !result.entries.is_empty(),
+            "Should find at least one counterexample for '{}'",
+            expression
+        );
+
+        let entry = &result.entries[0];
+        assert!(
+            entry.variables.contains_key("_newValue"),
+            "Counterexample should contain '_newValue'. Variables: {:?}",
+            entry.variables
+        );
+
+        let new_value_opt = entry.variables.get("_newValue");
+        assert!(new_value_opt.is_some(), "_newValue not found in variables");
+
+        match new_value_opt.unwrap() {
+            InvariantBreakerValue::UInt(val) => {
+                assert_eq!(
+                    *val, 0,
+                    "For '_newValue > 0', the counterexample _newValue should be 0. Got {}",
+                    val
+                );
+                assert!(
+                    entry.concrete_expression.contains("0 > 0")
+                        || entry.concrete_expression.contains("0>0"),
+                    "Concrete expression '{}' did not match expected pattern for _newValue = 0.",
+                    entry.concrete_expression
+                );
+            }
+            other_type => {
+                panic!(
+                    "'_newValue' should be a UInt, but got {:?}. Variables: {:?}",
+                    other_type, entry.variables
+                );
+            }
+        }
+    }
 
     #[tokio::test]
     async fn test_break_invariant_simple_expression() {
