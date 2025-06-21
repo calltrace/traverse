@@ -760,9 +760,19 @@ impl BlockBuilder {
         name: impl Into<String>,
         initial_value: Option<Expression>,
     ) -> &mut Self {
+        self.variable_declaration_with_location(type_name, name, None, initial_value)
+    }
+
+    pub fn variable_declaration_with_location(
+        &mut self,
+        type_name: TypeName,
+        name: impl Into<String>,
+        data_location: Option<DataLocation>,
+        initial_value: Option<Expression>,
+    ) -> &mut Self {
         let declaration = VariableDeclaration {
             type_name,
-            data_location: None,
+            data_location,
             name: name.into(),
         };
 
@@ -866,6 +876,29 @@ pub fn string() -> TypeName {
 
 pub fn bytes() -> TypeName {
     TypeName::Elementary(ElementaryTypeName::Bytes)
+}
+
+/// Helper function to determine if a type requires a data location specifier
+pub fn requires_data_location(type_name: &TypeName) -> bool {
+    match type_name {
+        TypeName::Elementary(elem) => match elem {
+            ElementaryTypeName::String | ElementaryTypeName::Bytes => true,
+            _ => false,
+        },
+        TypeName::Array(_, _) => true,
+        TypeName::UserDefined(_) => true, // Structs require data location
+        TypeName::Mapping(_) => false, // Mappings are always storage
+        TypeName::Function(_) => false,
+    }
+}
+
+/// Helper function to get the appropriate data location for a type in local variable context
+pub fn get_default_data_location(type_name: &TypeName) -> Option<DataLocation> {
+    if requires_data_location(type_name) {
+        Some(DataLocation::Memory)
+    } else {
+        None
+    }
 }
 
 pub fn bytes_fixed(size: u8) -> TypeName {

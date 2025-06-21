@@ -222,11 +222,21 @@ pub async fn break_invariant_with_config(
                 .set_variable(name.clone(), value.clone());
         }
 
-        eprintln!("[INV_BREAK DEBUG] Attempt {}: Variable Assignments: {:?}", attempts, variable_assignments.iter().map(|(k,v)| (k, format!("{}", v))).collect::<HashMap<_,_>>());
+        eprintln!(
+            "[INV_BREAK DEBUG] Attempt {}: Variable Assignments: {:?}",
+            attempts,
+            variable_assignments
+                .iter()
+                .map(|(k, v)| (k, format!("{}", v)))
+                .collect::<HashMap<_, _>>()
+        );
 
         match interpreter.evaluate_predicate(&parsed_expr) {
             Ok(false) => {
-                eprintln!("[INV_BREAK DEBUG] Attempt {}: Found counterexample (predicate returned false)", attempts);
+                eprintln!(
+                    "[INV_BREAK DEBUG] Attempt {}: Found counterexample (predicate returned false)",
+                    attempts
+                );
                 let concrete_expr =
                     substitute_variables_in_expression(&parsed_expr, &variable_assignments)?;
                 entries.push(InvariantBreakerEntry {
@@ -238,11 +248,17 @@ pub async fn break_invariant_with_config(
                 });
             }
             Ok(true) => {
-                eprintln!("[INV_BREAK DEBUG] Attempt {}: Predicate returned true", attempts);
+                eprintln!(
+                    "[INV_BREAK DEBUG] Attempt {}: Predicate returned true",
+                    attempts
+                );
                 // Expression evaluated to true, continue searching
             }
             Err(e) => {
-                eprintln!("[INV_BREAK DEBUG] Attempt {}: Error evaluating predicate: {}. Skipping.", attempts, e);
+                eprintln!(
+                    "[INV_BREAK DEBUG] Attempt {}: Error evaluating predicate: {}. Skipping.",
+                    attempts, e
+                );
                 // Error evaluating expression, skip this assignment
                 continue;
             }
@@ -250,9 +266,16 @@ pub async fn break_invariant_with_config(
     }
 
     if entries.is_empty() {
-        eprintln!("[INV_BREAK DEBUG] No counterexamples found after {} attempts for expression: '{}'", attempts, expression);
+        eprintln!(
+            "[INV_BREAK DEBUG] No counterexamples found after {} attempts for expression: '{}'",
+            attempts, expression
+        );
     } else {
-        eprintln!("[INV_BREAK DEBUG] Found {} counterexamples for expression: '{}'", entries.len(), expression);
+        eprintln!(
+            "[INV_BREAK DEBUG] Found {} counterexamples for expression: '{}'",
+            entries.len(),
+            expression
+        );
     }
 
     Ok(InvariantBreakerResult {

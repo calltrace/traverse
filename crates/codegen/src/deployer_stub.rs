@@ -1,54 +1,139 @@
-use crate::teststubs::{
-    generate_constructor_args, ContractInfo, Expression, SolidityTestBuilder, SolidityTestContract, StateVariable, Statement, TestFunction, TestType
-};
+use crate::teststubs::ContractInfo;
 use anyhow::Result;
+use solidity::ast::*;
+use solidity::builder::*;
 
-pub fn generate_foundry_deployer_test_contract(
-    contract_info: &ContractInfo,
-) -> Result<SolidityTestContract> {
-    let deployer_contract_name = format!("Deployer_{}", contract_info.name);
-    let deployer_contract = SolidityTestBuilder::new(deployer_contract_name)
-        .add_import(format!("../src/{}.sol", contract_info.name)) 
-        .add_state_variable(StateVariable {
-            name: "deployedContract".to_string(),
-            var_type: contract_info.name.clone(),
-            visibility: "public".to_string(),
-            initial_value: None,
-        })
-        .add_test_function(TestFunction {
-            name: format!("test_Deploy_{}", contract_info.name),
-            visibility: "public".to_string(), 
-            body: vec![
-                Statement::Comment {
-                    text: format!("Deploy {} with constructor parameters", contract_info.name),
-                },
-                Statement::Assignment {
-                    target: "deployedContract".to_string(),
-                    value: Expression::FunctionCall {
-                        target: None,
-                        function: format!("new {}", contract_info.name),
-                        args: generate_constructor_args(&contract_info.constructor_params, None),
-                    },
-                },
-                Statement::Assert { 
-                    condition: Expression::BinaryOp {
-                        left: Box::new(Expression::FunctionCall {
-                            target: None,
-                            function: "address".to_string(),
-                            args: vec![Expression::Identifier("deployedContract".to_string())],
-                        }),
-                        operator: "!=".to_string(),
-                        right: Box::new(Expression::Literal("address(0)".to_string())),
+pub fn generate_foundry_deployer_test_contract(contract_info: &ContractInfo) -> Result<SourceUnit> {
+    let mut builder = SolidityBuilder::new();
+    let test_name = format!("{}DeployerTest", contract_info.name);
+    let contract_import_path = format!("../src/{}.sol", contract_info.name);
+
+    builder
+        .pragma("solidity", "^0.8.0")
+        .import("forge-std/Test.sol")
+        .import(contract_import_path)
+        .contract(test_name, |contract| {
+            contract.inherits("Test").function("testDeploy", |func| {
+                func.visibility(Visibility::Public).body(|body| {
+                    // Generate deployment test logic
+                    if contract_info.has_constructor {
+                        // Add constructor args generation
+                        for (i, param) in contract_info.constructor_params.iter().enumerate() {
+                            let var_name = format!("arg{}", i);
+                            let type_name = param_type_to_ast(&param.param_type);
+                            let default_value = generate_default_value(&param.param_type);
+
+                            // Use variable_declaration_with_location for types that require data location
+                            if solidity::builder::requires_data_location(&type_name) {
+                                let data_location =
+                                    solidity::builder::get_default_data_location(&type_name);
+                                body.variable_declaration_with_location(
+                                    type_name,
+                                    var_name,
+                                    data_location,
+                                    Some(default_value),
+                                );
+                            } else {
+                                body.variable_declaration(type_name, var_name, Some(default_value));
+                            }
+                        }
                     }
-                }
-            ],
-            test_type: TestType::StateChangeTest {
-                variable_name: "deployedContract".to_string(),
-                expected_change: "should be a valid address (non-zero)".to_string(),
-            },
-        })
-        .build();
 
-    Ok(deployer_contract)
+                    // Add deployment statement
+                    let deploy_expr = if contract_info.has_constructor {
+                        let args: Vec<Expression> = (0..contract_info.constructor_params.len())
+                            .map(|i| identifier(format!("arg{}", i)))
+                            .collect();
+
+                        Expression::FunctionCall(FunctionCallExpression {
+                            function: Box::new(identifier(format!("new {}", contract_info.name))),
+                            arguments: args,
+                        })
+                    } else {
+                        Expression::FunctionCall(FunctionCallExpression {
+                            function: Box::new(identifier(format!("new {}", contract_info.name))),
+                            arguments: vec![],
+                        })
+                    };
+
+                    body.variable_declaration(
+                        user_type(&contract_info.name),
+                        "instance",
+                        Some(deploy_expr),
+                    );
+
+                    // Add assertion
+                    body.expression(Expression::FunctionCall(FunctionCallExpression {
+                        function: Box::new(identifier("assertTrue")),
+                        arguments: vec![Expression::Binary(BinaryExpression {
+                            left: Box::new(identifier("address(instance)")),
+                            operator: BinaryOperator::NotEqual,
+                            right: Box::new(identifier("address(0)")),
+                        })],
+                    }));
+                });
+            });
+        });
+
+    Ok(builder.build())
 }
 
+fn param_type_to_ast(param_type: &str) -> TypeName {
+    match param_type {
+        "address" => address(),
+        "bool" => bool(),
+        "string" => string(),
+        t if t.starts_with("uint") => {
+            if let Some(size_str) = t.strip_prefix("uint") {
+                if size_str.is_empty() {
+                    uint256()
+                } else if let Ok(size) = size_str.parse::<u16>() {
+                    uint(size)
+                } else {
+                    uint256()
+                }
+            } else {
+                uint256()
+            }
+        }
+        t if t.starts_with("int") => {
+            if let Some(size_str) = t.strip_prefix("int") {
+                if size_str.is_empty() {
+                    int256()
+                } else if let Ok(size) = size_str.parse::<u16>() {
+                    int(size)
+                } else {
+                    int256()
+                }
+            } else {
+                int256()
+            }
+        }
+        t if t.starts_with("bytes") => {
+            if t == "bytes" {
+                bytes()
+            } else if let Some(size_str) = t.strip_prefix("bytes") {
+                if let Ok(size) = size_str.parse::<u8>() {
+                    bytes_fixed(size)
+                } else {
+                    bytes()
+                }
+            } else {
+                bytes()
+            }
+        }
+        _ => user_type(param_type), // Custom type
+    }
+}
+
+fn generate_default_value(param_type: &str) -> Expression {
+    match param_type {
+        "address" => identifier("address(0x1)"),
+        "bool" => boolean(true),
+        "string" => string_literal("test"),
+        t if t.starts_with("uint") => number("1"),
+        t if t.starts_with("int") => number("1"),
+        t if t.starts_with("bytes") => string_literal("0x01"),
+        _ => number("0"),
+    }
+}

@@ -187,6 +187,8 @@ fn main() -> Result<()> {
     .context("Failed to determine project root for original_contract_paths in main")?;
 
     let mut original_contract_paths: HashMap<String, PathBuf> = HashMap::new();
+    
+    // First, try to populate from manifest
     if let Some(manifest) = &ctx.manifest {
         for entry in &manifest.entries {
             if entry.item_kind == graph::natspec::extract::SourceItemKind::Contract {
@@ -204,11 +206,27 @@ fn main() -> Result<()> {
             }
         }
     }
-    if cli.verbose && original_contract_paths.is_empty() && ctx.manifest.is_some() {
-        println!("🗺️ No contract paths found in manifest for copying original sources.");
+    
+    // If manifest didn't provide contract paths, fall back to direct file mapping
+    if original_contract_paths.is_empty() {
+        for sol_file in &sol_files {
+            if let Some(file_stem) = sol_file.file_stem().and_then(|s| s.to_str()) {
+                let absolute_path = fs::canonicalize(sol_file)
+                    .context("Failed to canonicalize input file path")?;
+                original_contract_paths.insert(file_stem.to_string(), absolute_path);
+                if cli.verbose {
+                    println!(
+                        "🗺️ Direct mapping contract '{}' to original path: {}",
+                        file_stem,
+                        original_contract_paths.get(file_stem).unwrap().display()
+                    );
+                }
+            }
+        }
     }
-    if cli.verbose && ctx.manifest.is_none() {
-        println!("🗺️ Manifest not available, cannot determine original contract paths for copying.");
+    
+    if cli.verbose && original_contract_paths.is_empty() {
+        println!("🗺️ No contract paths could be determined for copying original sources.");
     }
 
 

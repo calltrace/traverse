@@ -56,12 +56,13 @@ fn write_import(output: &mut String, import: &ImportDirective, indent: &str) {
                 write!(output, " as {}", alias).unwrap();
             }
         }
-        write!(output, "}}").unwrap();
+        write!(output, "}} from \"{}\"", import.path).unwrap();
     } else if let Some(alias) = &import.alias {
-        write!(output, " * as {}", alias).unwrap();
+        write!(output, " * as {} from \"{}\"", alias, import.path).unwrap();
+    } else {
+        write!(output, " \"{}\"", import.path).unwrap();
     }
 
-    write!(output, " from \"{}\"", import.path).unwrap();
     writeln!(output, ";").unwrap();
 }
 
