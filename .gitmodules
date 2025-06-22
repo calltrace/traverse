@@ -4,3 +4,12 @@
 [submodule "crates/language/vendor/tree-sitter-mermaid"]
 	path = crates/language/vendor/tree-sitter-mermaid
 	url = https://github.com/monaqa/tree-sitter-mermaid.git
+[submodule "foundry-tests/lib/forge-std"]
+	path = foundry-tests/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "demos/simple_testgen/foundry-tests/lib/forge-std"]
+	path = demos/simple_testgen/foundry-tests/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "foundry-tests/test/foundry-tests/lib/forge-std"]
+	path = foundry-tests/test/foundry-tests/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std

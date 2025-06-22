@@ -30,13 +30,19 @@ use std::io::{stdout, Write};
 use std::path::{Path, PathBuf};
 use tera::{Context as TeraContext, Tera};
 use thiserror::Error;
+use toml;
 use walkdir::WalkDir;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Solidity test generator with native Foundry integration", long_about = None)]
 struct Cli {
-    #[arg(required = true, num_args = 1..)]
+    #[arg(required = false, num_args = 1..)]
     input_paths: Vec<PathBuf>,
+    #[arg(
+        long,
+        help = "Process a Foundry project directory instead of individual files"
+    )]
+    project: Option<PathBuf>,
     #[arg(short, long, default_value = "foundry-tests/test")]
     output_dir: PathBuf,
     #[arg(short, long, default_value = "templates")]
@@ -69,6 +75,8 @@ enum Sol2TestError {
     IoError(PathBuf, std::io::Error),
     WalkDirError(walkdir::Error),
     CodeGenError(codegen::CodeGenError),
+    ForgeError(String),
+    ConfigError(String),
 }
 
 impl std::error::Error for Sol2TestError {}
@@ -84,6 +92,8 @@ impl fmt::Display for Sol2TestError {
             }
             Sol2TestError::WalkDirError(err) => write!(f, "Directory traversal error: {}", err),
             Sol2TestError::CodeGenError(err) => write!(f, "Code generation error: {}", err),
+            Sol2TestError::ForgeError(msg) => write!(f, "Forge command error: {}", msg),
+            Sol2TestError::ConfigError(msg) => write!(f, "Configuration error: {}", msg),
         }
     }
 }
@@ -91,6 +101,31 @@ impl fmt::Display for Sol2TestError {
 impl From<walkdir::Error> for Sol2TestError {
     fn from(err: walkdir::Error) -> Self {
         Sol2TestError::WalkDirError(err)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct FoundryConfig {
+    src: String,
+    out: String,
+    test: String,
+    libs: Vec<String>,
+    remappings: Vec<String>,
+    solc_version: Option<String>,
+    evm_version: Option<String>,
+}
+
+impl Default for FoundryConfig {
+    fn default() -> Self {
+        Self {
+            src: "src".to_string(),
+            out: "out".to_string(),
+            test: "test".to_string(),
+            libs: vec!["lib".to_string()],
+            remappings: Vec::new(),
+            solc_version: None,
+            evm_version: None,
+        }
     }
 }
 
@@ -109,44 +144,43 @@ fn main() -> Result<()> {
         );
     }
 
-    let sol_files = find_solidity_files(&cli.input_paths)?;
+    // Validate command-line arguments
+    match (&cli.project, &cli.input_paths.is_empty()) {
+        (Some(_), false) => {
+            bail!("Cannot specify both --project and input file paths. Use either --project for Foundry project mode or provide individual .sol files.");
+        }
+        (None, true) => {
+            bail!("Must specify either --project <directory> or provide input .sol file paths.");
+        }
+        _ => {} // Valid combinations
+    }
+
+    let (sol_files, combined_source, foundry_config) = if let Some(project_path) = &cli.project {
+        // Project mode: validate, discover, and flatten contracts
+        validate_foundry_project(project_path)?;
+        let config = load_foundry_config(project_path, cli.verbose)?;
+        let discovered_files =
+            discover_project_contracts_with_config(project_path, &config, cli.verbose)?;
+        let flattened_source = flatten_project_contracts_with_config(
+            project_path,
+            &discovered_files,
+            &config,
+            cli.verbose,
+        )?;
+        (discovered_files, flattened_source, Some(config))
+    } else {
+        // Single file mode: existing behavior
+        let files = find_solidity_files(&cli.input_paths)?;
+        let source = read_and_combine_files(&files)?;
+        (files, source, None)
+    };
+
     if sol_files.is_empty() {
         bail!(Sol2TestError::NoSolidityFiles);
     }
 
-    if cli.verbose {
-        println!("📁 Found {} Solidity files:", sol_files.len());
-        for file in &sol_files {
-            println!("  - {}", file.display());
-        }
-    }
-
-    let mut combined_source = String::new();
-    let mut read_errors = Vec::new();
-
-    for sol_file in &sol_files {
-        match fs::read_to_string(sol_file) {
-            Ok(source) => {
-                combined_source.push_str(&source);
-                combined_source.push('\n');
-            }
-            Err(e) => {
-                let error_msg = format!(
-                    "Failed to read file {}: {}",
-                    sol_file.display(),
-                    Sol2TestError::IoError(sol_file.clone(), e)
-                );
-                read_errors.push(error_msg);
-            }
-        }
-    }
-
-    if !read_errors.is_empty() {
-        bail!("Errors occurred during file reading.");
-    }
-
     if combined_source.is_empty() {
-        bail!("No Solidity source code was successfully read.");
+        bail!("No Solidity source code was successfully processed.");
     }
 
     let combined_ast =
@@ -187,7 +221,7 @@ fn main() -> Result<()> {
     .context("Failed to determine project root for original_contract_paths in main")?;
 
     let mut original_contract_paths: HashMap<String, PathBuf> = HashMap::new();
-    
+
     // First, try to populate from manifest
     if let Some(manifest) = &ctx.manifest {
         for entry in &manifest.entries {
@@ -199,20 +233,23 @@ fn main() -> Result<()> {
                         println!(
                             "🗺️ Mapping contract '{}' to original path: {}",
                             contract_name,
-                            original_contract_paths.get(contract_name).unwrap().display()
+                            original_contract_paths
+                                .get(contract_name)
+                                .unwrap()
+                                .display()
                         );
                     }
                 }
             }
         }
     }
-    
+
     // If manifest didn't provide contract paths, fall back to direct file mapping
     if original_contract_paths.is_empty() {
         for sol_file in &sol_files {
             if let Some(file_stem) = sol_file.file_stem().and_then(|s| s.to_str()) {
-                let absolute_path = fs::canonicalize(sol_file)
-                    .context("Failed to canonicalize input file path")?;
+                let absolute_path =
+                    fs::canonicalize(sol_file).context("Failed to canonicalize input file path")?;
                 original_contract_paths.insert(file_stem.to_string(), absolute_path);
                 if cli.verbose {
                     println!(
@@ -224,13 +261,12 @@ fn main() -> Result<()> {
             }
         }
     }
-    
+
     if cli.verbose && original_contract_paths.is_empty() {
         println!("🗺️ No contract paths could be determined for copying original sources.");
     }
 
-
-    generate_tests_with_foundry(
+    generate_tests_with_foundry_enhanced(
         &graph,
         &ctx, // Pass &ctx instead of &input
         cli.verbose,
@@ -239,6 +275,7 @@ fn main() -> Result<()> {
         cli.deployer_only,
         cli.validate_compilation,
         &original_contract_paths, // Pass the newly constructed map
+        foundry_config.as_ref(),  // Pass Foundry configuration
     )?;
     if cli.verbose {
         println!("✅ Test generation completed successfully!");
@@ -510,4 +547,332 @@ fn parse_config_params(config_str: Option<&str>) -> HashMap<String, String> {
     }
 
     config
+}
+
+fn validate_foundry_project(project_path: &Path) -> Result<()> {
+    if !project_path.is_dir() {
+        bail!(
+            "Project path '{}' is not a directory",
+            project_path.display()
+        );
+    }
+
+    let foundry_toml = project_path.join("foundry.toml");
+    if !foundry_toml.exists() {
+        bail!(
+            "No foundry.toml found in project directory '{}'",
+            project_path.display()
+        );
+    }
+
+    let src_dir = project_path.join("src");
+    if !src_dir.is_dir() {
+        bail!(
+            "No src/ directory found in project '{}'",
+            project_path.display()
+        );
+    }
+
+    Ok(())
+}
+
+fn load_foundry_config(project_path: &Path, verbose: bool) -> Result<FoundryConfig> {
+    let foundry_toml_path = project_path.join("foundry.toml");
+
+    if verbose {
+        println!(
+            "⚙️  Loading Foundry configuration from: {}",
+            foundry_toml_path.display()
+        );
+    }
+
+    let mut config = FoundryConfig::default();
+
+    if foundry_toml_path.exists() {
+        let toml_content =
+            fs::read_to_string(&foundry_toml_path).context("Failed to read foundry.toml")?;
+
+        let toml_value: toml::Value =
+            toml::from_str(&toml_content).context("Failed to parse foundry.toml")?;
+
+        // Extract configuration from [profile.default] section
+        if let Some(profile) = toml_value.get("profile") {
+            if let Some(default_profile) = profile.get("default") {
+                if let Some(src) = default_profile.get("src").and_then(|v| v.as_str()) {
+                    config.src = src.to_string();
+                }
+                if let Some(out) = default_profile.get("out").and_then(|v| v.as_str()) {
+                    config.out = out.to_string();
+                }
+                if let Some(test) = default_profile.get("test").and_then(|v| v.as_str()) {
+                    config.test = test.to_string();
+                }
+                if let Some(libs) = default_profile.get("libs").and_then(|v| v.as_array()) {
+                    config.libs = libs
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .collect();
+                }
+                if let Some(remappings) =
+                    default_profile.get("remappings").and_then(|v| v.as_array())
+                {
+                    config.remappings = remappings
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .collect();
+                }
+                if let Some(solc_version) =
+                    default_profile.get("solc_version").and_then(|v| v.as_str())
+                {
+                    config.solc_version = Some(solc_version.to_string());
+                }
+                if let Some(evm_version) =
+                    default_profile.get("evm_version").and_then(|v| v.as_str())
+                {
+                    config.evm_version = Some(evm_version.to_string());
+                }
+            }
+        }
+
+        if verbose {
+            println!("✅ Foundry configuration loaded:");
+            println!("  📁 Source directory: {}", config.src);
+            println!("  📁 Output directory: {}", config.out);
+            println!("  🧪 Test directory: {}", config.test);
+            println!("  📚 Libraries: {:?}", config.libs);
+            if !config.remappings.is_empty() {
+                println!("  🔗 Remappings: {:?}", config.remappings);
+            }
+            if let Some(ref version) = config.solc_version {
+                println!("  🔧 Solc version: {}", version);
+            }
+            if let Some(ref evm_version) = config.evm_version {
+                println!("  ⚡ EVM version: {}", evm_version);
+            }
+        }
+    } else {
+        if verbose {
+            println!("⚙️  Using default Foundry configuration (no foundry.toml found)");
+        }
+    }
+
+    Ok(config)
+}
+
+fn discover_project_contracts_with_config(
+    project_path: &Path,
+    config: &FoundryConfig,
+    verbose: bool,
+) -> Result<Vec<PathBuf>, Sol2TestError> {
+    let src_dir = project_path.join(&config.src);
+
+    if verbose {
+        println!(
+            "🔍 Discovering contracts in: {} (from foundry.toml)",
+            src_dir.display()
+        );
+    }
+
+    let mut sol_files = Vec::new();
+    for entry in WalkDir::new(&src_dir).into_iter().filter_map(|e| e.ok()) {
+        if entry.file_type().is_file() && entry.path().extension().map_or(false, |ext| ext == "sol")
+        {
+            sol_files.push(entry.path().to_path_buf());
+            if verbose {
+                println!("  📄 Found: {}", entry.path().display());
+            }
+        }
+    }
+
+    sol_files.sort();
+
+    if verbose {
+        println!("📊 Discovered {} contract files", sol_files.len());
+    }
+
+    Ok(sol_files)
+}
+
+fn discover_project_contracts(
+    project_path: &Path,
+    verbose: bool,
+) -> Result<Vec<PathBuf>, Sol2TestError> {
+    let config = FoundryConfig::default();
+    discover_project_contracts_with_config(project_path, &config, verbose)
+}
+
+fn flatten_project_contracts_with_config(
+    project_path: &Path,
+    sol_files: &[PathBuf],
+    config: &FoundryConfig,
+    verbose: bool,
+) -> Result<String> {
+    if verbose {
+        println!("🔧 Flattening contracts using forge flatten with Foundry config...");
+    }
+
+    let mut combined_flattened = String::new();
+    let mut flatten_errors = Vec::new();
+
+    for sol_file in sol_files {
+        // Make path relative to project root for forge flatten
+        let relative_path = sol_file
+            .strip_prefix(project_path)
+            .context("Failed to make contract path relative to project root")?;
+
+        if verbose {
+            println!("  🔨 Flattening: {}", relative_path.display());
+        }
+
+        // Build forge flatten command with configuration
+        let mut cmd = std::process::Command::new("forge");
+        cmd.arg("flatten")
+            .arg(relative_path)
+            .current_dir(project_path);
+
+        // Add remappings if specified
+        for remapping in &config.remappings {
+            cmd.arg("--remappings").arg(remapping);
+        }
+
+        // Execute the command
+        let output = cmd
+            .output()
+            .context("Failed to execute forge flatten command")?;
+
+        if !output.status.success() {
+            let error_msg = format!(
+                "forge flatten failed for {}: {}",
+                relative_path.display(),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            flatten_errors.push(error_msg);
+            continue;
+        }
+
+        let flattened_content =
+            String::from_utf8(output.stdout).context("forge flatten output is not valid UTF-8")?;
+
+        if verbose {
+            println!(
+                "    ✅ Flattened {} lines",
+                flattened_content.lines().count()
+            );
+        }
+
+        combined_flattened.push_str(&flattened_content);
+        combined_flattened.push('\n');
+    }
+
+    if !flatten_errors.is_empty() {
+        bail!(
+            "Errors occurred during contract flattening: {}",
+            flatten_errors.join("; ")
+        );
+    }
+
+    if verbose {
+        println!(
+            "🎯 Combined flattened source: {} lines total",
+            combined_flattened.lines().count()
+        );
+    }
+
+    Ok(combined_flattened)
+}
+
+fn flatten_project_contracts(
+    project_path: &Path,
+    sol_files: &[PathBuf],
+    verbose: bool,
+) -> Result<String> {
+    let config = FoundryConfig::default();
+    flatten_project_contracts_with_config(project_path, sol_files, &config, verbose)
+}
+
+fn read_and_combine_files(sol_files: &[PathBuf]) -> Result<String> {
+    let mut combined_source = String::new();
+    let mut read_errors = Vec::new();
+
+    for sol_file in sol_files {
+        match fs::read_to_string(sol_file) {
+            Ok(source) => {
+                combined_source.push_str(&source);
+                combined_source.push('\n');
+            }
+            Err(e) => {
+                let error_msg = format!(
+                    "Failed to read file {}: {}",
+                    sol_file.display(),
+                    Sol2TestError::IoError(sol_file.clone(), e)
+                );
+                read_errors.push(error_msg);
+            }
+        }
+    }
+
+    if !read_errors.is_empty() {
+        bail!(
+            "Errors occurred during file reading: {}",
+            read_errors.join("; ")
+        );
+    }
+
+    Ok(combined_source)
+}
+
+fn generate_tests_with_foundry_enhanced(
+    graph: &CallGraph,
+    ctx: &CallGraphGeneratorContext,
+    verbose: bool,
+    output_dir: &Path,
+    foundry_root: Option<PathBuf>,
+    deployer_only: bool,
+    validate_compilation: bool,
+    original_contract_paths: &HashMap<String, PathBuf>,
+    foundry_config: Option<&FoundryConfig>,
+) -> Result<()> {
+    if verbose {
+        println!("🚀 Starting enhanced Foundry test generation...");
+        if let Some(config) = foundry_config {
+            println!("📋 Using Foundry configuration:");
+            println!(
+                "  📁 Test output will respect '{}' directory structure",
+                config.test
+            );
+            println!("  🔧 Compiler settings will be inherited from foundry.toml");
+        }
+    }
+
+    // Use the enhanced configuration-aware output directory
+    let enhanced_output_dir = if let Some(config) = foundry_config {
+        // Respect foundry.toml test directory configuration
+        let foundry_tests_root = output_dir.join("foundry-tests");
+        let test_dir = foundry_tests_root.join(&config.test);
+
+        // Ensure the test directory exists
+        fs::create_dir_all(&test_dir).context("Failed to create enhanced test directory")?;
+
+        if verbose {
+            println!("📂 Enhanced test directory: {}", test_dir.display());
+        }
+
+        test_dir
+    } else {
+        output_dir.to_path_buf()
+    };
+
+    // Call the original function with enhanced parameters
+    generate_tests_with_foundry(
+        graph,
+        ctx,
+        verbose,
+        &enhanced_output_dir,
+        foundry_root,
+        deployer_only,
+        validate_compilation,
+        original_contract_paths,
+    )
 }
