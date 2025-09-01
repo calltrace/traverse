@@ -103,7 +103,7 @@ fn create_access_control_test_contract(
                         left: Box::new(identifier("contractInstance")),
                         operator: AssignmentOperator::Assign,
                         right: Box::new(Expression::FunctionCall(FunctionCallExpression {
-                            function: Box::new(identifier(&format!("new {}", contract_name))),
+                            function: Box::new(identifier(format!("new {}", contract_name))),
                             arguments: constructor_args,
                         })),
                     }));

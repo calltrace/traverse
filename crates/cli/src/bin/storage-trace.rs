@@ -43,7 +43,7 @@ struct OrderedStorageAccessInfo {
     access_type: graph::cg::EdgeType, 
     variable_node_id: NodeId,
     operation_text: String, 
-    operation_span: (usize, usize), 
+    _operation_span: (usize, usize), 
 }
 
 fn find_ancestor_of_kind<'a>(
@@ -194,12 +194,12 @@ fn find_sol_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
                 .filter_map(|e| e.ok())
             {
                 if entry.file_type().is_file()
-                    && entry.path().extension().map_or(false, |ext| ext == "sol")
+                    && entry.path().extension().is_some_and(|ext| ext == "sol")
                 {
                     sol_files.push(entry.path().to_path_buf());
                 }
             }
-        } else if path.is_file() && path.extension().map_or(false, |ext| ext == "sol") {
+        } else if path.is_file() && path.extension().is_some_and(|ext| ext == "sol") {
             sol_files.push(path.clone());
         } else if path.is_file() {
             // Silently ignore non-Solidity files
@@ -394,7 +394,7 @@ fn analyze_ordered_storage_access_for_entry_point(
                                         access_type: edge.edge_type.clone(),
                                         variable_node_id: target_node.id,
                                         operation_text,
-                                        operation_span: edge.call_site_span,
+                                        _operation_span: edge.call_site_span,
                                     });
                                 }
                                 graph::cg::EdgeType::StorageRead => {
@@ -544,14 +544,12 @@ fn analyze_ordered_storage_access_for_entry_point(
                                                     "for_statement" | 
                                                     "while_statement" => {
                                                         best_fallback_span = parent_span;
-                                                        context_found = true; 
                                                         break; 
                                                     }
                                                     "expression" | 
                                                     "binary_expression" | "unary_expression" | 
                                                     "call_expression" | "member_expression" => {
                                                         best_fallback_span = parent_span;
-                                                        context_found = true; 
                                                         // Don't break immediately, a statement parent might be one level higher
                                                         // and preferred if the loop continues.
                                                         // However, for simplicity, let's break if we find a decent expression.
@@ -580,7 +578,7 @@ fn analyze_ordered_storage_access_for_entry_point(
                                         access_type: edge.edge_type.clone(),
                                         variable_node_id: target_node.id,
                                         operation_text,
-                                        operation_span: display_span,
+                                        _operation_span: display_span,
                                     });
                                 }
                                 _ => {}
@@ -641,15 +639,15 @@ fn format_comparison_table_to_markdown(
 
     let mut all_vars: std::collections::HashMap<NodeId, String> = std::collections::HashMap::new();
     for acc in func1_accesses.iter().chain(func2_accesses.iter()) {
-        if !all_vars.contains_key(&acc.variable_node_id) {
+        all_vars.entry(acc.variable_node_id).or_insert_with(|| {
             let var_node = graph.nodes.get(acc.variable_node_id).unwrap();
             let var_full_name = format!(
                 "{}.{}",
                 var_node.contract_name.as_deref().unwrap_or("Global"),
                 var_node.name
             );
-            all_vars.insert(acc.variable_node_id, var_full_name);
-        }
+            var_full_name
+        });
     }
 
     let mut sorted_vars: Vec<(NodeId, String)> = all_vars.into_iter().collect();

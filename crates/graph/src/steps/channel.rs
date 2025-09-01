@@ -5,12 +5,12 @@ use std::{
 
 use crate::{
     cg::{
-        extract_arguments, resolve_call_target, CallGraph, CallGraphGeneratorContext,
+        extract_arguments, CallGraph, CallGraphGeneratorContext,
         CallGraphGeneratorInput, CallGraphGeneratorStep, EdgeType, NodeInfo, NodeType, Visibility,
         ELSE_BLOCK_NODE_NAME, EVENT_LISTENER_NODE_NAME, EVM_NODE_NAME, IF_CONDITION_NODE_NAME,
-        REQUIRE_NODE_NAME, THEN_BLOCK_NODE_NAME,
+        THEN_BLOCK_NODE_NAME,
     },
-    chains::{analyze_chained_call, ResolvedTarget, TypeError}, // Import items from chains module
+    chains::{analyze_chained_call, ResolvedTarget}, // Import items from chains module
     parser::get_node_text,
 };
 use anyhow::{anyhow, Context, Result};
@@ -178,7 +178,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                 })?;
 
             // Collect modifications for this function body ---
-            let mut modifications: Vec<GraphModification> = Vec::new();
+            let mut modifications: Vec<GraphModification>;
             let caller_node_name = graph.nodes.get(owner_node_id).map_or("?".to_string(), |n| {
                 format!(
                     "{}.{}",
@@ -192,7 +192,7 @@ impl CallGraphGeneratorStep for CallsHandling {
             // Sequence counter is now initialized outside the loop
 
             // --- Collect potential call, new, and emit nodes first ---
-            let mut potential_nodes: Vec<(TsNode, (usize, usize), &str)> = Vec::new(); // Store node, span, and type (call/new/emit/require/write/read)
+            let mut potential_nodes: Vec<(TsNode, (usize, usize), &str)>; // Store node, span, and type (call/new/emit/require/write/read)
 
             // Capture indices for all relevant node types
             let call_expr_capture_index = call_query
@@ -511,7 +511,7 @@ fn process_statements_in_block(
     }
 
     // --- Collect potential call, new, emit, if, etc. nodes first within this block_ts_node ---
-    let mut potential_nodes: Vec<(TsNode, (usize, usize), &str)> = Vec::new();
+    let mut potential_nodes: Vec<(TsNode, (usize, usize), &str)>;
     let call_expr_capture_index = call_query
         .capture_index_for_name("call_expr_node")
         .unwrap_or(u32::MAX);
@@ -1365,8 +1365,7 @@ fn process_statements_in_block(
                 {
                     // --- Filtering Logic ---
                     let mut skip_read_edge = false;
-                    if let Some(parent) = read_candidate_node.parent() {
-                        let mut skip_read_edge = false;
+                    if let Some(_parent) = read_candidate_node.parent() {
                         if let Some(parent) = read_candidate_node.parent() {
                             let parent_kind = parent.kind();
                             let parent_field_name: Option<&str> = {
@@ -1954,12 +1953,12 @@ fn process_statements_in_block(
                     // --- Filtering Logic (similar to "read_identifier") ---
                     // `read_candidate_node` for filtering context is `array_access_node`
                     let read_candidate_node = array_access_node;
-                    let mut is_read_for_call = false;
-                    let mut is_read_for_emit_or_require = false;
-                    let mut parent_op_span_start = array_access_span.0;
-                    let mut current_node_for_filter = read_candidate_node;
-                    let mut found_member_expr: Option<TsNode> = None;
-                    let mut found_parent_op_node: Option<TsNode> = None;
+                    let _is_read_for_call = false;
+                    let _is_read_for_emit_or_require = false;
+                    let parent_op_span_start = array_access_span.0;
+                    let _current_node_for_filter = read_candidate_node;
+                    let _found_member_expr: Option<TsNode> = None;
+                    let _found_parent_op_node: Option<TsNode> = None;
 
                     // (Copy and adapt the filtering logic from "read_identifier" case,
                     // ensuring `read_candidate_node` is used for context checks,
@@ -2782,7 +2781,7 @@ fn process_statements_in_block(
                     .map(|n| get_node_text(&n, &input.source))
                     .unwrap_or_default();
 
-                let loop_label = format!(
+                let _loop_label = format!(
                     "for ({}; {}; {})",
                     init_text.trim(),
                     condition_text.trim(),

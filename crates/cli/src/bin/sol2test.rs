@@ -7,30 +7,24 @@
 // It parses Solidity files, constructs a call graph, and then uses this graph
 // along with configurable templates or native Foundry integration to produce test files.
 use anyhow::{bail, Context, Result};
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use codegen::generate_tests_with_foundry;
 use graph::cg::{
     CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline,
 };
-use graph::interface_resolver::{BindingConfig, BindingRegistry};
+use graph::interface_resolver::BindingRegistry;
 use graph::manifest::{
-    find_solidity_files_for_manifest, generate_manifest as generate_manifest_to_file, Manifest,
+    find_solidity_files_for_manifest, Manifest,
     ManifestEntry,
 };
 use graph::natspec::extract::extract_source_comments;
-use graph::natspec::{parse_natspec_comment, NatSpecKind};
 use graph::parser::parse_solidity;
 use graph::steps::{CallsHandling, ContractHandling};
 use language::{Language, Solidity};
-use serde_json;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt;
 use std::fs;
-use std::io::{stdout, Write};
 use std::path::{Path, PathBuf};
-use tera::{Context as TeraContext, Tera};
-use thiserror::Error;
-use toml;
 use walkdir::WalkDir;
 
 #[derive(Parser, Debug)]
@@ -70,6 +64,7 @@ struct Cli {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum Sol2TestError {
     NoSolidityFiles,
     IoError(PathBuf, std::io::Error),
@@ -518,12 +513,12 @@ fn find_solidity_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, Sol2TestError>
         if path.is_dir() {
             for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
                 if entry.file_type().is_file()
-                    && entry.path().extension().map_or(false, |ext| ext == "sol")
+                    && entry.path().extension().is_some_and(|ext| ext == "sol")
                 {
                     sol_files.push(entry.path().to_path_buf());
                 }
             }
-        } else if path.is_file() && path.extension().map_or(false, |ext| ext == "sol") {
+        } else if path.is_file() && path.extension().is_some_and(|ext| ext == "sol") {
             sol_files.push(path.clone());
         }
     }
@@ -652,10 +647,8 @@ fn load_foundry_config(project_path: &Path, verbose: bool) -> Result<FoundryConf
                 println!("  ⚡ EVM version: {}", evm_version);
             }
         }
-    } else {
-        if verbose {
-            println!("⚙️  Using default Foundry configuration (no foundry.toml found)");
-        }
+    } else if verbose {
+        println!("⚙️  Using default Foundry configuration (no foundry.toml found)");
     }
 
     Ok(config)
@@ -677,7 +670,7 @@ fn discover_project_contracts_with_config(
 
     let mut sol_files = Vec::new();
     for entry in WalkDir::new(&src_dir).into_iter().filter_map(|e| e.ok()) {
-        if entry.file_type().is_file() && entry.path().extension().map_or(false, |ext| ext == "sol")
+        if entry.file_type().is_file() && entry.path().extension().is_some_and(|ext| ext == "sol")
         {
             sol_files.push(entry.path().to_path_buf());
             if verbose {
@@ -695,7 +688,7 @@ fn discover_project_contracts_with_config(
     Ok(sol_files)
 }
 
-fn discover_project_contracts(
+fn _discover_project_contracts(
     project_path: &Path,
     verbose: bool,
 ) -> Result<Vec<PathBuf>, Sol2TestError> {
@@ -783,7 +776,7 @@ fn flatten_project_contracts_with_config(
     Ok(combined_flattened)
 }
 
-fn flatten_project_contracts(
+fn _flatten_project_contracts(
     project_path: &Path,
     sol_files: &[PathBuf],
     verbose: bool,

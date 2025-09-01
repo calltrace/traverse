@@ -235,7 +235,7 @@ impl From<Pair<'_, Rule>> for AutonumberStatement {
             .filter_map(|p| p.as_str().parse::<u32>().ok())
             .collect();
 
-        if numbers.len() >= 1 {
+        if !numbers.is_empty() {
             start = Some(numbers[0]);
         }
         

@@ -219,7 +219,7 @@ fn create_revert_test_contract(
                         left: Box::new(identifier("contractInstance")),
                         operator: AssignmentOperator::Assign,
                         right: Box::new(Expression::FunctionCall(FunctionCallExpression {
-                            function: Box::new(identifier(&format!("new {}", contract_name))),
+                            function: Box::new(identifier(format!("new {}", contract_name))),
                             arguments: constructor_args,
                         })),
                     }));
@@ -396,15 +396,15 @@ fn invariant_value_to_expression_with_type(value: &InvariantBreakerValue, solidi
         InvariantBreakerValue::UInt(n) => {
             // For uint types, ensure the value is non-negative
             // UInt values are already non-negative
-            number(&n.to_string())
+            number(n.to_string())
         },
         InvariantBreakerValue::Int(n) => {
             // Check if the target type is uint - if so, convert to positive
             if solidity_type.starts_with("uint") {
                 // UInt values are already non-negative
-            number(&n.to_string())
+            number(n.to_string())
             } else {
-                number(&n.to_string())
+                number(n.to_string())
             }
         },
         InvariantBreakerValue::String(s) => string_literal(s),
@@ -429,15 +429,16 @@ fn invariant_value_to_expression_with_type(value: &InvariantBreakerValue, solidi
     }
 }
 
+#[allow(dead_code)]
 fn invariant_value_to_expression(value: &InvariantBreakerValue) -> Expression {
     match value {
         InvariantBreakerValue::Bool(b) => boolean(*b),
         InvariantBreakerValue::UInt(n) => {
             // Ensure uint values are non-negative
             // UInt values are already non-negative
-            number(&n.to_string())
+            number(n.to_string())
         },
-        InvariantBreakerValue::Int(n) => number(&n.to_string()),
+        InvariantBreakerValue::Int(n) => number(n.to_string()),
         InvariantBreakerValue::String(s) => string_literal(s),
         InvariantBreakerValue::Address(addr) => {
             // For addresses, we might want to use address() cast or just the literal

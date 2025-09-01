@@ -1,8 +1,7 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use graph::cg::{
-    CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline,
-    Node
+    CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline
 };
 use graph::reachability::NodeId;
 use graph::interface_resolver::BindingRegistry;
@@ -261,12 +260,12 @@ fn find_solidity_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
                 .filter_map(|e| e.ok())
             {
                 if entry.file_type().is_file()
-                    && entry.path().extension().map_or(false, |ext| ext == "sol")
+                    && entry.path().extension().is_some_and(|ext| ext == "sol")
                 {
                     sol_files.push(entry.path().to_path_buf());
                 }
             }
-        } else if path.is_file() && path.extension().map_or(false, |ext| ext == "sol") {
+        } else if path.is_file() && path.extension().is_some_and(|ext| ext == "sol") {
             sol_files.push(path.clone());
         } else if path.is_file() {
             // Silently ignore non-Solidity files

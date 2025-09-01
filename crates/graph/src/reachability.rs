@@ -149,8 +149,8 @@ impl ReachabilityAnalyzer {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::cg::{CallGraph, Edge, EdgeType, Node, NodeType, Visibility};
-    use std::collections::{HashMap, HashSet};
+    use crate::cg::{CallGraph, EdgeType, NodeType, Visibility};
+    use std::collections::HashSet;
 
     pub fn create_test_graph_for_reachability() -> CallGraph {
         let mut graph = CallGraph::new();
@@ -410,7 +410,7 @@ pub(crate) mod tests {
         );
 
         let analyzer = ReachabilityAnalyzer::new();
-        let mut processed_nodes: HashSet<NodeId> = HashSet::new();
+        let processed_nodes: HashSet<NodeId> = HashSet::new();
 
         let results = analyzer.analyze_entry_points(
             &graph,

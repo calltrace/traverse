@@ -33,6 +33,8 @@ use std::{
     fs,
     path::Path,
 };
+#[cfg(test)]
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BindingConfig {

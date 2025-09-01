@@ -323,7 +323,7 @@ fn collect_comparison_vars_recursive(
                     if all_vars.contains(var_name) {
                         if let Expression::Literal(Literal::Number(ref num_lit)) = *bin_expr.right {
                             if num_lit.value.parse::<u64>().is_ok()
-                                || num_lit.value.parse::<i64>().map_or(false, |n| n >= 0)
+                                || num_lit.value.parse::<i64>().is_ok_and(|n| n >= 0)
                             {
                                 candidates.insert(var_name.clone());
                             }
@@ -335,7 +335,7 @@ fn collect_comparison_vars_recursive(
                     if all_vars.contains(var_name) {
                         if let Expression::Literal(Literal::Number(ref num_lit)) = *bin_expr.left {
                             if num_lit.value.parse::<u64>().is_ok()
-                                || num_lit.value.parse::<i64>().map_or(false, |n| n >= 0)
+                                || num_lit.value.parse::<i64>().is_ok_and(|n| n >= 0)
                             {
                                 candidates.insert(var_name.clone());
                             }
@@ -441,7 +441,7 @@ fn extract_variables_recursive(expr: &Expression, variables: &mut Vec<String>) {
         Expression::TypeConversion(conv_expr) => {
             extract_variables_recursive(&conv_expr.expression, variables);
         }
-        Expression::New(new_expr) => {
+        Expression::New(_new_expr) => {
             // New expressions don't contain variables in the type name
         }
         Expression::Literal(_) => {

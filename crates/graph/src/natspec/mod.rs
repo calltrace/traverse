@@ -23,14 +23,13 @@
 */
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_till, take_until, take_while1},
+    bytes::complete::{tag, take_while1},
     character::complete::{
         anychar, char, line_ending, multispace0, not_line_ending, space0, space1,
     },
     combinator::{cut, map, not, opt, peek, recognize},
-    error::{context, ParseError},
     multi::{many0, separated_list0},
-    sequence::{delimited, pair, preceded, terminated, tuple},
+    sequence::{delimited, pair, preceded},
     IResult, Parser,
 };
 use serde::{Deserialize, Serialize};
@@ -91,6 +90,12 @@ impl NatSpecItem {
         if !matches!(self.kind, NatSpecKind::Return { name: _ }) {
             return;
         }
+        
+        // If already populated with a name, don't reprocess
+        if let NatSpecKind::Return { name: Some(_) } = &self.kind {
+            return;
+        }
+        
         let name = self
             .comment
             .split_whitespace()
@@ -262,14 +267,14 @@ fn parse_one_multiline_natspec_item(input: &str) -> IResult<&str, NatSpecItem> {
         )));
     }
 
-    let (remaining_input, (lead_space_consumed, star_opt, mid_space_consumed, kind_opt, trail_space_consumed, comment_str)) = tuple((
+    let (remaining_input, (_lead_space_consumed, _star_opt, _mid_space_consumed, kind_opt, _trail_space_consumed, comment_str)) = (
         space0,
-        opt(char('*')),
+        opt(many0(char('*'))),  // Changed to consume multiple asterisks
         space0,
         opt(parse_natspec_kind),
         space0,
         parse_multiline_comment_text,
-    ))(input)?;
+    ).parse(input)?;
 
     let item = NatSpecItem {
         kind: kind_opt.unwrap_or(NatSpecKind::Notice),
@@ -280,13 +285,21 @@ fn parse_one_multiline_natspec_item(input: &str) -> IResult<&str, NatSpecItem> {
 }
 
 fn parse_multiline_comment(input: &str) -> IResult<&str, NatSpec> {
+    // First check if input starts with /*** which is invalid
+    if input.starts_with("/***") {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Tag,
+        )));
+    }
+    
     let mut parser = map(
         delimited(
             // Changed multispace0 to space0 after tag("/**").
             // space0 will consume spaces/tabs on the same line as "/**", but not a newline.
             // If there's a newline after "/**", the first parse_one_multiline_natspec_item's
             // leading space0 or the separated_list0's line_ending logic will handle it.
-            tuple((tag("/**"), space0)),
+            (tag("/**"), space0),
             separated_list0(line_ending, parse_one_multiline_natspec_item),
             preceded(multispace0, tag("*/")),
         ),
@@ -301,8 +314,12 @@ fn parse_multiline_comment(input: &str) -> IResult<&str, NatSpec> {
 }
 
 fn parse_empty_multiline_comment(input: &str) -> IResult<&str, NatSpec> {
+    // Match /**/ or /** */ but not /***/ or similar
     let mut parser = map(
-        recognize(tuple((tag("/**"), space0, many0(char('*')), char('/')))),
+        preceded(
+            tag("/**"),
+            preceded(space0, tag("*/"))
+        ),
         |_| NatSpec::default(),
     );
     parser.parse(input)
@@ -310,7 +327,7 @@ fn parse_empty_multiline_comment(input: &str) -> IResult<&str, NatSpec> {
 
 fn parse_single_line_natspec_item(input: &str) -> IResult<&str, NatSpecItem> {
     let mut parser = map(
-        tuple((space0, opt(parse_natspec_kind), space0, parse_comment_text)),
+        (space0, opt(parse_natspec_kind), space0, parse_comment_text),
         |(_, kind_opt, _, comment_str)| NatSpecItem {
             kind: kind_opt.unwrap_or(NatSpecKind::Notice),
             comment: comment_str,
@@ -322,7 +339,7 @@ fn parse_single_line_natspec_item(input: &str) -> IResult<&str, NatSpecItem> {
 fn parse_single_line_comment(input: &str) -> IResult<&str, NatSpec> {
     let mut parser = map(
         preceded(
-            tuple((tag("///"), cut(not(char('/'))))),
+            (tag("///"), cut(not(char('/')))),
             parse_single_line_natspec_item,
         ),
         |item| {
@@ -643,6 +660,7 @@ mod tests {
     fn test_multiline_invalid_delimiter() {
         let comment = "/*** @notice Some text\n    ** */";
         let res = parse_natspec_comment(comment);
+        eprintln!("Parse result for '/***': {:?}", res);
         assert!(res.is_err(), "Expected error for input: {}", comment);
     }
 

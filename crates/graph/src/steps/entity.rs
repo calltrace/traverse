@@ -537,15 +537,12 @@ fn parse_mapping_recursive(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        cg::{
-            CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, MappingInfo, Visibility,
-        },
-        // parser::parse_source_code, // Removed: No longer used directly
-    };
+    use crate::cg::{
+            CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, Visibility,
+        };
     use anyhow::Context as _; // Ensure anyhow::Context is in scope for .context()
     use language::{Language, Solidity}; // Added for Solidity language access
-    use std::collections::HashSet;
+    
     use tree_sitter::Parser;
 
     fn run_contract_handling(

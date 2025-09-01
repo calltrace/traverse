@@ -251,7 +251,7 @@ impl FoundryIntegration {
 
 pub mod expression_helpers {
     use super::*;
-    use solidity::builder::*;
+    
 
     /// Create a require statement with condition and message
     pub fn require_statement(condition: Expression, message: &str) -> Statement {
@@ -403,7 +403,7 @@ pub(crate) fn extract_contracts_from_graph(
     // Keep existing implementation
     let mut contracts_map: HashMap<String, ContractInfo> = HashMap::new();
 
-    for (_node_idx, node) in graph.nodes.iter().enumerate() {
+    for node in graph.nodes.iter() {
         if let Some(contract_name_str) = &node.contract_name {
             let is_interface_scope = ctx.all_interfaces.contains_key(contract_name_str);
             
@@ -682,10 +682,8 @@ pub fn generate_tests_with_foundry(
                                 if verbose {
                                     println!("✅ All tests passed successfully!");
                                 }
-                            } else {
-                                if verbose {
-                                    println!("❌ Some tests failed. Check 'forge test' output above for details.");
-                                }
+                            } else if verbose {
+                                println!("❌ Some tests failed. Check 'forge test' output above for details.");
                             }
                         }
                         Err(e) => {
@@ -694,10 +692,8 @@ pub fn generate_tests_with_foundry(
                             }
                         }
                     }
-                } else {
-                    if verbose {
-                        eprintln!("❌ Project build failed. Some of the {} generated test contracts may have errors. Check 'forge build' output above.", generated_count);
-                    }
+                } else if verbose {
+                    eprintln!("❌ Project build failed. Some of the {} generated test contracts may have errors. Check 'forge build' output above.", generated_count);
                 }
             }
             Err(e) => {

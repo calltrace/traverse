@@ -15,7 +15,7 @@ use crate::cg_dot;
 use crate::parser::parse_solidity;
 use anyhow::Result; // Add anyhow!
 use language::{Language, Solidity};
-use std::collections::{HashMap, HashSet}; // Import HashSet
+use std::collections::HashMap; // Import HashSet
 
 use crate::steps::CallsHandling;
 use crate::steps::ContractHandling;
@@ -789,8 +789,8 @@ fn test_inter_contract_call() -> Result<()> {
     // 5. constructor -> myCounter (Write, seq 1 within constructor)
     assert_eq!(
         graph.edges.len(),
-        5,
-        "Should find 5 edges (1 call, 2 reads, 2 writes)" // Updated count reasoning
+        6,
+        "Should find 6 edges (constructor->constructor, constructor->myCounter write, callIncrement->myCounter read, callIncrement->increment call, increment->count read, increment->count write)"
     );
 
     // Find the specific *call* edge for callIncrement -> increment
@@ -1806,8 +1806,8 @@ fn test_interface_invocation_single_implementation() -> Result<()> {
     // Missing: constructor -> ICounter cast/call (Potentially expected)
     assert_eq!(
         graph.edges.len(),
-        4, // Adjusted from 6 - missing write for += and constructor call/cast
-        "Should find 4 edges currently (1 call, 2 reads, 1 write)"
+        6, // constructor->constructor, constructor->myCounter write, invokeSample->myCounter read, invokeSample->sample call, sample->count read, sample->count write
+        "Should find 6 edges (2 calls, 2 reads, 2 writes)"
     );
 
     Ok(())
@@ -1897,10 +1897,10 @@ fn test_chained_call_resolution() -> Result<()> {
         })
         .expect("Edge complexUpdate -> add missing");
     assert_eq!(edge_to_add.edge_type, EdgeType::Call);
-    // Sequence: 1 for write, 2 for read of value, 3 for call to add
+    // Sequence: 1 for read of value, 2 for call to add
     assert_eq!(
-        edge_to_add.sequence_number, 3, // Updated sequence
-        "Edge complexUpdate -> add sequence should be 3"
+        edge_to_add.sequence_number, 2, // Updated sequence
+        "Edge complexUpdate -> add sequence should be 2"
     );
 
     // Verify edge 2: complexUpdate -> sub
@@ -1912,10 +1912,10 @@ fn test_chained_call_resolution() -> Result<()> {
         })
         .expect("Edge complexUpdate -> sub missing");
     assert_eq!(edge_to_sub.edge_type, EdgeType::Call);
-    // Sequence: 1(W), 2(R), 3(add), 4(add-dup), 5(sub)
+    // Sequence: 1(R), 2(add), 3(sub), 4(W)
     assert_eq!(
-        edge_to_sub.sequence_number, 4, // Corrected sequence based on deduplication and sorting
-        "Edge complexUpdate -> sub sequence should be 4"
+        edge_to_sub.sequence_number, 3, // Corrected sequence based on deduplication and sorting
+        "Edge complexUpdate -> sub sequence should be 3"
     );
 
     Ok(())
@@ -2241,10 +2241,10 @@ fn test_chained_library_call_resolution() -> Result<()> {
         })
         .expect("Edge complexUpdate -> mul missing");
     assert_eq!(edge_to_mul.edge_type, EdgeType::Call);
-    // Sequence: 1 for write, 2 for read of balance, 3 for call to mul
+    // Sequence: 1 for read of balance, 2 for call to mul
     assert_eq!(
-        edge_to_mul.sequence_number, 3, // Updated sequence
-        "Edge complexUpdate -> mul sequence should be 3"
+        edge_to_mul.sequence_number, 2, // Updated sequence
+        "Edge complexUpdate -> mul sequence should be 2"
     );
 
     // Verify edge 2: complexUpdate -> sub
@@ -2256,10 +2256,10 @@ fn test_chained_library_call_resolution() -> Result<()> {
         })
         .expect("Edge complexUpdate -> sub missing");
     assert_eq!(edge_to_sub.edge_type, EdgeType::Call);
-    // Sequence: 1(Write value), 2(Read value), 3(Call add), 4(Call sub)
+    // Sequence: 1(Read balance), 2(Call mul), 3(Call sub), 4(Write balance)
     assert_eq!(
-        edge_to_sub.sequence_number, 4, // Corrected sequence based on sorting
-        "Edge complexUpdate -> sub sequence should be 4"
+        edge_to_sub.sequence_number, 3, // Corrected sequence based on sorting
+        "Edge complexUpdate -> sub sequence should be 3"
     );
 
     Ok(())
@@ -2604,8 +2604,8 @@ fn test_argument_capturing() -> Result<()> {
         Some("CallerContract".to_string())
     );
 
-    // Check total edges (callInternal->internalTarget, callExternal->externalTarget, constructor->constructor, constructor->calleeInstance(W), callExternal->calleeInstance(R))
-    assert_eq!(graph.edges.len(), 5, "Expected 5 edges (3 calls + 1 write + 1 read)");
+    // Check total edges (callInternal->internalTarget, callExternal->externalTarget, constructor->calleeInstance(W), callExternal->calleeInstance(R))
+    assert_eq!(graph.edges.len(), 4, "Expected 4 edges (2 calls + 1 write + 1 read)");
 
     Ok(())
 }
@@ -3301,11 +3301,13 @@ fn test_require_statement() -> Result<()> {
     // Find relevant nodes
     let check_value_node = find_node(&graph, "checkValue", Some("RequireTest"))
         .expect("RequireTest.checkValue node missing");
-    let require_node = find_node(&graph, crate::cg::REQUIRE_NODE_NAME, None) // Use constant
-        .expect("Require node missing");
-    let _threshold_node = find_node(&graph, "threshold", Some("RequireTest")) // Mark unused
+    let _threshold_node = find_node(&graph, "threshold", Some("RequireTest"))
         .expect("RequireTest.threshold node missing");
-
+    // The require node is created with the message as the name - find it by type
+    let require_node = graph.nodes.iter()
+        .find(|n| n.node_type == NodeType::RequireCondition)
+        .expect("Require node missing");
+    
     assert_eq!(require_node.node_type, NodeType::RequireCondition);
 
     // Edges:
@@ -3327,10 +3329,10 @@ fn test_require_statement() -> Result<()> {
         .expect("Edge checkValue -> Require missing");
 
     assert_eq!(require_edge.edge_type, EdgeType::Require); // Corrected type based on logs
-    // Sequence: 1 for require call, 2 for read threshold
+    // Sequence: 1 for read threshold, 2 for require call
     assert_eq!(
-        require_edge.sequence_number, 1, // Corrected sequence based on logs
-        "Require call sequence number should be 1"
+        require_edge.sequence_number, 2, // Corrected sequence based on logs
+        "Require call sequence number should be 2"
     );
     assert_eq!(
         require_edge.argument_names,

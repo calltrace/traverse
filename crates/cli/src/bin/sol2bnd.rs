@@ -8,7 +8,7 @@ use graph::{
 use std::{
     collections::HashSet,
     fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 #[derive(Parser, Debug)]

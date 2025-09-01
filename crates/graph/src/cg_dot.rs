@@ -333,17 +333,18 @@ impl CgToDot for CallGraph {
 
         for node in self.iter_nodes() {
             // --- Apply Filtering ---
-            let mut is_isolated = false; // DEBUG flag
-            if let Some(ref connected_ids) = connected_node_ids {
+            let is_isolated = if let Some(ref connected_ids) = connected_node_ids {
                 if !connected_ids.contains(&node.id) {
-                     is_isolated = true; // DEBUG Mark as isolated
                     eprintln!(
                         "[DEBUG cg_dot Filter] Skipping isolated node: ID={}, Name='{}', Contract='{:?}'",
                         node.id, node.name, node.contract_name
                     );
                     continue; // Skip isolated node
                 }
-            }
+                false
+            } else {
+                false
+            };
 
             if config.exclude_isolated_nodes { // Only log if filtering is active
                  eprintln!(

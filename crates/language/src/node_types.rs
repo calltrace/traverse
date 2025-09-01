@@ -180,8 +180,8 @@ mod tests {
             NodeTypeKind::Regular { fields, children } => {
                 // Both `fields` and `children` default to empty
                 assert!(fields.is_empty());
-                assert_eq!(children.multiple, false);
-                assert_eq!(children.required, false);
+                assert!(!children.multiple);
+                assert!(!children.required);
                 assert!(children.types.is_empty());
             }
             NodeTypeKind::Supertype { .. } => panic!("Expected a Regular node, found a Supertype."),
@@ -247,8 +247,8 @@ mod tests {
         match &comment_node.kind {
             NodeTypeKind::Regular { fields, children } => {
                 assert!(fields.is_empty());
-                assert_eq!(children.multiple, false);
-                assert_eq!(children.required, false);
+                assert!(!children.multiple);
+                assert!(!children.required);
                 assert!(children.types.is_empty());
             }
             NodeTypeKind::Supertype { .. } => panic!("Expected a Regular node, found a Supertype."),
@@ -306,8 +306,8 @@ mod tests {
                 assert_eq!(fields.len(), 2);
                 // 1) condition
                 let condition = fields.get("condition").unwrap();
-                assert_eq!(condition.multiple, false);
-                assert_eq!(condition.required, true);
+                assert!(!condition.multiple);
+                assert!(condition.required);
                 assert_eq!(condition.types.len(), 1);
                 let cond_name = condition.types.iter().next().unwrap();
                 assert_eq!(cond_name.sexp_name, "expression");
@@ -315,16 +315,16 @@ mod tests {
 
                 // 2) body
                 let body = fields.get("body").unwrap();
-                assert_eq!(body.multiple, false);
-                assert_eq!(body.required, false);
+                assert!(!body.multiple);
+                assert!(!body.required);
                 assert_eq!(body.types.len(), 1);
                 let body_name = body.types.iter().next().unwrap();
                 assert_eq!(body_name.sexp_name, "block");
                 assert!(body_name.is_named);
 
                 // Check top-level children
-                assert_eq!(children.multiple, true);
-                assert_eq!(children.required, false);
+                assert!(children.multiple);
+                assert!(!children.required);
                 assert_eq!(children.types.len(), 1);
                 let child_name = children.types.iter().next().unwrap();
                 assert_eq!(child_name.sexp_name, "comment");
@@ -424,8 +424,8 @@ mod tests {
 
                 // Validate `name` field
                 let name_field = fields.get("name").unwrap();
-                assert_eq!(name_field.multiple, false);
-                assert_eq!(name_field.required, true);
+                assert!(!name_field.multiple);
+                assert!(name_field.required);
                 assert_eq!(name_field.types.len(), 1);
                 let name_type = name_field.types.iter().next().unwrap();
                 assert_eq!(name_type.sexp_name, "identifier");
@@ -433,8 +433,8 @@ mod tests {
 
                 // Validate `body` field
                 let body_field = fields.get("body").unwrap();
-                assert_eq!(body_field.multiple, false);
-                assert_eq!(body_field.required, true);
+                assert!(!body_field.multiple);
+                assert!(body_field.required);
                 assert_eq!(body_field.types.len(), 2);
                 let body_types: IndexSet<_> =
                     body_field.types.iter().map(|t| t.sexp_name.clone()).collect();
@@ -454,16 +454,16 @@ mod tests {
                 assert_eq!(fields.len(), 2);
 
                 let name_field = fields.get("name").unwrap();
-                assert_eq!(name_field.multiple, false);
-                assert_eq!(name_field.required, true);
+                assert!(!name_field.multiple);
+                assert!(name_field.required);
                 assert_eq!(name_field.types.len(), 1);
                 let name_type = name_field.types.iter().next().unwrap();
                 assert_eq!(name_type.sexp_name, "identifier");
                 assert!(name_type.is_named);
 
                 let params_field = fields.get("parameters").unwrap();
-                assert_eq!(params_field.multiple, true);
-                assert_eq!(params_field.required, false);
+                assert!(params_field.multiple);
+                assert!(!params_field.required);
                 assert_eq!(params_field.types.len(), 1);
                 let param_type = params_field.types.iter().next().unwrap();
                 assert_eq!(param_type.sexp_name, "parameter");
@@ -489,16 +489,16 @@ mod tests {
                 assert_eq!(fields.len(), 2);
 
                 let name_field = fields.get("name").unwrap();
-                assert_eq!(name_field.multiple, false);
-                assert_eq!(name_field.required, true);
+                assert!(!name_field.multiple);
+                assert!(name_field.required);
                 assert_eq!(name_field.types.len(), 1);
                 let name_type = name_field.types.iter().next().unwrap();
                 assert_eq!(name_type.sexp_name, "identifier");
                 assert!(name_type.is_named);
 
                 let type_field = fields.get("type").unwrap();
-                assert_eq!(type_field.multiple, false);
-                assert_eq!(type_field.required, true);
+                assert!(!type_field.multiple);
+                assert!(type_field.required);
                 assert_eq!(type_field.types.len(), 1);
                 let type_name = type_field.types.iter().next().unwrap();
                 assert_eq!(type_name.sexp_name, "type_name");

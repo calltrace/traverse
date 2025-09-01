@@ -1,27 +1,25 @@
 use anyhow::{bail, Context, Result};
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use graph::cg::{
     CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline,
 };
 use graph::cg_dot::CgToDot;
 use graph::cg_mermaid::{MermaidGenerator, ToSequenceDiagram};
-use graph::interface_resolver::{BindingConfig, BindingRegistry}; // Added BindingConfig
+use graph::interface_resolver::BindingRegistry;
 use graph::manifest::{
-    find_solidity_files_for_manifest, generate_manifest as generate_manifest_to_file, Manifest,
+    find_solidity_files_for_manifest, Manifest,
     ManifestEntry,
 }; // Added ManifestEntry
 use graph::natspec::extract::extract_source_comments; // Added
-use graph::natspec::{parse_natspec_comment, NatSpecKind}; // Added for Natspec parsing
 use graph::parser::parse_solidity;
 use graph::steps::{CallsHandling, ContractHandling};
 use language::{Language, Solidity};
 use mermaid::sequence_diagram_writer;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt;
 use std::fs;
 use std::io::{stdout, Write};
 use std::path::{Path, PathBuf};
-use thiserror::Error;
 use walkdir::WalkDir;
 
 #[derive(Parser, Debug)]
@@ -67,7 +65,7 @@ struct Cli {
 }
 
 // Helper function to get the value "dot" for the requires condition
-fn format_dot() -> OutputFormat {
+fn _format_dot() -> OutputFormat {
     OutputFormat::Dot
 }
 
@@ -87,6 +85,7 @@ impl std::fmt::Display for OutputFormat {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum Sol2CgError {
     NoSolidityFiles,
     LanguageInitializationError,
@@ -492,12 +491,12 @@ fn find_solidity_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, Sol2CgError> {
         if path.is_dir() {
             for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
                 if entry.file_type().is_file()
-                    && entry.path().extension().map_or(false, |ext| ext == "sol")
+                    && entry.path().extension().is_some_and(|ext| ext == "sol")
                 {
                     sol_files.push(entry.path().to_path_buf());
                 }
             }
-        } else if path.is_file() && path.extension().map_or(false, |ext| ext == "sol") {
+        } else if path.is_file() && path.extension().is_some_and(|ext| ext == "sol") {
             sol_files.push(path.clone());
         } else if path.is_file() {
             // If it's a file but not .sol, issue a warning or ignore silently.

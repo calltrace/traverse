@@ -3955,7 +3955,7 @@ mod tests {
             "BindingConfig for ExternalKey should have ExternalContractImpl as contract_name"
         );
 
-        let (mut ctx, graph, tree, lang, input) =
+        let (ctx, graph, tree, lang, input) =
             setup_test_environment_customized(source, Some(manifest), Some(binding_registry))?;
 
         // Find the 'callExternalWork' function definition node in CallerContract
@@ -4176,7 +4176,7 @@ mod tests {
             "ERC20Key should bind to MyToken contract"
         );
 
-        let (mut ctx, graph, tree, lang, input) =
+        let (ctx, graph, tree, lang, input) =
             setup_test_environment_customized(source, Some(manifest), Some(binding_registry))?;
 
         let caller_func_def_node =

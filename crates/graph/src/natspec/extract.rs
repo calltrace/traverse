@@ -202,7 +202,7 @@ pub fn extract_source_comments(source: &str) -> Result<Vec<SourceComment>> {
 #[cfg(test)]
 mod source_comment_extraction_tests {
     use super::*;
-    use nom::Finish;
+    
 
     #[test]
     fn test_extract_simple_contract_comment() {
