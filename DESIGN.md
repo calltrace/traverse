@@ -21,30 +21,30 @@ graph TD
     end
     
     subgraph "Core Libraries"
-        graph[graph - Call Graph Core]
+        graph_core[graph - Call Graph Core]
         codegen[codegen - Test Generation]
         language[language - Tree-sitter]
         solidity[solidity - Solidity Utils]
     end
     
     subgraph "Support Libraries"
-        mermaid[mermaid - Diagram Support]
+        mermaid_lib[mermaid - Diagram Support]
         logging[logging - Diagnostics]
     end
     
-    sol2cg --> graph
-    sol2test --> graph
+    sol2cg --> graph_core
+    sol2test --> graph_core
     sol2test --> codegen
-    storage_analyzer --> graph
-    storage_trace --> graph
-    sol2bnd --> graph
+    storage_analyzer --> graph_core
+    storage_trace --> graph_core
+    sol2bnd --> graph_core
     
-    codegen --> graph
+    codegen --> graph_core
     codegen --> solidity
     
-    graph --> language
-    graph --> solidity
-    graph --> mermaid
+    graph_core --> language
+    graph_core --> solidity
+    graph_core --> mermaid_lib
     
     sol2cg -.-> logging
     sol2test -.-> logging
@@ -104,7 +104,7 @@ The parsing stage transforms raw Solidity source code into a structured AST.
 - **`crates/graph/src/parser.rs`**: High-level parsing utilities that consume Tree-sitter output to build a strongly-typed, project-specific AST.
 - **`crates/graph/src/manifest.rs`**: Discovers and manages Solidity files across a project, handling directory traversal and file filtering.
 
-The parser is resilient to syntax errors thanks to Tree-sitter's error recovery, allowing partial analysis of malformed code.
+Tree-sitter's **incremental parsing** and **error recovery** capabilities provide resilience to both syntax errors and Solidity language version differences. The parser can process code written in different Solidity versions (0.4.x through 0.8.x) within the same analysis session, creating error recovery nodes for unrecognized syntax while continuing to parse the remainder of the tree successfully. This allows Traverse to analyze mixed-version codebases and partially malformed contracts rather than failing completely.
 
 ### 2.3 Stage 2: Core Graph Construction
 
@@ -467,89 +467,6 @@ Potential future directions for the Traverse project:
 - **Pattern Recognition**: Learn common contract patterns and anti-patterns
 - **Anomaly Detection**: Identify unusual code structures
 - **Code Quality Metrics**: ML-based code quality assessment
-
----
-
-## 8. Code Organization
-
-Understanding the codebase structure is essential for contributors and maintainers.
-
-### 8.1 Crate Structure
-
-```
-traverse/
-├── crates/
-│   ├── graph/          # Core Call Graph and analysis algorithms
-│   │   ├── src/
-│   │   │   ├── cg.rs              # Call Graph data structures
-│   │   │   ├── parser.rs          # AST parsing utilities
-│   │   │   ├── steps/             # Pipeline steps
-│   │   │   │   ├── entity.rs      # ContractHandling
-│   │   │   │   └── channel.rs     # CallsHandling
-│   │   │   ├── chains.rs          # Expression analysis
-│   │   │   ├── storage_access.rs  # Storage analysis
-│   │   │   ├── reachability.rs    # Graph traversal
-│   │   │   ├── manifest.rs        # File discovery
-│   │   │   ├── interface_resolver.rs # Binding resolution
-│   │   │   ├── natspec.rs         # Documentation extraction
-│   │   │   ├── builtin.rs         # Standard definitions
-│   │   │   ├── cg_dot.rs          # DOT generator
-│   │   │   └── cg_mermaid.rs      # Mermaid generator
-│   │   
-│   ├── language/       # Tree-sitter language support
-│   │   └── vendor/tree-sitter-solidity/  # Solidity grammar
-│   │
-│   ├── solidity/       # Solidity-specific utilities
-│   │
-│   ├── codegen/        # Test generation logic
-│   │   ├── src/
-│   │   │   ├── teststubs.rs       # Main test generator
-│   │   │   ├── revert_stub.rs     # Revert tests
-│   │   │   ├── invariant_breaker.rs # Invariant tests
-│   │   │   ├── state_change_stub.rs # State tests
-│   │   │   ├── access_control_stub.rs # Permission tests
-│   │   │   └── deployer_stub.rs   # Deployment tests
-│   │
-│   ├── cli/            # Command-line tools
-│   │   └── src/bin/
-│   │       ├── sol2cg.rs          # Visualizer CLI
-│   │       ├── sol2test.rs        # Test generator CLI
-│   │       ├── sol-storage-analyzer.rs # Storage analyzer CLI
-│   │       ├── storage-trace.rs   # Storage comparison CLI
-│   │       └── sol2bnd.rs         # Binding generator CLI
-│   │
-│   ├── mermaid/        # Mermaid diagram support
-│   │
-│   └── logging/        # Tracing and diagnostics
-```
-
-### 8.2 Module Dependencies
-
-The dependency graph ensures clean architecture:
-
-```
-CLI Tools → {graph, codegen}
-codegen → {graph, solidity}
-graph → {language, solidity, mermaid}
-language → {tree-sitter}
-```
-
-**Key Principles:**
-- CLI tools never depend on each other
-- Core libraries (graph, codegen) are independent
-- Language support is isolated in dedicated crates
-- Minimal external dependencies throughout
-
-### 8.3 External Dependencies
-
-Traverse minimizes external dependencies for security and maintainability:
-
-- **tree-sitter**: Core parsing infrastructure
-- **clap**: Command-line argument parsing
-- **anyhow**: Error handling
-- **tracing**: Logging and diagnostics
-- **walkdir**: Directory traversal
-- **petgraph**: Graph algorithms (used internally)
 
 ---
 
