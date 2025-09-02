@@ -53,32 +53,64 @@ RUN cargo build --release --bin sol2bnd
 RUN cargo build --release --bin storage-trace
 RUN cargo build --release --bin sol-storage-analyzer
 
-# Stage 2: Create the final runtime image
-# Use a minimal base image like Debian Slim for the final stage
-FROM debian:bullseye-slim
+# Stage 2: Individual runtime images for each tool
 
-# Create a non-root user and group for security best practices
+# === sol2cg image ===
+FROM debian:bullseye-slim as sol2cg
 RUN groupadd --system --gid 1001 appgroup && \
     useradd --system --uid 1001 --gid 1001 --shell /sbin/nologin appuser
+COPY --from=builder /usr/src/app/target/release/sol2cg /usr/local/bin/sol2cg
+RUN chmod +x /usr/local/bin/sol2cg
+USER appuser
+ENTRYPOINT ["/usr/local/bin/sol2cg"]
 
-# Copy the compiled binaries from the builder stage to the final image
-# Place them in a standard location like /usr/local/bin
+# === sol2test image ===
+FROM debian:bullseye-slim as sol2test
+RUN groupadd --system --gid 1001 appgroup && \
+    useradd --system --uid 1001 --gid 1001 --shell /sbin/nologin appuser
+COPY --from=builder /usr/src/app/target/release/sol2test /usr/local/bin/sol2test
+RUN chmod +x /usr/local/bin/sol2test
+USER appuser
+ENTRYPOINT ["/usr/local/bin/sol2test"]
+
+# === sol2bnd image ===
+FROM debian:bullseye-slim as sol2bnd
+RUN groupadd --system --gid 1001 appgroup && \
+    useradd --system --uid 1001 --gid 1001 --shell /sbin/nologin appuser
+COPY --from=builder /usr/src/app/target/release/sol2bnd /usr/local/bin/sol2bnd
+RUN chmod +x /usr/local/bin/sol2bnd
+USER appuser
+ENTRYPOINT ["/usr/local/bin/sol2bnd"]
+
+# === storage-trace image ===
+FROM debian:bullseye-slim as storage-trace
+RUN groupadd --system --gid 1001 appgroup && \
+    useradd --system --uid 1001 --gid 1001 --shell /sbin/nologin appuser
+COPY --from=builder /usr/src/app/target/release/storage-trace /usr/local/bin/storage-trace
+RUN chmod +x /usr/local/bin/storage-trace
+USER appuser
+ENTRYPOINT ["/usr/local/bin/storage-trace"]
+
+# === sol-storage-analyzer image ===
+FROM debian:bullseye-slim as sol-storage-analyzer
+RUN groupadd --system --gid 1001 appgroup && \
+    useradd --system --uid 1001 --gid 1001 --shell /sbin/nologin appuser
+COPY --from=builder /usr/src/app/target/release/sol-storage-analyzer /usr/local/bin/sol-storage-analyzer
+RUN chmod +x /usr/local/bin/sol-storage-analyzer
+USER appuser
+ENTRYPOINT ["/usr/local/bin/sol-storage-analyzer"]
+
+# === all-in-one image (backward compatibility) ===
+FROM debian:bullseye-slim as all
+RUN groupadd --system --gid 1001 appgroup && \
+    useradd --system --uid 1001 --gid 1001 --shell /sbin/nologin appuser
 COPY --from=builder /usr/src/app/target/release/sol2cg /usr/local/bin/sol2cg
 COPY --from=builder /usr/src/app/target/release/sol2test /usr/local/bin/sol2test
 COPY --from=builder /usr/src/app/target/release/sol2bnd /usr/local/bin/sol2bnd
 COPY --from=builder /usr/src/app/target/release/storage-trace /usr/local/bin/storage-trace
 COPY --from=builder /usr/src/app/target/release/sol-storage-analyzer /usr/local/bin/sol-storage-analyzer
-
-
-# Ensure the binaries are executable
 RUN chmod +x /usr/local/bin/sol2cg /usr/local/bin/sol2test /usr/local/bin/sol2bnd /usr/local/bin/storage-trace /usr/local/bin/sol-storage-analyzer
-
-# Switch to the non-root user
 USER appuser
-
-# Set the entrypoint for the container to run the binary
+# Default to sol2cg for backward compatibility
 ENTRYPOINT ["/usr/local/bin/sol2cg"]
-
-# Optional: Set default command arguments if the binary expects any
-# CMD ["--help"]
 

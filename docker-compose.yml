@@ -1,0 +1,65 @@
+version: '3.8'
+
+# Docker Compose configuration for Traverse CLI tools
+# Usage: docker-compose run <service> <args>
+# Example: docker-compose run sol2cg /work/contract.sol
+
+services:
+  sol2cg:
+    image: traverse:sol2cg
+    volumes:
+      - .:/work
+    working_dir: /work
+    stdin_open: true
+    tty: true
+    environment:
+      - RUST_LOG=${RUST_LOG:-warn}
+
+  sol2test:
+    image: traverse:sol2test
+    volumes:
+      - .:/work
+    working_dir: /work
+    stdin_open: true
+    tty: true
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
+
+  sol2bnd:
+    image: traverse:sol2bnd
+    volumes:
+      - .:/work
+    working_dir: /work
+    stdin_open: true
+    tty: true
+    environment:
+      - RUST_LOG=${RUST_LOG:-warn}
+
+  storage-trace:
+    image: traverse:storage-trace
+    volumes:
+      - .:/work
+    working_dir: /work
+    stdin_open: true
+    tty: true
+    environment:
+      - RUST_LOG=${RUST_LOG:-warn}
+
+  sol-storage-analyzer:
+    image: traverse:sol-storage-analyzer
+    volumes:
+      - .:/work
+    working_dir: /work
+    stdin_open: true
+    tty: true
+    environment:
+      - RUST_LOG=${RUST_LOG:-warn}
+
+  # Convenience service for building all images
+  build:
+    image: docker:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/work
+    working_dir: /work
+    entrypoint: ["./build-docker-images.sh"]
