@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use tracing::warn;
 use graph::{
     interface_resolver::{BindingConfig, BindingFile}, // Renamed to avoid conflict
     manifest::{find_solidity_files_for_manifest, Manifest, ManifestEntry},
@@ -24,6 +25,9 @@ struct Cli {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Initialize logging
+    logging::init_subscriber(false);
+
     let project_root = fs::canonicalize(&cli.project_path).with_context(|| {
         format!(
             "Failed to canonicalize project path: {}",
@@ -35,17 +39,17 @@ fn main() -> Result<()> {
         .output_file
         .unwrap_or_else(|| project_root.join("binding.yaml"));
 
-    eprintln!("Scanning project at: {}", project_root.display());
+    warn!("Scanning project at: {}", project_root.display());
 
     let sol_files_relative = find_solidity_files_for_manifest(&[PathBuf::from(".")], &project_root)
         .context("Failed to find Solidity files for manifest generation")?;
 
     if sol_files_relative.is_empty() {
-        eprintln!("No Solidity files found in the project. No binding file will be generated.");
+        warn!("No Solidity files found in the project. No binding file will be generated.");
         return Ok(());
     }
 
-    eprintln!("Found {} Solidity files.", sol_files_relative.len());
+    warn!("Found {} Solidity files.", sol_files_relative.len());
 
     let mut manifest = Manifest::default();
     for relative_file_path in &sol_files_relative {
@@ -66,7 +70,7 @@ fn main() -> Result<()> {
                 manifest.extend_entries(entries);
             }
             Err(e) => {
-                eprintln!(
+                warn!(
                     "Warning: Failed to extract comments from {}: {}. Skipping file.",
                     relative_file_path.display(),
                     e
@@ -74,7 +78,7 @@ fn main() -> Result<()> {
             }
         }
     }
-    eprintln!(
+    warn!(
         "Manifest generated with {} entries.",
         manifest.entries.len()
     );
@@ -113,9 +117,9 @@ fn main() -> Result<()> {
     }
 
     if binding_configs.is_empty() {
-        eprintln!("No '@custom:binds-to' tags found. An empty binding file will be created.");
+        warn!("No '@custom:binds-to' tags found. An empty binding file will be created.");
     } else {
-        eprintln!(
+        warn!(
             "Found {} unique '@custom:binds-to' keys for the skeleton binding file.",
             binding_configs.len()
         );
@@ -141,7 +145,7 @@ fn main() -> Result<()> {
         )
     })?;
 
-    eprintln!(
+    warn!(
         "Skeleton binding file saved to: {}",
         output_file_path.display()
     );

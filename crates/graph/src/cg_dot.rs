@@ -7,6 +7,7 @@
 use crate::cg::{CallGraph, Edge, EdgeType, Node, NodeType};
 use std::collections::HashSet; // Import HashSet
 use std::fmt::Write;
+use tracing::debug;
 
 /// Configuration options for DOT export.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -171,7 +172,7 @@ impl CgToDot for CallGraph {
                         }
                     }
                     EdgeType::Return => {
-                        eprintln!("[DEBUG cg_dot] Formatting Return edge: {} -> {}", edge.source_node_id, edge.target_node_id);
+                        debug!("Formatting Return edge: {} -> {}", edge.source_node_id, edge.target_node_id);
                         attrs.push((
                             "tooltip".to_string(),
                             escape_dot_string(&format!(
@@ -216,7 +217,7 @@ impl CgToDot for CallGraph {
                         attrs.push(("style".to_string(), "bold".to_string()));
                     }
                     EdgeType::Require => {
-                        eprintln!("[DOT Require DEBUG] Formatting Require edge: {} -> {}", edge.source_node_id, edge.target_node_id);
+                        debug!("[DOT Require DEBUG] Formatting Require edge: {} -> {}", edge.source_node_id, edge.target_node_id);
                         let tooltip = format!("Require Check Span: {:?}", edge.call_site_span);
                         let args_str = edge.argument_names.as_ref()
                             .map(|args| {
@@ -325,9 +326,9 @@ impl CgToDot for CallGraph {
 
         if config.exclude_isolated_nodes {
             if let Some(ref connected_ids) = connected_node_ids {
-                eprintln!("[DEBUG cg_dot Filter] Connected Node IDs: {:?}", connected_ids);
+                debug!("Connected Node IDs: {:?}", connected_ids);
             } else {
-                 eprintln!("[DEBUG cg_dot Filter] Filtering active, but connected_node_ids is None (unexpected).");
+                 debug!("Filtering active, but connected_node_ids is None (unexpected).");
             }
         }
 
@@ -335,8 +336,8 @@ impl CgToDot for CallGraph {
             // --- Apply Filtering ---
             let is_isolated = if let Some(ref connected_ids) = connected_node_ids {
                 if !connected_ids.contains(&node.id) {
-                    eprintln!(
-                        "[DEBUG cg_dot Filter] Skipping isolated node: ID={}, Name='{}', Contract='{:?}'",
+                    debug!(
+                        "Skipping isolated node: ID={}, Name='{}', Contract='{:?}'",
                         node.id, node.name, node.contract_name
                     );
                     continue; // Skip isolated node
@@ -347,8 +348,8 @@ impl CgToDot for CallGraph {
             };
 
             if config.exclude_isolated_nodes { // Only log if filtering is active
-                 eprintln!(
-                     "[DEBUG cg_dot Filter] Including {}node: ID={}, Name='{}', Contract='{:?}'",
+                 debug!(
+                     "Including {}node: ID={}, Name='{}', Contract='{:?}'",
                      if is_isolated { "ISOLATED (ERROR?) " } else { "" }, // Highlight if it was marked isolated but not skipped
                      node.id, node.name, node.contract_name
                  );
@@ -521,7 +522,7 @@ mod tests {
             Visibility::Private,
             (30, 40),
         );
-        let n2 = graph.add_node(
+        let _n2 = graph.add_node(
             "isolated".to_string(),
             NodeType::Function,
             Some("ContractB".to_string()),

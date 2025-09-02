@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
+use tracing::warn;
 use graph::cg::{
     CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline
 };
@@ -34,6 +35,9 @@ struct Cli {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // Initialize logging (default to info level)
+    logging::init_subscriber(false);
 
     let sol_files = find_solidity_files(&cli.input_paths)?;
     if sol_files.is_empty() {
@@ -87,7 +91,7 @@ fn main() -> Result<()> {
     )
     .context("Failed to determine project root for manifest/bindings")?;
 
-    eprintln!(
+    warn!(
         "[sol-storage-analyzer] Using project root for manifest/bindings: {}",
         project_root.display()
     );
@@ -99,13 +103,13 @@ fn main() -> Result<()> {
         } else {
             project_root.join(manifest_path_arg)
         };
-        eprintln!(
+        warn!(
             "[sol-storage-analyzer] Attempting to load manifest from: {}",
             absolute_manifest_path.display()
         );
         match graph::manifest::load_manifest(&absolute_manifest_path) {
             Ok(loaded_manifest) => {
-                eprintln!(
+                warn!(
                     "[sol-storage-analyzer] Manifest loaded successfully from file with {} entries.",
                     loaded_manifest.entries.len()
                 );
@@ -113,7 +117,7 @@ fn main() -> Result<()> {
                 manifest_loaded_from_file = true;
             }
             Err(e) => {
-                eprintln!(
+                warn!(
                     "Warning: Failed to load manifest from {}: {}. Will attempt to generate from source files.",
                     absolute_manifest_path.display(),
                     e
@@ -123,7 +127,7 @@ fn main() -> Result<()> {
     }
 
     if !manifest_loaded_from_file {
-        eprintln!("[sol-storage-analyzer] Generating manifest in-memory from source files.");
+        warn!("[sol-storage-analyzer] Generating manifest in-memory from source files.");
         let mut manifest_in_memory = Manifest::default();
         let sol_files_relative_for_manifest =
             find_solidity_files_for_manifest(&cli.input_paths, &project_root).context(
@@ -131,7 +135,7 @@ fn main() -> Result<()> {
             )?;
 
         if sol_files_relative_for_manifest.is_empty() {
-            eprintln!(
+            warn!(
                 "[sol-storage-analyzer] No Solidity files found for in-memory manifest generation."
             );
         } else {
@@ -147,7 +151,7 @@ fn main() -> Result<()> {
                             manifest_in_memory.extend_entries(entries);
                         }
                         Err(e) => {
-                            eprintln!(
+                            warn!(
                                 "Warning: Failed to extract comments from {}: {}. Skipping file for manifest.",
                                 relative_file_path.display(),
                                 e
@@ -155,7 +159,7 @@ fn main() -> Result<()> {
                         }
                     },
                     Err(e) => {
-                        eprintln!(
+                        warn!(
                             "Warning: Failed to read file {} for manifest generation: {}",
                             full_file_path.display(),
                             e
@@ -163,7 +167,7 @@ fn main() -> Result<()> {
                     }
                 }
             }
-            eprintln!(
+            warn!(
                 "[sol-storage-analyzer] In-memory manifest generated with {} entries.",
                 manifest_in_memory.entries.len()
             );
@@ -180,20 +184,20 @@ fn main() -> Result<()> {
         } else {
             project_root.join(bindings_path)
         };
-        eprintln!(
+        warn!(
             "[sol-storage-analyzer] Attempting to load bindings from file: {}",
             absolute_bindings_path.display()
         );
         match BindingRegistry::load(&absolute_bindings_path) {
             Ok(registry) => {
-                eprintln!(
+                warn!(
                     "[sol-storage-analyzer] BindingRegistry loaded successfully from file with {} keys.",
                     registry.bindings.len()
                 );
                 binding_registry_option = Some(registry);
             }
             Err(e) => {
-                eprintln!(
+                warn!(
                     "Warning: Failed to load bindings from file {}: {}. Proceeding with an empty or Natspec-derived registry.",
                     absolute_bindings_path.display(),
                     e
@@ -202,12 +206,12 @@ fn main() -> Result<()> {
         }
     }
     if binding_registry_option.is_none() {
-        eprintln!("[sol-storage-analyzer] No bindings file loaded or specified. Initializing a default BindingRegistry.");
+        warn!("[sol-storage-analyzer] No bindings file loaded or specified. Initializing a default BindingRegistry.");
         binding_registry_option = Some(BindingRegistry::default());
     }
     if let Some(registry) = binding_registry_option.as_mut() {
         if let Some(ref manifest_content) = ctx.manifest {
-            eprintln!("[sol-storage-analyzer] Populating BindingRegistry from manifest Natspec...");
+            warn!("[sol-storage-analyzer] Populating BindingRegistry from manifest Natspec...");
             registry.populate_from_manifest(manifest_content);
         }
     }
@@ -237,7 +241,7 @@ fn main() -> Result<()> {
                 .with_context(|| format!("Failed to create output file: {}", path.display()))?;
             file.write_all(markdown_output.as_bytes())
                 .with_context(|| format!("Failed to write to output file: {}", path.display()))?;
-            eprintln!("Storage access summary written to: {}", path.display());
+            warn!("Storage access summary written to: {}", path.display());
         }
         None => {
             let mut handle = stdout().lock();

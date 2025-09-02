@@ -33,6 +33,7 @@ use std::{
     fs,
     path::Path,
 };
+use tracing::debug;
 #[cfg(test)]
 use std::path::PathBuf;
 
@@ -75,7 +76,7 @@ impl BindingRegistry {
         let mut bindings_map = HashMap::new();
         for config in binding_file.bindings {
             if bindings_map.contains_key(&config.key) {
-                eprintln!(
+                debug!(
                     "Warning: Duplicate binding key '{}' found in {}. The last definition will be used.",
                     config.key,
                     path.display()
@@ -107,7 +108,7 @@ impl BindingRegistry {
                         if tag == "binds-to" {
                             let binding_key = item.comment.trim();
                             if binding_key.is_empty() {
-                                eprintln!(
+                                debug!(
                                     "Warning: Found '@custom:binds-to' with empty key in Natspec for item {:?} in file {}",
                                     entry.item_name, entry.file_path.display()
                                 );
@@ -119,7 +120,7 @@ impl BindingRegistry {
                                     .bindings
                                     .entry(binding_key.to_string())
                                     .or_insert_with(|| {
-                                        eprintln!(
+                                        debug!(
                                             "Natspec: Creating new binding for key '{}' from contract '{}'",
                                             binding_key, contract_name_val
                                         );
@@ -138,7 +139,7 @@ impl BindingRegistry {
                                 if config.contract_name.is_some()
                                     && config.contract_name.as_deref() != Some(contract_name_val)
                                 {
-                                    eprintln!(
+                                    debug!(
                                         "Warning: Overwriting Natspec-derived binding for key '{}'. \
                                         Previous contract_name: {:?}, New (from contract '{}'): '{}'. \
                                         File: {}",
@@ -149,7 +150,7 @@ impl BindingRegistry {
                                         entry.file_path.display()
                                     );
                                 } else if config.contract_name.is_none() {
-                                     eprintln!(
+                                     debug!(
                                         "Natspec: Setting contract_name for key '{}' to '{}' from contract '{}'",
                                         binding_key, contract_name_val, contract_name_val
                                     );
@@ -199,7 +200,7 @@ impl<'m, 'r> InterfaceResolver<'m, 'r> {
                             if !binding_key.is_empty() {
                                 return Ok(self.registry.get_binding(binding_key));
                             } else {
-                                eprintln!(
+                                debug!(
                                     "Warning: Found '@custom:binds-to' with empty key in Natspec for item {:?} in file {}",
                                     entry.item_name, entry.file_path.display()
                                 );

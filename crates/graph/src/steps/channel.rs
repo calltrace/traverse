@@ -16,6 +16,7 @@ use crate::{
 use anyhow::{anyhow, Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node as TsNode, Query, QueryCursor};
+use tracing::trace;
 
 // Type alias for the key used to track unique storage edges
 // type StorageEdgeKey = (usize, usize, EdgeType, (usize, usize)); // No longer needed with deferred approach
@@ -186,7 +187,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                     n.name
                 )
             });
-            eprintln!("[CallsHandling DEBUG] Processing calls/emits within Caller Node ID: {} (Name: '{}', Contract: {:?})", owner_node_id, caller_node_name, owner_contract_name_opt);
+            trace!("Processing calls/emits within Caller Node ID: {} (Name: '{}', Contract: {:?})", owner_node_id, caller_node_name, owner_contract_name_opt);
 
             let mut call_cursor = QueryCursor::new();
             // Sequence counter is now initialized outside the loop
@@ -368,18 +369,18 @@ impl CallGraphGeneratorStep for CallsHandling {
             modifications = function_body_modifications; // Assign to the outer modifications Vec
 
             // --- Final Step: Sort modifications and add edges with sequence numbers ---
-            eprintln!(
-                "[CallsHandling DEBUG] Processing {} modifications for Caller Node ID: {}",
+            trace!(
+                "Processing {} modifications for Caller Node ID: {}",
                 modifications.len(),
                 owner_node_id
             );
 
-            eprintln!(
+            trace!(
                 "[Channel DEBUG] Modifications BEFORE sort for Caller {}:",
                 owner_node_id
             );
             for (idx, m) in modifications.iter().enumerate() {
-                eprintln!(
+                trace!(
                      "[Channel DEBUG]   [{}] Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {}), ChainIdx={:?}, Args={:?}",
                      idx, m.source_node_id, m.target_node_id, m.edge_type, m.span.0, m.span.1,
                      m.sort_span_start, m.execution_priority, m.span.0, // Show full sort key
@@ -394,12 +395,12 @@ impl CallGraphGeneratorStep for CallsHandling {
             // finally by the actual start span of the specific modification (textual tie-breaker).
             modifications.sort_by_key(|m| (m.sort_span_start, m.execution_priority, m.span.0));
 
-            eprintln!(
+            trace!(
                 "[Channel DEBUG] Modifications AFTER sort for Caller {}:",
                 owner_node_id
             );
             for (idx, m) in modifications.iter().enumerate() {
-                eprintln!(
+                trace!(
                      "[Channel DEBUG]   [{}] Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {}), ChainIdx={:?}, Args={:?}",
                      idx, m.source_node_id, m.target_node_id, m.edge_type, m.span.0, m.span.1,
                      m.sort_span_start, m.execution_priority, m.span.0, // Show full sort key
@@ -416,19 +417,19 @@ impl CallGraphGeneratorStep for CallsHandling {
             modifications.dedup();
             let deduped_len = modifications.len();
             if original_len != deduped_len {
-                eprintln!(
-                    "[CallsHandling DEBUG] Deduplicated {} modifications for Caller Node ID: {}",
+                trace!(
+                    "Deduplicated {} modifications for Caller Node ID: {}",
                     original_len - deduped_len,
                     owner_node_id
                 );
             }
 
-            eprintln!(
+            trace!(
                 "[Channel DEBUG] Modifications AFTER dedup for Caller {}:",
                 owner_node_id
             );
             for (idx, m) in modifications.iter().enumerate() {
-                eprintln!(
+                trace!(
                      "[Channel DEBUG]   [{}] Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {}), ChainIdx={:?}, Args={:?}",
                      idx, m.source_node_id, m.target_node_id, m.edge_type, m.span.0, m.span.1,
                      m.sort_span_start, m.execution_priority, m.span.0, // Show full sort key
@@ -440,7 +441,7 @@ impl CallGraphGeneratorStep for CallsHandling {
             for modification in modifications {
                 // Iterate over the deduplicated list
                 call_sequence_counter += 1; // Increment sequence number for each edge added
-                eprintln!("[Add Edge DEBUG] Assigning Seq: {} to Mod: Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {}), ChainIdx={:?}, Args={:?}",
+                trace!("Assigning Seq: {} to Mod: Source={}, Target={}, Type={:?}, Span=({},{}), SortKey=({}, {}, {}), ChainIdx={:?}, Args={:?}",
                     call_sequence_counter, // Log the sequence number being assigned
                     modification.source_node_id,
                     modification.target_node_id,
@@ -647,25 +648,25 @@ fn process_statements_in_block(
 
     for (node, span, node_type) in potential_nodes {
         if handled_node_ids.contains(&node.id()) {
-            eprintln!("[CallsHandling DEBUG] Skipping already handled node ID: {} (Type: '{}') at span {:?} by current or child block processing.", node.id(), node_type, span);
+            trace!("Skipping already handled node ID: {} (Type: '{}') at span {:?} by current or child block processing.", node.id(), node_type, span);
             continue;
         }
         // This check is specific for 'if' nodes that are part of an 'else if' chain
         // and have been marked by a preceding 'if's else-branch processing.
         if node_type == "if" && processed_nested_if_nodes.contains(&node.id()) {
-            eprintln!("[CallsHandling DEBUG] Skipping 'if' node ID: {} at span {:?} as it was part of an 'else if' chain already processed.", node.id(), span);
+            trace!("Skipping 'if' node ID: {} at span {:?} as it was part of an 'else if' chain already processed.", node.id(), span);
             // Also mark it as handled globally so it's not picked up by any other means if logic changes.
             handled_node_ids.insert(node.id());
             continue;
         }
         // Similar check for 'while' nodes that might be nested and already processed by a parent's recursive call
         if node_type == "while" && processed_nested_while_nodes.contains(&node.id()) {
-            eprintln!("[CallsHandling DEBUG] Skipping 'while' node ID: {} at span {:?} as it was part of a nested structure already processed.", node.id(), span);
+            trace!("Skipping 'while' node ID: {} at span {:?} as it was part of a nested structure already processed.", node.id(), span);
             handled_node_ids.insert(node.id());
             continue;
         }
         if node_type == "for" && processed_nested_for_nodes.contains(&node.id()) {
-            eprintln!("[CallsHandling DEBUG] Skipping 'for' node ID: {} at span {:?} as it was part of a nested structure already processed.", node.id(), span);
+            trace!("Skipping 'for' node ID: {} at span {:?} as it was part of a nested structure already processed.", node.id(), span);
             handled_node_ids.insert(node.id());
             continue;
         }
@@ -686,11 +687,11 @@ fn process_statements_in_block(
                 });
 
                 if is_nested {
-                    eprintln!("[CallsHandling DEBUG]       Skipping nested call/new node at span {:?}, handled by outer call.", span);
+                    trace!("      Skipping nested call/new node at span {:?}, handled by outer call.", span);
                     continue;
                 }
 
-                eprintln!("[CallsHandling DEBUG]       Processing Outermost Node via analyze_chained_call: Kind='{}', Span={:?}", node.kind(), span);
+                trace!("      Processing Outermost Node via analyze_chained_call: Kind='{}', Span={:?}", node.kind(), span);
 
                 match analyze_chained_call(
                     node, // Start analysis from the outermost node
@@ -705,8 +706,8 @@ fn process_statements_in_block(
                     node.start_byte(), // Pass the start byte of the outermost node as originating span start
                 ) {
                     Ok(steps) => {
-                        eprintln!(
-                            "[CallsHandling DEBUG]         analyze_chained_call returned {} steps.",
+                        trace!(
+                            "        analyze_chained_call returned {} steps.",
                             steps.len()
                         );
                         if steps.is_empty() {}
@@ -716,13 +717,13 @@ fn process_statements_in_block(
                         handled_node_ids.insert(node.id()); // Mark the call/new expression node itself as handled
                         for (chain_index_zero_based, step) in steps.iter().enumerate() {
                             let chain_index = chain_index_zero_based + 1; // Start index from 1
-                            eprintln!("[CallsHandling DEBUG]           Processing Step (Chain Index {}): Target={:?}, Args={:?}", chain_index, step.target, step.arguments);
+                            trace!("          Processing Step (Chain Index {}): Target={:?}, Args={:?}", chain_index, step.target, step.arguments);
 
                             // --- Handle Regular Targets (including those previously treated as BuiltIn) ---
                             if let Some(target_node_id) =
                                 resolve_target_to_node_id(&step.target, graph, ctx)
                             {
-                                eprintln!("[CallsHandling DEBUG]             >>> Collecting modification (Regular Call): CallerID={}, TargetID={}, StepSpan={:?}, ChainIndex={}, Priority={}", owner_node_id, target_node_id, step.call_expr_span, chain_index, chain_index);
+                                trace!("            >>> Collecting modification (Regular Call): CallerID={}, TargetID={}, StepSpan={:?}, ChainIndex={}, Priority={}", owner_node_id, target_node_id, step.call_expr_span, chain_index, chain_index);
                                 modifications.push(GraphModification {
                                     source_node_id: owner_node_id, // Source is the caller
                                     target_node_id,                // Target is the resolved node
@@ -759,7 +760,7 @@ fn process_statements_in_block(
                                                 ctx,
                                             ) {
                                                 // It's a storage variable! Add a StorageWrite edge.
-                                                eprintln!("[Storage DEBUG Deferred] Collecting WRITE modification (BuiltIn Call): CallerID={}, VarID={}, VarName='{}', BuiltIn='{}', CallSpan={:?}", owner_node_id, var_node_id, base_var_name, name, step.call_expr_span);
+                                                trace!("Collecting WRITE modification (BuiltIn Call): CallerID={}, VarID={}, VarName='{}', BuiltIn='{}', CallSpan={:?}", owner_node_id, var_node_id, base_var_name, name, step.call_expr_span);
                                                 modifications.push(GraphModification {
                                                     source_node_id: owner_node_id,
                                                     target_node_id: var_node_id,
@@ -776,16 +777,16 @@ fn process_statements_in_block(
                                                     execution_priority: 1000,
                                                 });
                                             } else {
-                                                eprintln!("[CallsHandling DEBUG]             >>> BuiltIn '{}' called on '{}', but it did not resolve to a storage variable.", name, base_var_name);
+                                                trace!("            >>> BuiltIn '{}' called on '{}', but it did not resolve to a storage variable.", name, base_var_name);
                                             }
                                         } else {
-                                            eprintln!("[CallsHandling DEBUG]             >>> BuiltIn '{}' called, but base object identifier was not captured.", name);
+                                            trace!("            >>> BuiltIn '{}' called, but base object identifier was not captured.", name);
                                         }
                                     } else {
-                                        eprintln!("[CallsHandling DEBUG]             >>> BuiltIn '{}' is not push/pop. Skipping storage write check.", name);
+                                        trace!("            >>> BuiltIn '{}' is not push/pop. Skipping storage write check.", name);
                                     }
                                 } else {
-                                    eprintln!("[CallsHandling DEBUG]             >>> Target for step {:?} did not resolve to a node ID and is not a BuiltIn. Skipping modification.", step.target);
+                                    trace!("            >>> Target for step {:?} did not resolve to a node ID and is not a BuiltIn. Skipping modification.", step.target);
                                 }
                             }
                         }
@@ -850,7 +851,7 @@ fn process_statements_in_block(
                                         );
 
                                     if let Some(target_def_node) = target_definition_ts_node {
-                                        eprintln!("[CallsHandling DEBUG]           Analyzing body of target function \'{}.{}\' (NodeID {}) for \'new\' calls.", target_contract_name, target_function_name, target_function_node_id);
+                                        trace!("          Analyzing body of target function \'{}.{}\' (NodeID {}) for \'new\' calls.", target_contract_name, target_function_name, target_function_node_id);
 
                                         // Simplified query to find just the new_expression node.
                                         let new_query_str = r#"
@@ -909,7 +910,7 @@ fn process_statements_in_block(
                                                 if let Some(new_contract_name) =
                                                     new_contract_name_opt
                                                 {
-                                                    eprintln!("[CallsHandling DEBUG]             Found internal new_expression: '{}' (Node ID: {})", new_contract_name, new_expr_node.id());
+                                                    trace!("            Found internal new_expression: '{}' (Node ID: {})", new_contract_name, new_expr_node.id());
 
                                                     // Find the constructor node ID
                                                     let constructor_key = (
@@ -947,7 +948,7 @@ fn process_statements_in_block(
                                                             }
                                                         }
 
-                                                        eprintln!("[CallsHandling DEBUG]             >>> Collecting modification (Internal \'new\'): SourceID={}, TargetID={}, NewSpan={:?}, Args={:?}", target_function_node_id, constructor_node_id, new_span, new_args);
+                                                        trace!("            >>> Collecting modification (Internal \'new\'): SourceID={}, TargetID={}, NewSpan={:?}, Args={:?}", target_function_node_id, constructor_node_id, new_span, new_args);
                                                         modifications.push(GraphModification {
                                                             source_node_id: target_function_node_id, // Source is the function containing 'new'
                                                             target_node_id: constructor_node_id, // Target is the constructor
@@ -967,22 +968,22 @@ fn process_statements_in_block(
                                                             execution_priority: 0, // (0 * 10)
                                                         });
                                                     } else {
-                                                        eprintln!("[CallsHandling DEBUG]             >>> Constructor node not found for internal new {}", new_contract_name);
+                                                        trace!("            >>> Constructor node not found for internal new {}", new_contract_name);
                                                     }
                                                 }
                                             }
                                         }
                                     } else {
-                                        eprintln!("[CallsHandling DEBUG]           Could not find definition TsNode for target function ID {}", target_function_node_id);
+                                        trace!("          Could not find definition TsNode for target function ID {}", target_function_node_id);
                                     }
                                 } else {
-                                    eprintln!("[CallsHandling DEBUG]           Could not find NodeInfo for target function ID {}", target_function_node_id);
+                                    trace!("          Could not find NodeInfo for target function ID {}", target_function_node_id);
                                 }
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("[CallsHandling DEBUG]       Error during analyze_chained_call for span {:?}: {:?}", span, e);
+                        trace!("      Error during analyze_chained_call for span {:?}: {:?}", span, e);
                         // If analyze_chained_call fails, we should still mark the node as handled
                         // to prevent potential re-processing or erroneous further attempts.
                         handled_node_ids.insert(node.id());
@@ -1007,7 +1008,7 @@ fn process_statements_in_block(
                                 {
                                     find_base_identifier_recursive(object_expr, input_source)
                                 } else {
-                                    eprintln!("[Storage Write DEBUG] Member expression missing object: {}", get_node_text(&actual_node, input_source));
+                                    trace!("[Storage Write DEBUG] Member expression missing object: {}", get_node_text(&actual_node, input_source));
                                     None
                                 }
                             }
@@ -1015,7 +1016,7 @@ fn process_statements_in_block(
                                 if let Some(base_expr) = actual_node.child_by_field_name("base") {
                                     find_base_identifier_recursive(base_expr, input_source)
                                 } else {
-                                    eprintln!(
+                                    trace!(
                                         "[Storage Write DEBUG] Array access missing base: {}",
                                         get_node_text(&actual_node, input_source)
                                     );
@@ -1039,7 +1040,7 @@ fn process_statements_in_block(
                                         }
                                     }
                                 }
-                                eprintln!("[Storage Write DEBUG] Could not find base identifier for LHS node kind: {}, text: {}", actual_node.kind(), get_node_text(&actual_node, input_source));
+                                trace!("[Storage Write DEBUG] Could not find base identifier for LHS node kind: {}, text: {}", actual_node.kind(), get_node_text(&actual_node, input_source));
                                 None
                             }
                         }
@@ -1049,7 +1050,7 @@ fn process_statements_in_block(
                         find_base_identifier_recursive(lhs_node_expr, &input.source)
                     {
                         let var_name = get_node_text(&write_target_node, &input.source);
-                        eprintln!(
+                        trace!(
                             "[Storage Write DEBUG] LHS base identifier: '{}', span: {:?}",
                             var_name,
                             (write_target_node.start_byte(), write_target_node.end_byte())
@@ -1067,7 +1068,7 @@ fn process_statements_in_block(
                             //     .get(var_node_id)
                             //     .map_or(false, |n| n.node_type == NodeType::StorageVariable)
                             // {
-                            eprintln!("[Storage DEBUG Deferred] Collecting WRITE modification (simple assignment): CallerID={}, VarID={}, VarName='{}', AssignmentSpan={:?}", owner_node_id, var_node_id, var_name, assignment_span);
+                            trace!("Collecting WRITE modification (simple assignment): CallerID={}, VarID={}, VarName='{}', AssignmentSpan={:?}", owner_node_id, var_node_id, var_name, assignment_span);
                             
                             // This is for simple assignment_expression, only add StorageWrite
                             modifications.push(GraphModification {
@@ -1084,16 +1085,16 @@ fn process_statements_in_block(
                                 execution_priority: 1000, 
                             });
                             // } else {
-                            //     eprintln!("[Storage DEBUG Deferred] Write target '{}' (NodeID {}) is not a StorageVariable.", var_name, var_node_id);
+                            //     trace!("Write target '{}' (NodeID {}) is not a StorageVariable.", var_name, var_node_id);
                             // }
                         } else {
-                            eprintln!("[Storage DEBUG Deferred] Write target '{}' could not be resolved via inheritance.", var_name);
+                            trace!("Write target '{}' could not be resolved via inheritance.", var_name);
                         }
                     } else {
-                        eprintln!("[Storage DEBUG Deferred] Could not find base identifier for LHS of assignment: {}", get_node_text(&lhs_node_expr, &input.source));
+                        trace!("Could not find base identifier for LHS of assignment: {}", get_node_text(&lhs_node_expr, &input.source));
                     }
                 } else {
-                    eprintln!("[Storage DEBUG Deferred] Assignment node missing LHS. Span: {:?}", assignment_span);
+                    trace!("Assignment node missing LHS. Span: {:?}", assignment_span);
                 }
                 handled_node_ids.insert(node.id()); // Mark assignment_expression as handled
             }
@@ -1126,7 +1127,7 @@ fn process_statements_in_block(
                     if let Some(write_target_node) = find_base_identifier_recursive_for_aug(lhs_node_expr, &input.source) {
                         let var_name = get_node_text(&write_target_node, &input.source);
                         if let Some(var_node_id) = resolve_storage_variable(&owner_contract_name_opt, &var_name, graph, ctx) {
-                            eprintln!("[Storage DEBUG Deferred] Augmented assignment for '{}'. Adding implicit StorageRead.", var_name);
+                            trace!("Augmented assignment for '{}'. Adding implicit StorageRead.", var_name);
                             modifications.push(GraphModification {
                                 source_node_id: owner_node_id,
                                 target_node_id: var_node_id,
@@ -1141,7 +1142,7 @@ fn process_statements_in_block(
                                 execution_priority: 990, // Read happens just before write
                             });
 
-                            eprintln!("[Storage DEBUG Deferred] Collecting WRITE modification (augmented assignment): CallerID={}, VarID={}, VarName='{}', AssignmentSpan={:?}", owner_node_id, var_node_id, var_name, assignment_span);
+                            trace!("Collecting WRITE modification (augmented assignment): CallerID={}, VarID={}, VarName='{}', AssignmentSpan={:?}", owner_node_id, var_node_id, var_name, assignment_span);
                             modifications.push(GraphModification {
                                 source_node_id: owner_node_id,
                                 target_node_id: var_node_id,
@@ -1156,13 +1157,13 @@ fn process_statements_in_block(
                                 execution_priority: 1000, // Write happens after read
                             });
                         } else {
-                            eprintln!("[Storage DEBUG Deferred] Augmented write target '{}' could not be resolved via inheritance.", var_name);
+                            trace!("Augmented write target '{}' could not be resolved via inheritance.", var_name);
                         }
                     } else {
-                        eprintln!("[Storage DEBUG Deferred] Could not find base identifier for LHS of augmented assignment: {}", get_node_text(&lhs_node_expr, &input.source));
+                        trace!("Could not find base identifier for LHS of augmented assignment: {}", get_node_text(&lhs_node_expr, &input.source));
                     }
                 } else {
-                    eprintln!("[Storage DEBUG Deferred] Augmented assignment node missing LHS. Span: {:?}", assignment_span);
+                    trace!("Augmented assignment node missing LHS. Span: {:?}", assignment_span);
                 }
                 handled_node_ids.insert(node.id()); // Mark augmented_assignment_expression as handled
             }
@@ -1241,7 +1242,7 @@ fn process_statements_in_block(
                             // Add other potential parent kinds if needed
                             _ => {
                                 // Stop ascending if we hit an unexpected node kind
-                                eprintln!("[DEBUG Read Link] Stopping ascent at unexpected parent kind: {}", parent.kind());
+                                trace!("[DEBUG Read Link] Stopping ascent at unexpected parent kind: {}", parent.kind());
                                 break;
                             }
                         }
@@ -1265,7 +1266,7 @@ fn process_statements_in_block(
                                         is_read_for_call = true;
                                         found_parent_op_node = Some(parent); // Store the call node
                                         parent_op_span_start = parent.start_byte(); // Use call expression's start
-                                        eprintln!("[Storage DEBUG Deferred V3] Read '{}' identified as object (via member_expr at {:?}) for call at span ({}, {}). Using call's start {} for parent_op_span_start.", var_name, member_expr.byte_range(), parent.start_byte(), parent.end_byte(), parent_op_span_start);
+                                        trace!("Read '{}' identified as object (via member_expr at {:?}) for call at span ({}, {}). Using call's start {} for parent_op_span_start.", var_name, member_expr.byte_range(), parent.start_byte(), parent.end_byte(), parent_op_span_start);
                                         break; // Found the call
                                     }
                                     break; // Not the function part of this call
@@ -1275,7 +1276,7 @@ fn process_statements_in_block(
                                     continue; // Ascend through wrappers
                                 }
                                 _ => {
-                                    eprintln!("[DEBUG Read Link] Stopping ascent towards call at unexpected parent kind: {}", parent.kind());
+                                    trace!("[DEBUG Read Link] Stopping ascent towards call at unexpected parent kind: {}", parent.kind());
                                     break;
                                 }
                             }
@@ -1310,14 +1311,14 @@ fn process_statements_in_block(
                                                 is_read_for_emit_or_require = true; // Treat call args same as emit/require args for priority
                                                 found_parent_op_node = Some(grandparent);
                                                 parent_op_span_start = grandparent.start_byte();
-                                                eprintln!("[Storage DEBUG Deferred V3] Read '{}' identified as argument for {} at span ({}, {}). Using op's start {} for parent_op_span_start.", var_name, if is_require {"require"} else {"call"}, grandparent.start_byte(), grandparent.end_byte(), parent_op_span_start);
+                                                trace!("Read '{}' identified as argument for {} at span ({}, {}). Using op's start {} for parent_op_span_start.", var_name, if is_require {"require"} else {"call"}, grandparent.start_byte(), grandparent.end_byte(), parent_op_span_start);
                                                 break; // Found parent operation
                                             }
                                             "emit_statement" => {
                                                 is_read_for_emit_or_require = true;
                                                 found_parent_op_node = Some(grandparent);
                                                 parent_op_span_start = grandparent.start_byte();
-                                                eprintln!("[Storage DEBUG Deferred V3] Read '{}' identified as argument for emit at span ({}, {}). Using emit's start {} for parent_op_span_start.", var_name, grandparent.start_byte(), grandparent.end_byte(), parent_op_span_start);
+                                                trace!("Read '{}' identified as argument for emit at span ({}, {}). Using emit's start {} for parent_op_span_start.", var_name, grandparent.start_byte(), grandparent.end_byte(), parent_op_span_start);
                                                 break; // Found parent operation
                                             }
                                             _ => { /* Argument of something else, ignore */ }
@@ -1349,7 +1350,7 @@ fn process_statements_in_block(
                                     break;
                                 }
                                 _ => {
-                                    eprintln!("[DEBUG Read Arg Link] Stopping ascent towards arg parent at unexpected kind: {}", parent.kind());
+                                    trace!("[DEBUG Read Arg Link] Stopping ascent towards arg parent at unexpected kind: {}", parent.kind());
                                     break;
                                 }
                             }
@@ -1439,7 +1440,7 @@ fn process_statements_in_block(
                                                             }
 
                                                             if is_function {
-                                                                eprintln!("[Storage DEBUG Deferred V2] Skipping READ for type name '{}' in cast-member-call", var_name);
+                                                                trace!("Skipping READ for type name '{}' in cast-member-call", var_name);
                                                                 skip_read_edge = true;
                                                             }
                                                         }
@@ -1594,7 +1595,7 @@ fn process_statements_in_block(
                                                 }
                                                 _ => {
                                                     // Stop ascent for other unexpected kinds
-                                                    eprintln!("[DEBUG Read Prop Link] Stopping ascent towards call at unexpected parent kind: {}", ancestor.kind());
+                                                    trace!("[DEBUG Read Prop Link] Stopping ascent towards call at unexpected parent kind: {}", ancestor.kind());
                                                     break;
                                                 }
                                             }
@@ -1604,7 +1605,7 @@ fn process_statements_in_block(
                                     } // End loop
 
                                     if is_function_of_call {
-                                        eprintln!("[Storage DEBUG Deferred] Skipping READ for function name in member call '{}'", var_name);
+                                        trace!("Skipping READ for function name in member call '{}'", var_name);
                                         skip_read_edge = true;
                                     }
                                 }
@@ -1711,7 +1712,7 @@ fn process_statements_in_block(
                                                     }
 
                                                     if found_outer_call {
-                                                        eprintln!("[Storage DEBUG Deferred V4] Skipping READ for type name '{}' in cast-as-call pattern", var_name);
+                                                        trace!("Skipping READ for type name '{}' in cast-as-call pattern", var_name);
                                                         skip_read_edge = true;
                                                     }
                                                 }
@@ -1761,7 +1762,7 @@ fn process_statements_in_block(
                                             }
 
                                             if is_descendant {
-                                                eprintln!("[Storage DEBUG Deferred] Skipping READ for delete argument '{}' (Ancestor: {}, Arg Node: {:?})", var_name, delete_ancestor.kind(), argument_node.kind());
+                                                trace!("Skipping READ for delete argument '{}' (Ancestor: {}, Arg Node: {:?})", var_name, delete_ancestor.kind(), argument_node.kind());
                                                 skip_read_edge = true;
                                             }
                                         }
@@ -1804,9 +1805,9 @@ fn process_statements_in_block(
                         }
 
                         if skip_read_edge {
-                            eprintln!("[Storage DEBUG Deferred] Skipping READ modification for '{}' due to filtering. Span={:?}", var_name, read_span);
+                            trace!("Skipping READ modification for '{}' due to filtering. Span={:?}", var_name, read_span);
                         } else {
-                            eprintln!("[Storage DEBUG Deferred] Collecting READ modification: CallerID={}, VarID={}, VarName='{}', Span={:?}", owner_node_id, var_node_id, var_name, read_span);
+                            trace!("Collecting READ modification: CallerID={}, VarID={}, VarName='{}', Span={:?}", owner_node_id, var_node_id, var_name, read_span);
                             modifications.push(GraphModification {
                                 source_node_id: owner_node_id,
                                 target_node_id: var_node_id,
@@ -1869,7 +1870,7 @@ fn process_statements_in_block(
                         }
                     }
                 } else {
-                    eprintln!("[Storage DEBUG Deferred] Read candidate identifier '{}' could not be resolved to a storage variable.", var_name);
+                    trace!("Read candidate identifier '{}' could not be resolved to a storage variable.", var_name);
                 }
                 handled_node_ids.insert(node.id()); // Mark identifier node as handled
             }
@@ -1903,7 +1904,7 @@ fn process_statements_in_block(
                             if let Some(object_expr) = actual_node.child_by_field_name("object") {
                                 find_base_identifier_recursive(object_expr, input_source)
                             } else {
-                                eprintln!(
+                                trace!(
                                     "[Storage ReadSub DEBUG] Member expression missing object: {}",
                                     get_node_text(&actual_node, input_source)
                                 );
@@ -1916,7 +1917,7 @@ fn process_statements_in_block(
                             if let Some(base_expr) = actual_node.child_by_field_name("base") {
                                 find_base_identifier_recursive(base_expr, input_source)
                             } else {
-                                eprintln!(
+                                trace!(
                                     "[Storage ReadSub DEBUG] Array access missing base: {}",
                                     get_node_text(&actual_node, input_source)
                                 );
@@ -1924,7 +1925,7 @@ fn process_statements_in_block(
                             }
                         }
                         _ => {
-                            eprintln!("[Storage ReadSub DEBUG] Could not find base identifier for node kind: {}, text: {}", actual_node.kind(), get_node_text(&actual_node, input_source));
+                            trace!("[Storage ReadSub DEBUG] Could not find base identifier for node kind: {}, text: {}", actual_node.kind(), get_node_text(&actual_node, input_source));
                             None
                         }
                     }
@@ -1940,15 +1941,15 @@ fn process_statements_in_block(
                         base_identifier_for_read = Some(ident_node);
                         span_for_read_edge = (ident_node.start_byte(), ident_node.end_byte());
                     } else {
-                        eprintln!("[Storage ReadSub DEBUG] Could not find base identifier from array_access base: {}", get_node_text(&base_expr_node, &input.source));
+                        trace!("[Storage ReadSub DEBUG] Could not find base identifier from array_access base: {}", get_node_text(&base_expr_node, &input.source));
                     }
                 } else {
-                    eprintln!("[Storage ReadSub DEBUG] Array access node missing 'base' child. Span: {:?}", array_access_span);
+                    trace!("[Storage ReadSub DEBUG] Array access node missing 'base' child. Span: {:?}", array_access_span);
                 }
 
                 if let Some(actual_read_target_node) = base_identifier_for_read {
                     let var_name = get_node_text(&actual_read_target_node, &input.source);
-                    eprintln!("[Storage ReadSub DEBUG] Base identifier for read: '{}', span for edge: {:?}", var_name, span_for_read_edge);
+                    trace!("[Storage ReadSub DEBUG] Base identifier for read: '{}', span for edge: {:?}", var_name, span_for_read_edge);
 
                     // --- Filtering Logic (similar to "read_identifier") ---
                     // `read_candidate_node` for filtering context is `array_access_node`
@@ -1975,7 +1976,7 @@ fn process_statements_in_block(
                                 if let Some(lhs_expr) = parent.child_by_field_name("left") {
                                     let actual_lhs = get_actual_target_node(lhs_expr);
                                     if actual_lhs.id() == read_candidate_node.id() {
-                                        eprintln!("[Storage ReadSub DEBUG] Skipping read for LHS array_access: {}", var_name);
+                                        trace!("[Storage ReadSub DEBUG] Skipping read for LHS array_access: {}", var_name);
                                         skip_read_edge = true;
                                         break;
                                     }
@@ -2008,7 +2009,7 @@ fn process_statements_in_block(
                             graph,
                             ctx,
                         ) {
-                            eprintln!("[Storage DEBUG Deferred] Collecting READ modification (from subscript): CallerID={}, VarID={}, VarName='{}', EdgeSpan={:?}", owner_node_id, var_node_id, var_name, span_for_read_edge);
+                            trace!("Collecting READ modification (from subscript): CallerID={}, VarID={}, VarName='{}', EdgeSpan={:?}", owner_node_id, var_node_id, var_name, span_for_read_edge);
                             modifications.push(GraphModification {
                                 source_node_id: owner_node_id,
                                 target_node_id: var_node_id,
@@ -2024,13 +2025,13 @@ fn process_statements_in_block(
                                 execution_priority: 0, // Placeholder, needs full filter logic for priority
                             });
                         } else {
-                            eprintln!("[Storage DEBUG Deferred] Read from subscript base '{}' could not be resolved to a storage variable.", var_name);
+                            trace!("Read from subscript base '{}' could not be resolved to a storage variable.", var_name);
                         }
                     } else {
-                        eprintln!("[Storage DEBUG Deferred] Skipping READ modification for subscript '{}' due to filtering. ArrayAccessSpan={:?}", var_name, array_access_span);
+                        trace!("Skipping READ modification for subscript '{}' due to filtering. ArrayAccessSpan={:?}", var_name, array_access_span);
                     }
                 } else {
-                    eprintln!("[Storage DEBUG Deferred] Could not extract base identifier for read from array_access at span {:?}", array_access_span);
+                    trace!("Could not extract base identifier for read from array_access at span {:?}", array_access_span);
                 }
                 handled_node_ids.insert(node.id()); // Mark array_access node as handled
             }
@@ -2038,8 +2039,8 @@ fn process_statements_in_block(
                 // --- Handle Delete Statements ---
                 let delete_expression_node = node; // Use the new node name
                 let delete_span = span;
-                eprintln!(
-                    "[Storage DEBUG Deferred] Processing Delete Statement at span {:?}",
+                trace!(
+                    "Processing Delete Statement at span {:?}",
                     delete_span
                 );
 
@@ -2069,8 +2070,8 @@ fn process_statements_in_block(
 
                     if let Some(base_id_node) = base_identifier_node {
                         let var_name = get_node_text(&base_id_node, &input.source);
-                        eprintln!(
-                            "[Storage DEBUG Deferred]   Delete target base identifier: '{}'",
+                        trace!(
+                            "  Delete target base identifier: '{}'",
                             var_name
                         );
 
@@ -2081,7 +2082,7 @@ fn process_statements_in_block(
                             graph,
                             ctx,
                         ) {
-                            eprintln!("[Storage DEBUG Deferred] Collecting DELETE (as WRITE) modification: CallerID={}, VarID={}, VarName='{}', DeleteSpan={:?}", owner_node_id, var_node_id, var_name, delete_span);
+                            trace!("Collecting DELETE (as WRITE) modification: CallerID={}, VarID={}, VarName='{}', DeleteSpan={:?}", owner_node_id, var_node_id, var_name, delete_span);
                             modifications.push(GraphModification {
                                 source_node_id: owner_node_id,
                                 target_node_id: var_node_id,
@@ -2096,13 +2097,13 @@ fn process_statements_in_block(
                                 execution_priority: 1000, // Priority 1000 for writes
                             });
                         } else {
-                            eprintln!("[Storage DEBUG Deferred]   Delete target base '{}' did not resolve to a storage variable.", var_name);
+                            trace!("  Delete target base '{}' did not resolve to a storage variable.", var_name);
                         }
                     } else {
-                        eprintln!("[Storage DEBUG Deferred]   Could not find base identifier in delete target expression: {}", get_node_text(&target_expr_node, &input.source));
+                        trace!("  Could not find base identifier in delete target expression: {}", get_node_text(&target_expr_node, &input.source));
                     }
                 } else {
-                    eprintln!("[Storage DEBUG Deferred]   Delete expression node missing 'argument' child. Span: {:?}", delete_span);
+                    trace!("  Delete expression node missing 'argument' child. Span: {:?}", delete_span);
                 }
                 handled_node_ids.insert(node.id()); // Mark delete_expression_node as handled
             }
@@ -2110,13 +2111,13 @@ fn process_statements_in_block(
                 // --- Handle Require Calls ---
                 let require_node = node;
                 let require_span = span;
-                eprintln!(
+                trace!(
                     "[Require DEBUG] Found require call at span {:?}. Node text: '{}'",
                     require_span,
                     get_node_text(&require_node, &input.source)
                 );
-                eprintln!(
-                    "[CallsHandling DEBUG]       Processing Require Statement at span {:?}",
+                trace!(
+                    "      Processing Require Statement at span {:?}",
                     require_span
                 );
 
@@ -2142,7 +2143,7 @@ fn process_statements_in_block(
                             } else {
                                 // This case might occur if the string literal is not properly quoted.
                                 // For safety, return the raw text, but log a warning.
-                                eprintln!("[Revert Message DEBUG] Unexpected string literal format for revert message: '{}'", text);
+                                trace!("[Revert Message DEBUG] Unexpected string literal format for revert message: '{}'", text);
                                 Some(text.to_string())
                             }
                         } else {
@@ -2195,7 +2196,7 @@ fn process_statements_in_block(
                         if let Some(graph_node_mut) = graph.nodes.get_mut(new_id) {
                             graph_node_mut.condition_expression = condition_source_text_opt.clone();
                             graph_node_mut.revert_message = revert_message_text_opt.clone();
-                            eprintln!("[CallsHandling DEBUG] Created RequireCondition node {}: name='{}', expr='{:?}', msg='{:?}'", new_id, graph_node_mut.name, graph_node_mut.condition_expression, graph_node_mut.revert_message);
+                            trace!("Created RequireCondition node {}: name='{}', expr='{:?}', msg='{:?}'", new_id, graph_node_mut.name, graph_node_mut.condition_expression, graph_node_mut.revert_message);
                         }
                         graph.node_lookup.insert(unique_require_node_key, new_id);
 
@@ -2216,7 +2217,7 @@ fn process_statements_in_block(
                     };
 
                 // Collect Modification: Caller -> SpecificRequireConditionNode
-                eprintln!("[Require DEBUG]   Collecting modification: Source={}, Target={}, Type=Require, Span={:?}, Args={:?}", owner_node_id, specific_require_condition_node_id, require_span, argument_texts);
+                trace!("[Require DEBUG]   Collecting modification: Source={}, Target={}, Type=Require, Span={:?}, Args={:?}", owner_node_id, specific_require_condition_node_id, require_span, argument_texts);
                 modifications.push(GraphModification {
                     source_node_id: owner_node_id, // The function containing the require
                     target_node_id: specific_require_condition_node_id, // The unique RequireCondition node
@@ -2236,8 +2237,8 @@ fn process_statements_in_block(
                 // --- Handle Emit Statements ---
                 let emit_node = node;
                 let emit_span = span;
-                eprintln!(
-                    "[CallsHandling DEBUG]       Processing Emit Statement at span {:?}",
+                trace!(
+                    "      Processing Emit Statement at span {:?}",
                     emit_span
                 );
 
@@ -2252,8 +2253,8 @@ fn process_statements_in_block(
                 let argument_texts = extract_arguments(emit_node, &input);
 
                 if let Some(event_name) = event_name_opt {
-                    eprintln!(
-                        "[CallsHandling DEBUG]         Event Name: '{}', Args: {:?}",
+                    trace!(
+                        "        Event Name: '{}', Args: {:?}",
                         event_name, argument_texts
                     );
 
@@ -2262,7 +2263,7 @@ fn process_statements_in_block(
                     let evm_node_id = if let Some(id) = graph.node_lookup.get(&evm_key) {
                         *id
                     } else {
-                        eprintln!("[CallsHandling DEBUG]           Creating EVM node.");
+                        trace!("          Creating EVM node.");
                         let new_id = graph.add_node(
                             EVM_NODE_NAME.to_string(),
                             NodeType::Evm,
@@ -2279,7 +2280,7 @@ fn process_statements_in_block(
                     let listener_node_id = if let Some(id) = graph.node_lookup.get(&listener_key) {
                         *id
                     } else {
-                        eprintln!("[CallsHandling DEBUG]           Creating EventListener node.");
+                        trace!("          Creating EventListener node.");
                         let new_id = graph.add_node(
                             EVENT_LISTENER_NODE_NAME.to_string(),
                             NodeType::EventListener,
@@ -2291,7 +2292,7 @@ fn process_statements_in_block(
                         new_id
                     };
                     // --- Collect Modification 1: Caller -> EVM ---
-                    eprintln!("[CallsHandling DEBUG]         >>> Collecting modification (Emit Caller->EVM): CallerID={}, TargetID={}, Event='{}'", owner_node_id, evm_node_id, event_name);
+                    trace!("        >>> Collecting modification (Emit Caller->EVM): CallerID={}, TargetID={}, Event='{}'", owner_node_id, evm_node_id, event_name);
                     modifications.push(GraphModification {
                         source_node_id: owner_node_id,
                         target_node_id: evm_node_id,
@@ -2307,7 +2308,7 @@ fn process_statements_in_block(
                     });
 
                     // --- Collect Modification 2: EVM -> Event Listener ---
-                    eprintln!("[CallsHandling DEBUG]         >>> Collecting modification (Emit EVM->Listener): CallerID={}, TargetID={}, Event='{}'", evm_node_id, listener_node_id, event_name);
+                    trace!("        >>> Collecting modification (Emit EVM->Listener): CallerID={}, TargetID={}, Event='{}'", evm_node_id, listener_node_id, event_name);
                     // Note: We use the *same* sort_span_start as the Caller->EVM edge.
                     // This ensures they are processed consecutively after sorting.
                     // The sequence number assignment will handle their relative order.
@@ -2326,7 +2327,7 @@ fn process_statements_in_block(
                         execution_priority: 20, // Base priority 20 for Emit EVM->Listener (2 * 10)
                     });
                 } else {
-                    eprintln!("[CallsHandling DEBUG]       >>> Emit statement missing event name. Span: {:?}", emit_span);
+                    trace!("      >>> Emit statement missing event name. Span: {:?}", emit_span);
                 }
                 handled_node_ids.insert(node.id()); // Mark emit_node as handled
             }
@@ -2335,8 +2336,8 @@ fn process_statements_in_block(
                 let if_span = span; // Span of the whole if_statement
                 let if_start_byte = if_statement_node.start_byte();
 
-                eprintln!(
-                    "[CallsHandling DEBUG] Processing If Statement at span {:?}",
+                trace!(
+                    "Processing If Statement at span {:?}",
                     if_span
                 );
 
@@ -2382,7 +2383,7 @@ fn process_statements_in_block(
                         if_condition_node_info,
                         owner_contract_name_opt.clone(), // Inherit contract scope
                     ));
-                    eprintln!("[CallsHandling DEBUG] Added IfConditionNode ID {} with span {:?} to definition_nodes_info", new_id, condition_span);
+                    trace!("Added IfConditionNode ID {} with span {:?} to definition_nodes_info", new_id, condition_span);
                     // --- End NodeInfo addition ---
                     new_id
                 };
@@ -2441,7 +2442,7 @@ fn process_statements_in_block(
                             then_block_node_info,
                             owner_contract_name_opt.clone(), // Inherit contract scope from parent
                         ));
-                        eprintln!("[CallsHandling DEBUG] Added ThenBlock Node ID {} with span {:?} to definition_nodes_info", new_id, then_body_span);
+                        trace!("Added ThenBlock Node ID {} with span {:?} to definition_nodes_info", new_id, then_body_span);
                         // --- End NodeInfo addition ---
                         new_id
                     };
@@ -2479,7 +2480,7 @@ fn process_statements_in_block(
                 } else {
                     // This case should ideally not be reached if the grammar guarantees a 'body' for 'then'.
                     // If it can be reached, it indicates an issue with the if_statement structure or parsing.
-                    eprintln!("[CallsHandling WARNING] If statement at span {:?} is missing a 'then' block (first 'body' child).", if_span);
+                    trace!("[CallsHandling WARNING] If statement at span {:?} is missing a 'then' block (first 'body' child).", if_span);
                     // Depending on desired strictness, could return an error:
                     // return Err(anyhow!("If statement missing then_body node (first 'body' child) at span {:?}", if_span));
                 }
@@ -2488,7 +2489,7 @@ fn process_statements_in_block(
                 if let Some(else_body_node) = body_nodes.get(1).copied() {
                     // If this else_body_node is an if_statement, it's an 'else if'.
                     // Mark it so it's not processed again by the main loop for this block.
-                    eprintln!("[CallsHandling DEBUG] Checking else_body_node.kind(). ID: {}, Kind: '{}', Span: {:?}", else_body_node.id(), else_body_node.kind(), (else_body_node.start_byte(), else_body_node.end_byte()));
+                    trace!("Checking else_body_node.kind(). ID: {}, Kind: '{}', Span: {:?}", else_body_node.id(), else_body_node.kind(), (else_body_node.start_byte(), else_body_node.end_byte()));
                     // If this else_body_node represents an 'else if' structure, we need to mark the
                     // actual if_statement node to prevent its reprocessing by the main loop.
                     // The CST can be `(statement (if_statement ...))` where `else_body_node` is the outer `statement`.
@@ -2514,20 +2515,20 @@ fn process_statements_in_block(
                             let else_if_node_id = if_node_to_mark.id();
                             let else_if_span =
                                 (if_node_to_mark.start_byte(), if_node_to_mark.end_byte());
-                            eprintln!("[CallsHandling DEBUG] Else branch contains an if-statement (Node ID: {}, Kind: '{}', Span: {:?}). Marking it as processed.", else_if_node_id, if_node_to_mark.kind(), else_if_span);
+                            trace!("Else branch contains an if-statement (Node ID: {}, Kind: '{}', Span: {:?}). Marking it as processed.", else_if_node_id, if_node_to_mark.kind(), else_if_span);
                             processed_nested_if_nodes.insert(else_if_node_id);
                         } else {
                             // This case should be rare if the above logic is correct for typical 'else if'
-                            eprintln!("[CallsHandling DEBUG] Identified node (Kind: '{}', Span: {:?}) in else branch, but it's not a valid if_statement (no 'condition' child). It will be processed by recursive call if it's an if.", if_node_to_mark.kind(), (if_node_to_mark.start_byte(), if_node_to_mark.end_byte()));
+                            trace!("Identified node (Kind: '{}', Span: {:?}) in else branch, but it's not a valid if_statement (no 'condition' child). It will be processed by recursive call if it's an if.", if_node_to_mark.kind(), (if_node_to_mark.start_byte(), if_node_to_mark.end_byte()));
                         }
                     } else {
                         // else_body_node is not an if_statement and does not directly wrap one (e.g., it's a block `else { ... }`).
                         // Any if_statements inside this block will be handled by the recursive call to process_statements_in_block.
-                        eprintln!("[CallsHandling DEBUG] else_body_node (Kind: '{}', Span: {:?}) is not an 'else if' structure. Contents will be processed recursively.", else_body_node.kind(), (else_body_node.start_byte(), else_body_node.end_byte()));
+                        trace!("else_body_node (Kind: '{}', Span: {:?}) is not an 'else if' structure. Contents will be processed recursively.", else_body_node.kind(), (else_body_node.start_byte(), else_body_node.end_byte()));
                     }
 
-                    eprintln!(
-                        "[CallsHandling DEBUG] Found else block for if statement at span {:?}",
+                    trace!(
+                        "Found else block for if statement at span {:?}",
                         if_span
                     );
                     let else_body_span = (else_body_node.start_byte(), else_body_node.end_byte());
@@ -2558,7 +2559,7 @@ fn process_statements_in_block(
                             else_block_node_info,
                             owner_contract_name_opt.clone(), // Inherit contract scope from parent
                         ));
-                        eprintln!("[CallsHandling DEBUG] Added ElseBlock Node ID {} with span {:?} to definition_nodes_info", new_id, else_body_span);
+                        trace!("Added ElseBlock Node ID {} with span {:?} to definition_nodes_info", new_id, else_body_span);
                         // --- End NodeInfo addition ---
                         new_id
                     };
@@ -2598,8 +2599,8 @@ fn process_statements_in_block(
                 let while_span = span; // Span of the whole while_statement
                 let while_start_byte = while_statement_node.start_byte();
 
-                eprintln!(
-                    "[CallsHandling DEBUG] Processing While Statement at span {:?}",
+                trace!(
+                    "Processing While Statement at span {:?}",
                     while_span
                 );
 
@@ -2648,7 +2649,7 @@ fn process_statements_in_block(
                         while_condition_node_info,
                         owner_contract_name_opt.clone(),
                     ));
-                    eprintln!("[CallsHandling DEBUG] Added WhileConditionNode ID {} with span {:?} to definition_nodes_info", new_id, condition_span);
+                    trace!("Added WhileConditionNode ID {} with span {:?} to definition_nodes_info", new_id, condition_span);
                     new_id
                 };
 
@@ -2702,7 +2703,7 @@ fn process_statements_in_block(
                             while_block_node_info,
                             owner_contract_name_opt.clone(),
                         ));
-                        eprintln!("[CallsHandling DEBUG] Added WhileBlock Node ID {} with span {:?} to definition_nodes_info", new_id, while_body_span);
+                        trace!("Added WhileBlock Node ID {} with span {:?} to definition_nodes_info", new_id, while_body_span);
                         new_id
                     };
 
@@ -2745,12 +2746,12 @@ fn process_statements_in_block(
                         for cap in m.captures {
                             if cap.index == while_statement_capture_index {
                                 processed_nested_while_nodes.insert(cap.node.id());
-                                eprintln!("[CallsHandling DEBUG] Marked nested while node ID {} as processed by recursive call.", cap.node.id());
+                                trace!("Marked nested while node ID {} as processed by recursive call.", cap.node.id());
                             }
                         }
                     }
                 } else {
-                    eprintln!(
+                    trace!(
                         "[CallsHandling WARNING] While statement at span {:?} is missing a 'body' child.",
                         while_span
                     );
@@ -2761,8 +2762,8 @@ fn process_statements_in_block(
                 let for_span = span; // Span of the whole for_statement
                 let for_start_byte = for_statement_node.start_byte();
 
-                eprintln!(
-                    "[CallsHandling DEBUG] Processing For Statement at span {:?}",
+                trace!(
+                    "Processing For Statement at span {:?}",
                     for_span
                 );
 
@@ -2822,7 +2823,7 @@ fn process_statements_in_block(
                         for_condition_node_info,
                         owner_contract_name_opt.clone(),
                     ));
-                    eprintln!("[CallsHandling DEBUG] Added ForConditionNode ID {} with span {:?} to definition_nodes_info", new_id, condition_span);
+                    trace!("Added ForConditionNode ID {} with span {:?} to definition_nodes_info", new_id, condition_span);
                     new_id
                 };
 
@@ -2872,7 +2873,7 @@ fn process_statements_in_block(
                             for_block_node_info,
                             owner_contract_name_opt.clone(),
                         ));
-                        eprintln!("[CallsHandling DEBUG] Added ForBlock Node ID {} with span {:?} to definition_nodes_info", new_id, for_body_span);
+                        trace!("Added ForBlock Node ID {} with span {:?} to definition_nodes_info", new_id, for_body_span);
                         new_id
                     };
 
@@ -2914,12 +2915,12 @@ fn process_statements_in_block(
                         for cap in m.captures {
                             if cap.index == for_statement_capture_index {
                                 processed_nested_for_nodes.insert(cap.node.id());
-                                eprintln!("[CallsHandling DEBUG] Marked nested for node ID {} as processed by recursive call.", cap.node.id());
+                                trace!("Marked nested for node ID {} as processed by recursive call.", cap.node.id());
                             }
                         }
                     }
                 } else {
-                    eprintln!(
+                    trace!(
                         "[CallsHandling WARNING] For statement at span {:?} is missing a 'body' child.",
                         for_span
                     );
@@ -2927,7 +2928,7 @@ fn process_statements_in_block(
             }
             _ => {
                 // Should not happen based on query and collection logic
-                eprintln!(
+                trace!(
                             "[CallsHandling WARNING] Encountered unexpected node type '{}' during processing.",
                             node_type
                         );
@@ -2973,20 +2974,20 @@ fn resolve_storage_variable(
         Some(name) => name,
         None => {
             // Storage variables cannot exist outside a contract scope
-            eprintln!("[Storage Resolve DEBUG] Attempted to resolve variable '{}' outside contract scope.", variable_name);
+            trace!("[Storage Resolve DEBUG] Attempted to resolve variable '{}' outside contract scope.", variable_name);
             return None;
         }
     };
 
     let ancestors = graph.get_ancestor_contracts(contract_name, ctx);
-    eprintln!(
+    trace!(
         "[Storage Resolve DEBUG] Resolving variable '{}' in contract '{}'. Ancestors: {:?}",
         variable_name, contract_name, ancestors
     );
 
     for ancestor_name in ancestors {
         let key = (Some(ancestor_name.clone()), variable_name.to_string());
-        eprintln!("[Storage Resolve DEBUG]   Checking key: {:?}", key);
+        trace!("[Storage Resolve DEBUG]   Checking key: {:?}", key);
         if let Some(node_id) = graph.node_lookup.get(&key) {
             // Verify it's actually a storage variable node
             if graph
@@ -2994,15 +2995,15 @@ fn resolve_storage_variable(
                 .get(*node_id)
                 .map_or(false, |n| n.node_type == NodeType::StorageVariable)
             {
-                eprintln!("[Storage Resolve DEBUG]     Found storage variable node ID {} in contract '{}'", *node_id, ancestor_name);
+                trace!("[Storage Resolve DEBUG]     Found storage variable node ID {} in contract '{}'", *node_id, ancestor_name);
                 return Some(*node_id);
             } else {
-                eprintln!("[Storage Resolve DEBUG]     Found node ID {} for key {:?} but it's not a StorageVariable.", *node_id, key);
+                trace!("[Storage Resolve DEBUG]     Found node ID {} for key {:?} but it's not a StorageVariable.", *node_id, key);
             }
         }
     }
 
-    eprintln!(
+    trace!(
         "[Storage Resolve DEBUG] Variable '{}' not found in contract '{}' or its ancestors.",
         variable_name, contract_name
     );
@@ -3023,7 +3024,7 @@ fn resolve_target_to_node_id(
         } => {
             let key = (contract_name.clone(), function_name.clone());
             let result = graph.node_lookup.get(&key).copied(); // Look up directly
-            eprintln!(
+            trace!(
                 "[Resolve Target ID] Function Lookup: Key=({:?}, '{}') -> Result={:?}",
                 contract_name, function_name, result
             );
@@ -3034,7 +3035,7 @@ fn resolve_target_to_node_id(
             ..
         } => {
             // Recursively resolve the implementation target
-            eprintln!(
+            trace!(
                 "[Resolve Target ID] InterfaceMethod: Resolving implementation target: {:?}",
                 impl_target
             );
@@ -3049,25 +3050,25 @@ fn resolve_target_to_node_id(
             // Link to the interface method node itself.
             let key = (Some(interface_name.clone()), method_name.clone());
             let result = graph.node_lookup.get(&key).copied();
-            eprintln!(
+            trace!(
                 "[Resolve Target ID] InterfaceMethod (Abstract): Lookup Key=({:?}, '{}') -> Result={:?}",
                 Some(interface_name), method_name, result
             );
             if result.is_none() {
-                eprintln!("[Resolve Target ID] Warning: Node for abstract interface method {}.{} not found in graph lookup.", interface_name, method_name);
+                trace!("[Resolve Target ID] Warning: Node for abstract interface method {}.{} not found in graph lookup.", interface_name, method_name);
             }
             result // Return the lookup result (Option<usize>)
         }
         crate::chains::ResolvedTarget::BuiltIn { object_type, name } => {
             // Built-ins don't have dedicated nodes in our graph currently
-            eprintln!(
+            trace!(
                 "[Resolve Target ID] Info: Skipping edge creation for built-in {}.{}.",
                 object_type, name
             );
             None
         }
         crate::chains::ResolvedTarget::NotCallable { reason } => {
-            eprintln!(
+            trace!(
                 "[Resolve Target ID] Info: Skipping edge creation for non-callable target: {}",
                 reason
             );
@@ -3075,7 +3076,7 @@ fn resolve_target_to_node_id(
         }
         crate::chains::ResolvedTarget::External { address_expr } => {
             // External calls don't resolve to a specific node in our graph
-            eprintln!(
+            trace!(
                 "[Resolve Target ID] Info: Skipping edge creation for external call to address expr: {}",
                 address_expr
             );
@@ -3083,7 +3084,7 @@ fn resolve_target_to_node_id(
         }
         crate::chains::ResolvedTarget::TypeCast { type_name } => {
             // Type casts don't resolve to a callable node for edge creation.
-            eprintln!(
+            trace!(
                 "[Resolve Target ID] Info: Skipping edge creation for type cast to '{}'.",
                 type_name
             );
@@ -3092,7 +3093,7 @@ fn resolve_target_to_node_id(
         /*
         crate::chains::ResolvedTarget::MappingGetter { contract_name, mapping_name, .. } => {
             // Implicit mapping getters don't have dedicated function nodes in the graph.
-            eprintln!(
+            trace!(
                 "[Resolve Target ID] Info: Skipping direct node ID resolution for implicit mapping getter '{}.{}'.",
                 contract_name, mapping_name
             );

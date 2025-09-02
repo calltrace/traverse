@@ -5,6 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use walkdir::WalkDir;
+use tracing::debug;
 
 use crate::natspec::extract::{extract_source_comments, SourceComment, SourceItemKind};
 use crate::natspec::{TextRange}; // Ensure TextRange and TextIndex are available
@@ -117,7 +118,7 @@ pub fn find_solidity_files_for_manifest(
             // Log or handle non-Solidity files if necessary
         } else {
             // Log or handle non-existent paths
-            eprintln!("Warning: Path not found or invalid: {}", path_arg.display());
+            debug!("Warning: Path not found or invalid: {}", path_arg.display());
         }
     }
     sol_files.sort();
@@ -159,7 +160,7 @@ pub fn generate_manifest(
                 manifest.extend_entries(entries);
             }
             Err(e) => {
-                eprintln!(
+                debug!(
                     "Warning: Failed to extract comments from {}: {}. Skipping file.",
                     relative_file_path.display(),
                     e

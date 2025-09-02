@@ -3,6 +3,8 @@
 //! This module generates state change tests using the new AST-based approach with
 //! SolidityTestContractBuilder and proper type-safe Solidity code generation.
 
+use tracing::debug;
+
 use crate::teststubs::{
     capitalize_first_letter, to_pascal_case, ContractInfo, FunctionInfo, SolidityTestContract,
     SolidityTestContractBuilder,
@@ -78,7 +80,7 @@ fn create_state_change_test_contract(
         .get(&(var_contract_scope.clone(), var_name.clone()))
         .cloned()
         .unwrap_or_else(|| {
-            eprintln!(
+            debug!(
                 "Warning: Type for state variable {}.{} not found in ctx.state_var_types. Defaulting to uint256.",
                 var_contract_scope, var_name
             );
@@ -175,7 +177,7 @@ fn create_state_change_test_contract(
                                 }));
                             }
                             Err(e) => {
-                                eprintln!("Failed to generate function arguments: {}", e);
+                                debug!("Failed to generate function arguments: {}", e);
                                 // Add a comment about the error
                                 body.expression(Expression::FunctionCall(FunctionCallExpression {
                                     function: Box::new(identifier(

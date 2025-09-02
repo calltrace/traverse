@@ -25,8 +25,9 @@ name = "sol2test"
 path = "src/bin/sol2test.rs"
 
 [dependencies]
-tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+logging = { path = "../logging" }
 language = { path = "../language" }
 mermaid = { path = "../mermaid" }
 graph = { path = "../graph" }

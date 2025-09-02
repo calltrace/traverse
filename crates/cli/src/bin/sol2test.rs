@@ -8,6 +8,7 @@
 // along with configurable templates or native Foundry integration to produce test files.
 use anyhow::{bail, Context, Result};
 use clap::Parser;
+use tracing::{info, debug, warn};
 use codegen::generate_tests_with_foundry;
 use graph::cg::{
     CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline,
@@ -126,18 +127,14 @@ impl Default for FoundryConfig {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    
+    // Initialize logging
+    logging::init_subscriber(cli.verbose);
 
-    if cli.verbose {
-        println!("🚀 Starting sol2test with Foundry integration");
-        println!(
-            "Mode: {}",
-            if cli.use_foundry {
-                "Native Foundry"
-            } else {
-                "Template-based"
-            }
-        );
-    }
+    debug!(
+        mode = if cli.use_foundry { "Native Foundry" } else { "Template-based" },
+        "Starting sol2test with Foundry integration"
+    );
 
     // Validate command-line arguments
     match (&cli.project, &cli.input_paths.is_empty()) {
@@ -191,20 +188,19 @@ fn main() -> Result<()> {
 
     let (graph, ctx) = generate_call_graph(&input, &cli)?;
 
-    if cli.verbose {
-        println!(
-            "📊 Call graph generated with {} nodes and {} edges",
-            graph.nodes.len(),
-            graph.edges.len()
-        );
-    }
+    info!(
+        nodes = graph.nodes.len(),
+        edges = graph.edges.len(),
+        "Call graph generated"
+    );
 
     fs::create_dir_all(&cli.output_dir)
         .map_err(|e| Sol2TestError::IoError(cli.output_dir.clone(), e))?;
 
-    if cli.verbose {
-        println!("📂 Created output directory: {}", cli.output_dir.display());
-    }
+    debug!(
+        output_dir = %cli.output_dir.display(),
+        "Created output directory"
+    );
 
     // Construct original_contract_paths
     let project_root_for_paths = fs::canonicalize(
@@ -224,16 +220,15 @@ fn main() -> Result<()> {
                 if let Some(contract_name) = &entry.item_name {
                     let absolute_path = project_root_for_paths.join(&entry.file_path);
                     original_contract_paths.insert(contract_name.clone(), absolute_path);
-                    if cli.verbose {
-                        println!(
-                            "🗺️ Mapping contract '{}' to original path: {}",
-                            contract_name,
-                            original_contract_paths
-                                .get(contract_name)
-                                .unwrap()
-                                .display()
-                        );
-                    }
+                    
+                    info!(
+                        "️ Mapping contract '{}' to original path: {}",
+                        contract_name,
+                        original_contract_paths
+                            .get(contract_name)
+                            .unwrap()
+                            .display()
+                    );
                 }
             }
         }
@@ -246,19 +241,18 @@ fn main() -> Result<()> {
                 let absolute_path =
                     fs::canonicalize(sol_file).context("Failed to canonicalize input file path")?;
                 original_contract_paths.insert(file_stem.to_string(), absolute_path);
-                if cli.verbose {
-                    println!(
-                        "🗺️ Direct mapping contract '{}' to original path: {}",
-                        file_stem,
-                        original_contract_paths.get(file_stem).unwrap().display()
-                    );
-                }
+                
+                info!(
+                    "️ Direct mapping contract '{}' to original path: {}",
+                    file_stem,
+                    original_contract_paths.get(file_stem).unwrap().display()
+                );
             }
         }
     }
 
     if cli.verbose && original_contract_paths.is_empty() {
-        println!("🗺️ No contract paths could be determined for copying original sources.");
+        info!("️ No contract paths could be determined for copying original sources.");
     }
 
     generate_tests_with_foundry_enhanced(
@@ -272,9 +266,8 @@ fn main() -> Result<()> {
         &original_contract_paths, // Pass the newly constructed map
         foundry_config.as_ref(),  // Pass Foundry configuration
     )?;
-    if cli.verbose {
-        println!("✅ Test generation completed successfully!");
-    }
+    
+    info!(" Test generation completed successfully!");
 
     Ok(())
 }
@@ -316,9 +309,8 @@ fn setup_manifest_and_bindings(ctx: &mut CallGraphGeneratorContext, cli: &Cli) -
     )
     .context("Failed to determine project root for manifest generation")?;
 
-    if cli.verbose {
-        println!("📍 Using project root: {}", project_root.display());
-    }
+    
+    info!(" Using project root: {}", project_root.display());
 
     let mut manifest_loaded_from_file = false;
     if let Some(manifest_path_arg) = &cli.manifest_file {
@@ -328,27 +320,23 @@ fn setup_manifest_and_bindings(ctx: &mut CallGraphGeneratorContext, cli: &Cli) -
             project_root.join(manifest_path_arg)
         };
 
-        if cli.verbose {
-            println!(
-                "📋 Attempting to load manifest from: {}",
-                absolute_manifest_path.display()
-            );
-        }
+        info!(
+            " Attempting to load manifest from: {}",
+            absolute_manifest_path.display()
+        );
 
         match graph::manifest::load_manifest(&absolute_manifest_path) {
             Ok(loaded_manifest) => {
-                if cli.verbose {
-                    println!(
-                        "✅ Manifest loaded successfully with {} entries.",
-                        loaded_manifest.entries.len()
-                    );
-                }
+                info!(
+                    " Manifest loaded successfully with {} entries.",
+                    loaded_manifest.entries.len()
+                );
                 ctx.manifest = Some(loaded_manifest);
                 manifest_loaded_from_file = true;
             }
             Err(e) => {
-                eprintln!(
-                    "⚠️  Warning: Failed to load manifest from {}: {}. Will attempt to generate from source files.",
+                warn!(
+                    "️  Warning: Failed to load manifest from {}: {}. Will attempt to generate from source files.",
                     absolute_manifest_path.display(),
                     e
                 );
@@ -357,9 +345,7 @@ fn setup_manifest_and_bindings(ctx: &mut CallGraphGeneratorContext, cli: &Cli) -
     }
 
     if !manifest_loaded_from_file {
-        if cli.verbose {
-            println!("🔧 Generating manifest in-memory from source files.");
-        }
+        info!(" Generating manifest in-memory from source files.");
         generate_in_memory_manifest(ctx, &cli.input_paths, &project_root, cli.verbose)?;
     }
 
@@ -394,8 +380,8 @@ fn generate_in_memory_manifest(
                     }
                     Err(e) => {
                         if verbose {
-                            eprintln!(
-                                "⚠️  Warning: Failed to extract comments from {}: {}. Skipping file for manifest.",
+                            warn!(
+                                "️  Warning: Failed to extract comments from {}: {}. Skipping file for manifest.",
                                 relative_file_path.display(),
                                 e
                             );
@@ -404,8 +390,8 @@ fn generate_in_memory_manifest(
                 },
                 Err(e) => {
                     if verbose {
-                        eprintln!(
-                            "⚠️  Warning: Failed to read file {} for manifest generation: {}",
+                        warn!(
+                            "️  Warning: Failed to read file {} for manifest generation: {}",
                             full_file_path.display(),
                             e
                         );
@@ -414,8 +400,8 @@ fn generate_in_memory_manifest(
             }
         }
         if verbose {
-            println!(
-                "📋 In-memory manifest generated with {} entries.",
+            info!(
+                " In-memory manifest generated with {} entries.",
                 manifest_in_memory.entries.len()
             );
         }
@@ -441,16 +427,16 @@ fn setup_binding_registry(
             project_root.join(bindings_path)
         };
         if verbose {
-            println!(
-                "🔗 Attempting to load bindings from file: {}",
+            info!(
+                " Attempting to load bindings from file: {}",
                 absolute_bindings_path.display()
             );
         }
         match BindingRegistry::load(&absolute_bindings_path) {
             Ok(registry) => {
                 if verbose {
-                    println!(
-                        "✅ BindingRegistry loaded successfully with {} keys.",
+                    info!(
+                        " BindingRegistry loaded successfully with {} keys.",
                         registry.bindings.len()
                     );
                 }
@@ -458,8 +444,8 @@ fn setup_binding_registry(
             }
             Err(e) => {
                 if verbose {
-                    eprintln!(
-                        "⚠️  Warning: Failed to load bindings from file {}: {}. Proceeding with default registry.",
+                    warn!(
+                        "️  Warning: Failed to load bindings from file {}: {}. Proceeding with default registry.",
                         absolute_bindings_path.display(),
                         e
                     );
@@ -470,7 +456,7 @@ fn setup_binding_registry(
 
     if binding_registry_option.is_none() {
         if verbose {
-            println!("🔗 Initializing default BindingRegistry.");
+            info!(" Initializing default BindingRegistry.");
         }
         binding_registry_option = Some(BindingRegistry::default());
     }
@@ -478,7 +464,7 @@ fn setup_binding_registry(
     if let Some(registry) = binding_registry_option.as_mut() {
         if let Some(ref manifest_content) = ctx.manifest {
             if verbose {
-                println!("🔗 Populating BindingRegistry from manifest Natspec...");
+                info!(" Populating BindingRegistry from manifest Natspec...");
             }
             registry.populate_from_manifest(manifest_content);
         }
@@ -575,8 +561,8 @@ fn load_foundry_config(project_path: &Path, verbose: bool) -> Result<FoundryConf
     let foundry_toml_path = project_path.join("foundry.toml");
 
     if verbose {
-        println!(
-            "⚙️  Loading Foundry configuration from: {}",
+        info!(
+            "️  Loading Foundry configuration from: {}",
             foundry_toml_path.display()
         );
     }
@@ -632,23 +618,23 @@ fn load_foundry_config(project_path: &Path, verbose: bool) -> Result<FoundryConf
         }
 
         if verbose {
-            println!("✅ Foundry configuration loaded:");
-            println!("  📁 Source directory: {}", config.src);
-            println!("  📁 Output directory: {}", config.out);
-            println!("  🧪 Test directory: {}", config.test);
-            println!("  📚 Libraries: {:?}", config.libs);
+            info!(" Foundry configuration loaded:");
+            info!("   Source directory: {}", config.src);
+            info!("   Output directory: {}", config.out);
+            info!("   Test directory: {}", config.test);
+            info!("  📚 Libraries: {:?}", config.libs);
             if !config.remappings.is_empty() {
-                println!("  🔗 Remappings: {:?}", config.remappings);
+                info!("   Remappings: {:?}", config.remappings);
             }
             if let Some(ref version) = config.solc_version {
-                println!("  🔧 Solc version: {}", version);
+                info!("   Solc version: {}", version);
             }
             if let Some(ref evm_version) = config.evm_version {
-                println!("  ⚡ EVM version: {}", evm_version);
+                info!("   EVM version: {}", evm_version);
             }
         }
     } else if verbose {
-        println!("⚙️  Using default Foundry configuration (no foundry.toml found)");
+        info!("️  Using default Foundry configuration (no foundry.toml found)");
     }
 
     Ok(config)
@@ -662,8 +648,8 @@ fn discover_project_contracts_with_config(
     let src_dir = project_path.join(&config.src);
 
     if verbose {
-        println!(
-            "🔍 Discovering contracts in: {} (from foundry.toml)",
+        info!(
+            " Discovering contracts in: {} (from foundry.toml)",
             src_dir.display()
         );
     }
@@ -674,7 +660,7 @@ fn discover_project_contracts_with_config(
         {
             sol_files.push(entry.path().to_path_buf());
             if verbose {
-                println!("  📄 Found: {}", entry.path().display());
+                info!("   Found: {}", entry.path().display());
             }
         }
     }
@@ -682,7 +668,7 @@ fn discover_project_contracts_with_config(
     sol_files.sort();
 
     if verbose {
-        println!("📊 Discovered {} contract files", sol_files.len());
+        info!(" Discovered {} contract files", sol_files.len());
     }
 
     Ok(sol_files)
@@ -703,7 +689,7 @@ fn flatten_project_contracts_with_config(
     verbose: bool,
 ) -> Result<String> {
     if verbose {
-        println!("🔧 Flattening contracts using forge flatten with Foundry config...");
+        info!(" Flattening contracts using forge flatten with Foundry config...");
     }
 
     let mut combined_flattened = String::new();
@@ -716,7 +702,7 @@ fn flatten_project_contracts_with_config(
             .context("Failed to make contract path relative to project root")?;
 
         if verbose {
-            println!("  🔨 Flattening: {}", relative_path.display());
+            info!("   Flattening: {}", relative_path.display());
         }
 
         // Build forge flatten command with configuration
@@ -749,8 +735,8 @@ fn flatten_project_contracts_with_config(
             String::from_utf8(output.stdout).context("forge flatten output is not valid UTF-8")?;
 
         if verbose {
-            println!(
-                "    ✅ Flattened {} lines",
+            info!(
+                "     Flattened {} lines",
                 flattened_content.lines().count()
             );
         }
@@ -767,8 +753,8 @@ fn flatten_project_contracts_with_config(
     }
 
     if verbose {
-        println!(
-            "🎯 Combined flattened source: {} lines total",
+        info!(
+            " Combined flattened source: {} lines total",
             combined_flattened.lines().count()
         );
     }
@@ -828,14 +814,14 @@ fn generate_tests_with_foundry_enhanced(
     foundry_config: Option<&FoundryConfig>,
 ) -> Result<()> {
     if verbose {
-        println!("🚀 Starting enhanced Foundry test generation...");
+        info!(" Starting enhanced Foundry test generation...");
         if let Some(config) = foundry_config {
-            println!("📋 Using Foundry configuration:");
-            println!(
-                "  📁 Test output will respect '{}' directory structure",
+            info!(" Using Foundry configuration:");
+            info!(
+                "   Test output will respect '{}' directory structure",
                 config.test
             );
-            println!("  🔧 Compiler settings will be inherited from foundry.toml");
+            info!("   Compiler settings will be inherited from foundry.toml");
         }
     }
 
@@ -849,7 +835,7 @@ fn generate_tests_with_foundry_enhanced(
         fs::create_dir_all(&test_dir).context("Failed to create enhanced test directory")?;
 
         if verbose {
-            println!("📂 Enhanced test directory: {}", test_dir.display());
+            info!(" Enhanced test directory: {}", test_dir.display());
         }
 
         test_dir

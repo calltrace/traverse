@@ -10,5 +10,6 @@ resolver = "2"
 path = "src/lib.rs"
 
 [dependencies]
+tracing = { workspace = true }
 pest = "2.7"
 pest_derive = "2.7"

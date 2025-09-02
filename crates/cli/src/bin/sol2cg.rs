@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
+use tracing::warn;
 use graph::cg::{
     CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline,
 };
@@ -136,6 +137,9 @@ impl From<walkdir::Error> for Sol2CgError {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Initialize logging
+    logging::init_subscriber(false);
+
     // 1. Find all .sol files
     let sol_files = find_solidity_files(&cli.input_paths)?;
     if sol_files.is_empty() {
@@ -199,7 +203,7 @@ fn main() -> Result<()> {
     )
     .context("Failed to determine project root for manifest generation")?; // Basic project root heuristic
 
-    eprintln!(
+    warn!(
         "[sol2cg] Using project root for manifest/bindings: {}",
         project_root.display()
     );
@@ -212,14 +216,14 @@ fn main() -> Result<()> {
         } else {
             project_root.join(manifest_path_arg)
         };
-        eprintln!(
+        warn!(
             "[sol2cg] Attempting to load manifest from: {}",
             absolute_manifest_path.display()
         );
         // Use graph::manifest::load_manifest directly
         match graph::manifest::load_manifest(&absolute_manifest_path) {
             Ok(loaded_manifest) => {
-                eprintln!(
+                warn!(
                     "[sol2cg] Manifest loaded successfully from file with {} entries.",
                     loaded_manifest.entries.len()
                 );
@@ -227,7 +231,7 @@ fn main() -> Result<()> {
                 manifest_loaded_from_file = true;
             }
             Err(e) => {
-                eprintln!(
+                warn!(
                     "Warning: Failed to load manifest from {}: {}. Will attempt to generate from source files.",
                     absolute_manifest_path.display(),
                     e
@@ -238,7 +242,7 @@ fn main() -> Result<()> {
     }
 
     if !manifest_loaded_from_file {
-        eprintln!("[sol2cg] Generating manifest in-memory from source files.");
+        warn!("[sol2cg] Generating manifest in-memory from source files.");
         let mut manifest_in_memory = Manifest::default();
         let sol_files_relative_for_manifest =
             find_solidity_files_for_manifest(&cli.input_paths, &project_root).context(
@@ -246,7 +250,7 @@ fn main() -> Result<()> {
             )?;
 
         if sol_files_relative_for_manifest.is_empty() {
-            eprintln!("[sol2cg] No Solidity files found for in-memory manifest generation. Proceeding without manifest.");
+            warn!("[sol2cg] No Solidity files found for in-memory manifest generation. Proceeding without manifest.");
             // ctx.manifest remains None
         } else {
             for relative_file_path in &sol_files_relative_for_manifest {
@@ -261,7 +265,7 @@ fn main() -> Result<()> {
                             manifest_in_memory.extend_entries(entries);
                         }
                         Err(e) => {
-                            eprintln!(
+                            warn!(
                                     "Warning: Failed to extract comments from {}: {}. Skipping file for manifest.",
                                     relative_file_path.display(),
                                     e
@@ -269,7 +273,7 @@ fn main() -> Result<()> {
                         }
                     },
                     Err(e) => {
-                        eprintln!(
+                        warn!(
                             "Warning: Failed to read file {} for manifest generation: {}",
                             full_file_path.display(),
                             e
@@ -277,14 +281,14 @@ fn main() -> Result<()> {
                     }
                 }
             }
-            eprintln!(
+            warn!(
                 "[sol2cg] In-memory manifest generated with {} entries.",
                 manifest_in_memory.entries.len()
             );
             if !manifest_in_memory.entries.is_empty() {
                 ctx.manifest = Some(manifest_in_memory);
             } else {
-                eprintln!("[sol2cg] In-memory manifest generated, but it is empty. Proceeding without manifest in context.");
+                warn!("[sol2cg] In-memory manifest generated, but it is empty. Proceeding without manifest in context.");
                 // ctx.manifest remains None
             }
         }
@@ -300,20 +304,20 @@ fn main() -> Result<()> {
         } else {
             project_root.join(bindings_path) // project_root must be defined before this block
         };
-        eprintln!(
+        warn!(
             "[sol2cg] Attempting to load bindings from file: {}",
             absolute_bindings_path.display()
         );
         match BindingRegistry::load(&absolute_bindings_path) {
             Ok(registry) => {
-                eprintln!(
+                warn!(
                     "[sol2cg] BindingRegistry loaded successfully from file with {} keys.",
                     registry.bindings.len()
                 );
                 binding_registry_option = Some(registry);
             }
             Err(e) => {
-                eprintln!(
+                warn!(
                     "Warning: Failed to load bindings from file {}: {}. Proceeding with an empty or Natspec-derived registry.",
                     absolute_bindings_path.display(),
                     e
@@ -325,7 +329,7 @@ fn main() -> Result<()> {
 
     // Ensure we have a BindingRegistry instance to work with, default to empty if not loaded from file.
     if binding_registry_option.is_none() {
-        eprintln!("[sol2cg] No bindings file loaded or specified. Initializing a default BindingRegistry.");
+        warn!("[sol2cg] No bindings file loaded or specified. Initializing a default BindingRegistry.");
         binding_registry_option = Some(BindingRegistry::default());
     }
 
@@ -333,7 +337,7 @@ fn main() -> Result<()> {
     // This happens regardless of whether bindings were loaded from a file or started as default.
     if let Some(registry) = binding_registry_option.as_mut() {
         if let Some(ref manifest_content) = ctx.manifest {
-            eprintln!("[sol2cg] Populating BindingRegistry from manifest Natspec (processing @custom:binds-to on concrete contracts)...");
+            warn!("[sol2cg] Populating BindingRegistry from manifest Natspec (processing @custom:binds-to on concrete contracts)...");
             let initial_keys_count = registry.bindings.len();
             let initial_concrete_bindings = registry.bindings.values().filter(|bc| bc.contract_name.is_some()).count();
             
@@ -342,12 +346,12 @@ fn main() -> Result<()> {
             let final_keys_count = registry.bindings.len();
             let final_concrete_bindings = registry.bindings.values().filter(|bc| bc.contract_name.is_some()).count();
             
-            eprintln!(
+            warn!(
                 "[sol2cg] BindingRegistry population from manifest complete. Keys: {} -> {}. Concrete contract bindings: {} -> {}.",
                 initial_keys_count, final_keys_count, initial_concrete_bindings, final_concrete_bindings
             );
         } else {
-            eprintln!("[sol2cg] Manifest not available, skipping Natspec-based population for BindingRegistry.");
+            warn!("[sol2cg] Manifest not available, skipping Natspec-based population for BindingRegistry.");
         }
     }
     
@@ -356,7 +360,7 @@ fn main() -> Result<()> {
 
     // Create the call graph
     let mut graph = CallGraph::new();
-    eprintln!("[Address Debug sol2cg] Graph created at: {:p}", &graph); // Added address log
+    warn!("[Address Debug sol2cg] Graph created at: {:p}", &graph); // Added address log
 
     // Parse configuration parameters
     let config = parse_config_params(cli.config.as_deref());
@@ -386,21 +390,21 @@ fn main() -> Result<()> {
     }
 
     // Run the pipeline
-    eprintln!("[Address Debug sol2cg] Before pipeline.run: {:p}", &graph); // Added address log
+    warn!("[Address Debug sol2cg] Before pipeline.run: {:p}", &graph); // Added address log
     pipeline
         .run(input.clone(), &mut ctx, &mut graph, &config)
         .context("Failed to generate call graph with pipeline")?;
-    eprintln!("[Address Debug sol2cg] After pipeline.run: {:p}", &graph); // Added address log
+    warn!("[Address Debug sol2cg] After pipeline.run: {:p}", &graph); // Added address log
 
     // 5. Add Explicit Return Edges
-    eprintln!(
+    warn!(
         "[Address Debug sol2cg] Before add_explicit_return_edges: {:p}",
         &graph
     ); // Added address log
     graph
         .add_explicit_return_edges(&input, &ctx) // Pass context ctx instead of tree
         .context("Failed to add explicit return edges")?;
-    eprintln!(
+    warn!(
         "[Address Debug sol2cg] After add_explicit_return_edges: {:p}",
         &graph
     ); // Added address log
@@ -419,7 +423,7 @@ fn main() -> Result<()> {
         .iter()
         .filter(|e| e.edge_type == graph::cg::EdgeType::Return)
         .count();
-    eprintln!(
+    warn!(
         "[DEBUG sol2cg] Before serialization: Total Edges = {}, Call Edges = {}, Return Edges = {}",
         total_edges, call_edges_count, return_edges_count
     );
@@ -435,7 +439,7 @@ fn main() -> Result<()> {
         }
         OutputFormat::Mermaid => {
             let generator = MermaidGenerator::new();
-            eprintln!(
+            warn!(
                 "[Address Debug sol2cg] Before to_sequence_diagram: {:p}",
                 &graph
             ); // Added address log
@@ -501,7 +505,7 @@ fn find_solidity_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, Sol2CgError> {
         } else if path.is_file() {
             // If it's a file but not .sol, issue a warning or ignore silently.
             // Let's ignore for now.
-            // eprintln!("Warning: Skipping non-Solidity file: {}", path.display());
+            // warn!("Warning: Skipping non-Solidity file: {}", path.display());
         } else {
             // Handle cases where the path doesn't exist or isn't a file/dir
             return Err(Sol2CgError::IoError(

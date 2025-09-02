@@ -242,7 +242,7 @@ fn test_interface_call_no_implementation() -> Result<()> {
         .expect("ActionCaller.triggerAction node missing");
     let iface_perform_node = find_node(&graph, "performAction", Some("IAction"))
         .expect("IAction.performAction node missing");
-    let _iface_node =
+    let iface_node =
         find_node(&graph, "IAction", Some("IAction")).expect("IAction interface node missing"); // Check interface node exists
     let _caller_ctor_node = find_node(&graph, "ActionCaller", Some("ActionCaller")) // Mark unused
         .expect("ActionCaller constructor node missing");
@@ -365,14 +365,14 @@ fn test_contract_inheritance() -> Result<()> {
 
     // 2. Verify nodes exist
     // Base nodes
-    let base_ctor_node =
+    let _base_ctor_node =
         find_node(&graph, "Base", Some("Base")).expect("Base constructor node missing");
     let base_func_node =
         find_node(&graph, "baseFunction", Some("Base")).expect("Base.baseFunction node missing");
     let base_override_node = find_node(&graph, "overriddenFunction", Some("Base"))
         .expect("Base.overriddenFunction node missing");
     // Derived nodes
-    let derived_ctor_node =
+    let _derived_ctor_node =
         find_node(&graph, "Derived", Some("Derived")).expect("Derived constructor node missing");
     let derived_func_node = find_node(&graph, "derivedFunction", Some("Derived"))
         .expect("Derived.derivedFunction node missing");
@@ -1763,7 +1763,7 @@ fn test_interface_invocation_single_implementation() -> Result<()> {
         .expect("CounterUser.useCounter node missing");
     let impl_inc_node =
         find_node(&graph, "increment", Some("Counter")).expect("Counter.increment node missing");
-    let _iface_inc_node =
+    let iface_inc_node =
         find_node(&graph, "increment", Some("ICounter")).expect("ICounter.increment node missing"); // Keep for node count check
 
     // Edges:
@@ -3060,7 +3060,7 @@ fn test_library_call_on_return_value() -> Result<()> {
     if let Some(do_math_node) = do_math_node_opt {
         eprintln!("[DEBUG Mermaid Focus] Edges involving doMath (Node ID {}):", do_math_node.id);
         for (idx, edge) in graph.edges.iter().enumerate() {
-            let source_node_name = graph.nodes.get(edge.source_node_id).map_or("?".to_string(), |n| format!("{}.{}", n.contract_name.as_deref().unwrap_or("Global"), n.name));
+            let _source_node_name = graph.nodes.get(edge.source_node_id).map_or("?".to_string(), |n| format!("{}.{}", n.contract_name.as_deref().unwrap_or("Global"), n.name));
             let target_node_name = graph.nodes.get(edge.target_node_id).map_or("?".to_string(), |n| format!("{}.{}", n.contract_name.as_deref().unwrap_or("Global"), n.name));
 
             if edge.source_node_id == do_math_node.id || edge.target_node_id == do_math_node.id {

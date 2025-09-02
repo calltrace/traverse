@@ -1,5 +1,6 @@
 use crate::cg::{CallGraph, EdgeType, Node, NodeType, Visibility}; // Assuming NodeId is usize internally
 use std::collections::{HashMap, HashSet};
+use tracing::debug;
 
 pub type NodeId = usize; // Ensure this is pub if storage_access needs it directly from here.
 
@@ -103,7 +104,7 @@ impl ReachabilityAnalyzer {
         let current_node = match graph.nodes.get(current_node_id) {
             Some(node) => node,
             None => {
-                eprintln!(
+                debug!(
                     "[Reachability DFS] Error: Node ID {} not found in graph.",
                     current_node_id
                 );
@@ -410,7 +411,7 @@ pub(crate) mod tests {
         );
 
         let analyzer = ReachabilityAnalyzer::new();
-        let processed_nodes: HashSet<NodeId> = HashSet::new();
+        let _processed_nodes: HashSet<NodeId> = HashSet::new();
 
         let results = analyzer.analyze_entry_points(
             &graph,

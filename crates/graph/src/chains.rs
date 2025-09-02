@@ -8,6 +8,7 @@ use crate::parser::get_node_text;
 use std::collections::VecDeque;
 use streaming_iterator::StreamingIterator; // Not directly used, but QueryCursor uses it. Keep for now if indirect.
 use tree_sitter::{Node as TsNode, Query, QueryCursor};
+use tracing::{trace, error};
 
 #[derive(Debug, PartialEq, Eq, Clone, thiserror::Error)]
 pub enum TypeError {
@@ -136,15 +137,15 @@ pub(crate) fn analyze_chained_call<'a>(
     originating_span_start: usize,                             // Pass the originating span start
 ) -> std::result::Result<Vec<ResolvedCallStep>, TypeError> {
     // If original_start_node is None, this is the top-level call, so use start_node
-    let _original_start_node_for_err_reporting =
+    let original_start_node_for_err_reporting =
         original_start_node_for_err_reporting.unwrap_or(start_node); // Keep if needed for errors
                                                                      // Use full path to Result
     let mut steps = Vec::new();
 
-    eprintln!(
-        "[Analyze Chained] Starting analysis for node kind: '{}', text: '{}'",
-        start_node.kind(),
-        get_node_text(&start_node, source).trim()
+    trace!(
+        node_kind = start_node.kind(),
+        node_text = get_node_text(&start_node, source).trim(),
+        "Starting chained analysis"
     );
 
     match start_node.kind() {
@@ -164,10 +165,10 @@ pub(crate) fn analyze_chained_call<'a>(
                 solidity_lang,
                 input,
             )?;
-            eprintln!(
-                "[Analyze Chained] Base case node '{}' processed. Type resolved: {:?}",
-                start_node.kind(),
-                _resolved_type
+            trace!(
+                node_kind = start_node.kind(),
+                ?_resolved_type,
+                "Base case node processed"
             );
             // If it's just an identifier/literal, there are no call steps *from* it directly.
             // The chain must continue via member access or call expression wrapping it.
@@ -220,9 +221,9 @@ pub(crate) fn analyze_chained_call<'a>(
                 base_object_identifier_for_builtin: None, // Added: No base object for 'new'
             };
             steps.push(step);
-            eprintln!(
-                "[Analyze Chained] 'new' expression step added. Result type: {:?}",
-                steps.last().and_then(|s| s.result_type.as_ref())
+            trace!(
+                result_type = ?steps.last().and_then(|s| s.result_type.as_ref()),
+                "New expression step added"
             );
         }
 
@@ -236,8 +237,8 @@ pub(crate) fn analyze_chained_call<'a>(
             // Get argument expression nodes
             let argument_nodes = find_argument_expression_nodes(start_node); // Use start_node
 
-            eprintln!(
-                        "[Analyze Chained] Handling call_expression. Function node kind: '{}', text: '{}', Num args: {}",
+            trace!(
+                        "Handling call_expression. Function node kind: '{}', text: '{}', Num args: {}",
                         function_node.kind(),
                         get_node_text(&function_node, source).trim(),
                         argument_nodes.len()
@@ -247,8 +248,8 @@ pub(crate) fn analyze_chained_call<'a>(
             let mut argument_steps = Vec::new();
             let mut argument_texts = Vec::with_capacity(argument_nodes.len());
             for arg_node in argument_nodes {
-                eprintln!(
-                    "[Analyze Chained]   Analyzing argument node kind: '{}', text: '{}'",
+                trace!(
+                    "  Analyzing argument node kind: '{}', text: '{}'",
                     arg_node.kind(),
                     get_node_text(&arg_node, source).trim()
                 );
@@ -262,7 +263,7 @@ pub(crate) fn analyze_chained_call<'a>(
                     source,
                     solidity_lang,
                     input,
-                    Some(_original_start_node_for_err_reporting),
+                    Some(original_start_node_for_err_reporting),
                     originating_span_start, // Pass down the same originating span start
                 )?;
 
@@ -270,8 +271,8 @@ pub(crate) fn analyze_chained_call<'a>(
                 // Store the original text of the argument for the outer call step
                 argument_texts.push(get_node_text(&arg_node, source).to_string());
             }
-            eprintln!(
-                "[Analyze Chained]   Finished analyzing arguments. Collected {} inner steps.",
+            trace!(
+                "  Finished analyzing arguments. Collected {} inner steps.",
                 argument_texts.len()
             );
 
@@ -296,8 +297,8 @@ pub(crate) fn analyze_chained_call<'a>(
                             || ctx.all_libraries.contains_key(&name))
                     // Check libraries too
                     {
-                        eprintln!(
-                                    "[Analyze Chained]   Outer call is Type Cast/Constructor '{}'. No outer step generated.", name
+                        trace!(
+                                    "  Outer call is Type Cast/Constructor '{}'. No outer step generated.", name
                                 );
                         // The type resolution happens via the recursive call on the argument(s).
                         // The result type for the *overall* expression is the type name itself.
@@ -314,8 +315,8 @@ pub(crate) fn analyze_chained_call<'a>(
                         // We return the steps generated by analyzing `arg`.
                     } else {
                         // Simple function call `foo()`
-                        eprintln!(
-                            "[Analyze Chained]   Outer call is Simple Function Call '{}'",
+                        trace!(
+                            "  Outer call is Simple Function Call '{}'",
                             name
                         );
                         let target =
@@ -343,8 +344,8 @@ pub(crate) fn analyze_chained_call<'a>(
                         // Combine steps: argument_steps first, then the outer_step
                         steps = argument_steps; // Start with argument steps
                         steps.push(outer_step); // Add the simple call step
-                        eprintln!(
-                            "[Analyze Chained]   Simple call step added. Result type: {:?}. Total steps for this branch: {}",
+                        trace!(
+                            "  Simple call step added. Result type: {:?}. Total steps for this branch: {}",
                             result_type, steps.len()
                         );
                     }
@@ -380,8 +381,8 @@ pub(crate) fn analyze_chained_call<'a>(
                         )));
                     }
                     let property_name = get_node_text(&property_node, source).to_string();
-                    eprintln!(
-                        "[Analyze Chained]   Outer call is Member Call '.{}'",
+                    trace!(
+                        "  Outer call is Member Call '.{}'",
                         property_name
                     );
                     // Recursively analyze the object part first
@@ -395,7 +396,7 @@ pub(crate) fn analyze_chained_call<'a>(
                         source,
                         solidity_lang,
                         input,
-                        Some(_original_start_node_for_err_reporting),
+                        Some(original_start_node_for_err_reporting),
                         originating_span_start, // Pass down the same originating span start
                     )?;
                     // --- Try to capture the base identifier if the object is simple ---
@@ -423,17 +424,17 @@ pub(crate) fn analyze_chained_call<'a>(
                             input,
                         )?
                     };
-                    eprintln!(
-                        "[Analyze Chained]     Resolved outer_object_type for member call: {:?}",
+                    trace!(
+                        "    Resolved outer_object_type for member call: {:?}",
                         outer_object_type
                     );
 
                     if let Some(ref obj_type) = outer_object_type {
-                        eprintln!(
-                            "[Analyze Chained]     Object type for '.{}' call resolved to: '{}'",
+                        trace!(
+                            "    Object type for '.{}' call resolved to: '{}'",
                             property_name, obj_type
                         );
-                        eprintln!("[Analyze Chained]     Calling resolve_member_or_library_call_v2 with obj_type='{}', property='{}'", obj_type, property_name);
+                        trace!("    Calling resolve_member_or_library_call_v2 with obj_type='{}', property='{}'", obj_type, property_name);
                         let target = resolve_member_or_library_call_v2(
                             obj_type,
                             &property_name,
@@ -477,12 +478,12 @@ pub(crate) fn analyze_chained_call<'a>(
                         steps = object_steps; // Start with object steps
                         steps.extend(argument_steps); // Add argument steps
                         steps.push(outer_step); // Add the final member call step
-                        eprintln!(
-                            "[Analyze Chained]     Member call step added. Result type: {:?}. Total steps for this branch: {}",
+                        trace!(
+                            "    Member call step added. Result type: {:?}. Total steps for this branch: {}",
                             result_type, steps.len()
                         );
                     } else {
-                        eprintln!("[Analyze Chained]     Failed to resolve object type for member call '.{}'", property_name);
+                        trace!("    Failed to resolve object type for member call '.{}'", property_name);
                         return Err(TypeError::TypeResolutionFailed {
                             expr: get_node_text(&object_node, source).to_string(),
                             reason: "Could not determine type for member call.".to_string(),
@@ -513,7 +514,7 @@ pub(crate) fn analyze_chained_call<'a>(
                         source,
                         solidity_lang,
                         input,
-                        Some(_original_start_node_for_err_reporting),
+                        Some(original_start_node_for_err_reporting),
                         originating_span_start,
                     )?;
 
@@ -527,8 +528,8 @@ pub(crate) fn analyze_chained_call<'a>(
                     // Combine steps: argument_steps first, then the (potentially modified) new_constructor_steps
                     steps = argument_steps; // Start with argument steps
                     steps.extend(new_constructor_steps); // Add steps from analyzing the 'new' expression
-                    eprintln!(
-                        "[Analyze Chained]   'new' expression wrapped in call processed. Total steps for this branch: {}",
+                    trace!(
+                        "  'new' expression wrapped in call processed. Total steps for this branch: {}",
                         steps.len()
                     );
                 }
@@ -563,8 +564,8 @@ pub(crate) fn analyze_chained_call<'a>(
             }
             let property_name = get_node_text(&property_node, source).to_string();
 
-            eprintln!(
-                "[Analyze Chained] Handling member_expression '.{}' (not a call)",
+            trace!(
+                "Handling member_expression '.{}' (not a call)",
                 property_name
             );
 
@@ -578,7 +579,7 @@ pub(crate) fn analyze_chained_call<'a>(
                 source,
                 solidity_lang,
                 input,
-                Some(_original_start_node_for_err_reporting), // Use the correct parameter name
+                Some(original_start_node_for_err_reporting), // Use the correct parameter name
                 originating_span_start, // Pass down the same originating span start
             )?;
             steps.extend(object_steps); // Prepend object steps
@@ -586,8 +587,8 @@ pub(crate) fn analyze_chained_call<'a>(
             // This member access itself doesn't generate a call step.
             // We just needed to ensure the object part was analyzed.
             // The type resolution for the *next* step will handle this property.
-            eprintln!(
-                "[Analyze Chained]   Member access processed. {} inner steps added.",
+            trace!(
+                "  Member access processed. {} inner steps added.",
                 steps.len()
             );
         }
@@ -596,8 +597,8 @@ pub(crate) fn analyze_chained_call<'a>(
             // Delegate analysis to the first child of the expression node
             if let Some(child_node) = start_node.child(0) {
                 // Use start_node
-                eprintln!(
-                    "[Analyze Chained] Delegating 'expression' analysis to child '{}'.",
+                trace!(
+                    "Delegating 'expression' analysis to child '{}'.",
                     child_node.kind()
                 );
                 // Recursively call analyze_chained_call on the child.
@@ -612,11 +613,11 @@ pub(crate) fn analyze_chained_call<'a>(
                     source,
                     solidity_lang,
                     input,
-                    Some(_original_start_node_for_err_reporting),
+                    Some(original_start_node_for_err_reporting),
                     originating_span_start, // Pass down the same originating span start
                 );
             } else {
-                eprintln!("[Analyze Chained] 'expression' node has no children.");
+                trace!("'expression' node has no children.");
                 // Fall through to return the current (likely empty) steps vector.
             }
         }
@@ -629,8 +630,8 @@ pub(crate) fn analyze_chained_call<'a>(
                 TypeError::MissingChild("binary_expression missing right operand".to_string())
             })?;
 
-            eprintln!(
-                "[Analyze Chained]   Binary expression: Analyzing left operand kind: '{}'",
+            trace!(
+                "  Binary expression: Analyzing left operand kind: '{}'",
                 left_node.kind()
             );
             let left_steps = analyze_chained_call(
@@ -642,13 +643,13 @@ pub(crate) fn analyze_chained_call<'a>(
                 source,
                 solidity_lang,
                 input,
-                Some(_original_start_node_for_err_reporting), // Use the correct parameter name
+                Some(original_start_node_for_err_reporting), // Use the correct parameter name
                 originating_span_start, // Pass down the same originating span start
             )?;
             steps.extend(left_steps); // Add steps from left operand
 
-            eprintln!(
-                "[Analyze Chained]   Binary expression: Analyzing right operand kind: '{}'",
+            trace!(
+                "  Binary expression: Analyzing right operand kind: '{}'",
                 right_node.kind()
             );
             let right_steps = analyze_chained_call(
@@ -660,13 +661,13 @@ pub(crate) fn analyze_chained_call<'a>(
                 source,
                 solidity_lang,
                 input,
-                Some(_original_start_node_for_err_reporting), // Use the correct parameter name
+                Some(original_start_node_for_err_reporting), // Use the correct parameter name
                 originating_span_start, // Pass down the same originating span start
             )?;
             steps.extend(right_steps); // Add steps from right operand
 
-            eprintln!(
-                "[Analyze Chained]   Binary expression processed. Total steps for this branch now: {}",
+            trace!(
+                "  Binary expression processed. Total steps for this branch now: {}",
                 steps.len()
             );
             // The type resolution for the binary expression itself happens in resolve_expression_type_v2
@@ -695,14 +696,14 @@ pub(crate) fn analyze_chained_call<'a>(
                     | "unary_expression"
                     | "parenthesized_expression"
             ) {
-                eprintln!(
-                            "[Analyze Chained] Potentially unhandled start node kind '{}', resolved type: {:?}. No steps generated.",
+                trace!(
+                            "Potentially unhandled start node kind '{}', resolved type: {:?}. No steps generated.",
                             start_node.kind(), // Use start_node
                             _resolved_type
                         );
             } else {
-                eprintln!(
-                            "[Analyze Chained] Handled base node kind '{}', resolved type: {:?}. No steps generated.",
+                trace!(
+                            "Handled base node kind '{}', resolved type: {:?}. No steps generated.",
                             start_node.kind(), // Use start_node
                             _resolved_type
                         );
@@ -714,8 +715,8 @@ pub(crate) fn analyze_chained_call<'a>(
     // object -> arguments -> outer call.
     // Deduplication might need to be revisited if duplicate steps cause issues.
 
-    eprintln!(
-        "[Analyze Chained] Analysis finished. Total steps generated: {}",
+    trace!(
+        "Analysis finished. Total steps generated: {}",
         steps.len()
     );
     Ok(steps)
@@ -764,7 +765,7 @@ fn resolve_expression_type_v2<'a>(
 ) -> std::result::Result<Option<String>, TypeError> {
     // Use full path to Result
     let expr_text = get_node_text(&expr_node, source).trim().to_string();
-    eprintln!(
+    trace!(
         "[Resolve Type V2] Resolving type for node kind: '{}', text: '{}'",
         expr_node.kind(),
         expr_text
@@ -775,7 +776,7 @@ fn resolve_expression_type_v2<'a>(
         "identifier" => {
             let name = expr_text;
             if name == "Math" {
-                eprintln!(
+                trace!(
                     "[Resolve Type V2] Encountered identifier 'Math'. CallerScope='{:?}'",
                     caller_contract_name_opt
                 );
@@ -786,7 +787,7 @@ fn resolve_expression_type_v2<'a>(
                     .state_var_types
                     .get(&(contract_name.clone(), name.clone()))
                 {
-                    eprintln!(
+                    trace!(
                         "[Resolve Type V2]   Identifier '{}' resolved to state var type '{}'",
                         name, type_name
                     );
@@ -804,7 +805,7 @@ fn resolve_expression_type_v2<'a>(
                     .as_deref()
                     .unwrap_or("Global");
 
-                eprintln!("[Resolve Type V2 - LocalVar] Attempting to resolve identifier '{}' as local variable in function '{}.{}' (Caller Node ID: {}, Expr Node Span: {:?})", name, current_contract_name, current_func_name, caller_node_id, (expr_node.start_byte(), expr_node.end_byte()));
+                trace!("[Resolve Type V2 - LocalVar] Attempting to resolve identifier '{}' as local variable in function '{}.{}' (Caller Node ID: {}, Expr Node Span: {:?})", name, current_contract_name, current_func_name, caller_node_id, (expr_node.start_byte(), expr_node.end_byte()));
 
                 if let Some((_, caller_node_info_for_span, _)) =
                     ctx // Renamed for clarity
@@ -854,13 +855,13 @@ fn resolve_expression_type_v2<'a>(
                         }
 
                         if let Some(true_function_boundary_node) = enclosing_true_function_ts_node {
-                            eprintln!("[Resolve Type V2 - LocalVar Upward] Boundary for search: True function kind='{}', span=({},{})", true_function_boundary_node.kind(), true_function_boundary_node.start_byte(), true_function_boundary_node.end_byte());
+                            trace!("[Resolve Type V2 - LocalVar Upward] Boundary for search: True function kind='{}', span=({},{})", true_function_boundary_node.kind(), true_function_boundary_node.start_byte(), true_function_boundary_node.end_byte());
 
                             let mut current_scope_node_opt = expr_node.parent();
-                            eprintln!("[Resolve Type V2 - LocalVar Upward] Starting upward search for identifier '{}' (usage at byte {}), from parent kind: {:?}", name, expr_node.start_byte(), current_scope_node_opt.map(|n| n.kind()));
+                            trace!("[Resolve Type V2 - LocalVar Upward] Starting upward search for identifier '{}' (usage at byte {}), from parent kind: {:?}", name, expr_node.start_byte(), current_scope_node_opt.map(|n| n.kind()));
 
                             while let Some(current_scope_node) = current_scope_node_opt {
-                                eprintln!("[Resolve Type V2 - LocalVar Upward]   Searching in scope: kind='{}', id={}, span=({},{})", current_scope_node.kind(), current_scope_node.id(), current_scope_node.start_byte(), current_scope_node.end_byte());
+                                trace!("[Resolve Type V2 - LocalVar Upward]   Searching in scope: kind='{}', id={}, span=({},{})", current_scope_node.kind(), current_scope_node.id(), current_scope_node.start_byte(), current_scope_node.end_byte());
 
                                 let mut cursor = QueryCursor::new();
                                 let source_bytes = input.source.as_bytes();
@@ -907,12 +908,12 @@ fn resolve_expression_type_v2<'a>(
                                             let type_name_found =
                                                 get_node_text(&type_node_found, &input.source)
                                                     .to_string();
-                                            eprintln!("[Resolve Type V2 - LocalVar Upward]     MATCH! In scope '{}' (ID: {}), found decl for '{}' (type '{}') ending at byte {}. Usage at byte {}.", current_scope_node.kind(), current_scope_node.id(), var_name_found, type_name_found, decl_stmt_node.end_byte(), expr_node.start_byte());
+                                            trace!("[Resolve Type V2 - LocalVar Upward]     MATCH! In scope '{}' (ID: {}), found decl for '{}' (type '{}') ending at byte {}. Usage at byte {}.", current_scope_node.kind(), current_scope_node.id(), var_name_found, type_name_found, decl_stmt_node.end_byte(), expr_node.start_byte());
                                             return Ok(Some(type_name_found));
                                         } else if var_name_found == name {
                                             // This condition means name matched, but decl_stmt_node.end_byte() > expr_node.start_byte()
                                             // (i.e., usage is before or within the declaration span, or at least not strictly after)
-                                            eprintln!("[Resolve Type V2 - LocalVar Upward]     Found decl for '{}' in scope '{}' (ID: {}), but usage (byte {}) is not strictly after declaration end (byte {}). Decl span: ({},{}).", name, current_scope_node.kind(), current_scope_node.id(), expr_node.start_byte(), decl_stmt_node.end_byte(), decl_stmt_node.start_byte(), decl_stmt_node.end_byte());
+                                            trace!("[Resolve Type V2 - LocalVar Upward]     Found decl for '{}' in scope '{}' (ID: {}), but usage (byte {}) is not strictly after declaration end (byte {}). Decl span: ({},{}).", name, current_scope_node.kind(), current_scope_node.id(), expr_node.start_byte(), decl_stmt_node.end_byte(), decl_stmt_node.start_byte(), decl_stmt_node.end_byte());
                                         }
                                         // Removed the 'else' block that logged "Skipping decl ... because its parent ... is not current_scope_node"
                                         // as that parent check was removed.
@@ -920,53 +921,53 @@ fn resolve_expression_type_v2<'a>(
                                 }
 
                                 if current_scope_node.id() == true_function_boundary_node.id() {
-                                    eprintln!("[Resolve Type V2 - LocalVar Upward]   Reached true function boundary ('{}'). Stopping upward search for '{}'.", true_function_boundary_node.kind(), name);
+                                    trace!("[Resolve Type V2 - LocalVar Upward]   Reached true function boundary ('{}'). Stopping upward search for '{}'.", true_function_boundary_node.kind(), name);
                                     // current_scope_node_opt = None; // This assignment's value is reported as never read if loop breaks
                                     break; // Stop inner match loop for this scope, will also stop outer while via current_scope_node_opt becoming None effectively
                                 }
 
                                 current_scope_node_opt = current_scope_node.parent();
                                 if current_scope_node_opt.is_none() {
-                                    eprintln!("[Resolve Type V2 - LocalVar Upward]   Reached tree root. Stopping upward search for '{}'.", name);
+                                    trace!("[Resolve Type V2 - LocalVar Upward]   Reached tree root. Stopping upward search for '{}'.", name);
                                     break;
                                 }
                             } // End while current_scope_node_opt
                         } else {
-                            eprintln!("[Resolve Type V2 - LocalVar Upward] Could not determine true function boundary for identifier '{}'. Local variable search might be incomplete.", name);
+                            trace!("[Resolve Type V2 - LocalVar Upward] Could not determine true function boundary for identifier '{}'. Local variable search might be incomplete.", name);
                         }
-                        eprintln!("[Resolve Type V2 - LocalVar Upward] Finished upward search for '{}'. Not found as local variable in accessible scope.", name);
+                        trace!("[Resolve Type V2 - LocalVar Upward] Finished upward search for '{}'. Not found as local variable in accessible scope.", name);
                         // --- End: Check local variables ---
                     } else {
                         // This 'else' corresponds to: if let Some(_definition_ts_node) = input.tree.root_node()...
-                        eprintln!("[Resolve Type V2 - LocalVar]   Could not find definition TsNode for Caller Node ID: {}", caller_node_id);
+                        trace!("[Resolve Type V2 - LocalVar]   Could not find definition TsNode for Caller Node ID: {}", caller_node_id);
                     }
                 } else {
                     // This 'else' corresponds to: if let Some((_, caller_node_info_for_span, _)) = ctx.definition_nodes_info...
-                    eprintln!("[Resolve Type V2 - LocalVar]   Could not find NodeInfo for Caller Node ID: {} in definition_nodes_info", caller_node_id);
+                    trace!("[Resolve Type V2 - LocalVar]   Could not find NodeInfo for Caller Node ID: {} in definition_nodes_info", caller_node_id);
                 }
             } else {
                 // This 'else' corresponds to: if let Some(caller_node_graph_info) = graph.nodes.get(caller_node_id)
-                eprintln!("[Resolve Type V2 - LocalVar]   Could not find graph node info for Caller Node ID: {} (e.g. for function name/contract context)", caller_node_id);
+                trace!("[Resolve Type V2 - LocalVar]   Could not find graph node info for Caller Node ID: {} (e.g. for function name/contract context)", caller_node_id);
             }
             // 2. Check if it's a known contract, library, or interface name (these are types)
             let is_contract = ctx.all_contracts.contains_key(&name);
             let is_library = ctx.all_libraries.contains_key(&name);
             let is_interface = ctx.all_interfaces.contains_key(&name);
-            eprintln!("[Resolve Type V2]   Identifier '{}': is_contract={}, is_library={}, is_interface={}", name, is_contract, is_library, is_interface); // DEBUG LOG
+            trace!("[Resolve Type V2]   Identifier '{}': is_contract={}, is_library={}, is_interface={}", name, is_contract, is_library, is_interface); // DEBUG LOG
             if is_contract || is_library || is_interface {
-                eprintln!("[Resolve Type V2]   Identifier '{}' resolved to type (contract/library/interface) '{}'", name, name);
+                trace!("[Resolve Type V2]   Identifier '{}' resolved to type (contract/library/interface) '{}'", name, name);
                 return Ok(Some(name));
             }
             // 3. Check if it's the special 'this' keyword
             if name == "this" {
                 if let Some(contract_name) = caller_contract_name_opt {
-                    eprintln!(
+                    trace!(
                         "[Resolve Type V2]   Identifier 'this' resolved to contract type '{}'",
                         contract_name
                     );
                     return Ok(Some(contract_name.clone()));
                 } else {
-                    eprintln!("[Resolve Type V2]   Identifier 'this' used outside contract scope.");
+                    trace!("[Resolve Type V2]   Identifier 'this' used outside contract scope.");
                     return Ok(None); // 'this' outside contract is invalid
                 }
             }
@@ -982,7 +983,7 @@ fn resolve_expression_type_v2<'a>(
                     function_name,
                     ..
                 }) => {
-                    eprintln!("[Resolve Type V2]   Identifier '{}' resolved to function '{:?}.{}'. Getting return type.", name, contract_name, function_name);
+                    trace!("[Resolve Type V2]   Identifier '{}' resolved to function '{:?}.{}'. Getting return type.", name, contract_name, function_name);
                     let func_key = (contract_name.clone(), function_name.clone());
                     if let Some(node_id) = graph.node_lookup.get(&func_key) {
                         let def_node_info_opt = ctx
@@ -993,29 +994,29 @@ fn resolve_expression_type_v2<'a>(
                         if let Some(def_node_info) = def_node_info_opt {
                             // Use the function's return type as the expression's type
                             let return_type = get_function_return_type_v2(&def_node_info, input)?;
-                            eprintln!(
+                            trace!(
                                 "[Resolve Type V2]     Function return type: {:?}",
                                 return_type
                             );
                             return Ok(return_type);
                         } else {
-                            eprintln!("[Resolve Type V2]     Could not find definition NodeInfo for function ID {}", node_id);
+                            trace!("[Resolve Type V2]     Could not find definition NodeInfo for function ID {}", node_id);
                         }
                     } else {
-                        eprintln!("[Resolve Type V2]     Could not find node ID in graph lookup for function key {:?}", func_key);
+                        trace!("[Resolve Type V2]     Could not find node ID in graph lookup for function key {:?}", func_key);
                     }
                 }
                 Ok(_) | Err(_) => {
                     // Didn't resolve to a function, or an error occurred during resolution.
                     // Continue with the original "not resolved" path.
-                    eprintln!(
+                    trace!(
                         "[Resolve Type V2]   Identifier '{}' did not resolve to a function in scope.",
                         name
                     );
                 }
             }
 
-            eprintln!(
+            trace!(
                 "[Resolve Type V2]   Identifier '{}' type not resolved (state/type/local/function?).",
                 name
             );
@@ -1028,7 +1029,7 @@ fn resolve_expression_type_v2<'a>(
                 TypeError::MissingChild("type_cast_expression missing type node".to_string())
             })?;
             let type_name = get_node_text(&type_node, source).to_string();
-            eprintln!(
+            trace!(
                 "[Resolve Type V2]   Type cast expression resolves to type '{}'",
                 type_name
             );
@@ -1054,7 +1055,7 @@ fn resolve_expression_type_v2<'a>(
         "call_expression" => {
             // The type of a call expression is the return type of the function being called.
             // We need to analyze the call to find the target and then its return type.
-            eprintln!(
+            trace!(
                 "[Resolve Type V2]   Call expression: Analyzing call to determine return type."
             );
             // Use analyze_chained_call on the call_expression itself.
@@ -1074,13 +1075,13 @@ fn resolve_expression_type_v2<'a>(
             )?;
 
             if let Some(last_step) = steps.last() {
-                eprintln!(
+                trace!(
                     "[Resolve Type V2]   Call expression resolved. Last step result type: {:?}",
                     last_step.result_type
                 );
                 Ok(last_step.result_type.clone())
             } else {
-                eprintln!("[Resolve Type V2]   Call expression analysis yielded no steps. Cannot determine type.");
+                trace!("[Resolve Type V2]   Call expression analysis yielded no steps. Cannot determine type.");
                 if let Some(func_node) = expr_node.child_by_field_name("function") {
                     if func_node.kind() == "expression"
                         && func_node
@@ -1090,7 +1091,7 @@ fn resolve_expression_type_v2<'a>(
                         let id_node = func_node.child(0).unwrap();
                         let name = get_node_text(&id_node, source).to_string();
                         if ctx.all_interfaces.contains_key(&name) {
-                            eprintln!("[Resolve Type V2]   Re-identified as interface type cast to '{}' (no steps generated)", name);
+                            trace!("[Resolve Type V2]   Re-identified as interface type cast to '{}' (no steps generated)", name);
                             return Ok(Some(name)); // Return the interface type
                         }
                     }
@@ -1107,7 +1108,7 @@ fn resolve_expression_type_v2<'a>(
                 ))
             })?;
             let contract_name = get_node_text(&type_name_node, source).to_string(); // Simplified
-            eprintln!(
+            trace!(
                 "[Resolve Type V2]   New expression resolves to type '{}'",
                 contract_name
             );
@@ -1116,7 +1117,7 @@ fn resolve_expression_type_v2<'a>(
         "expression" => {
             // Delegate type resolution to the first child of the expression node
             if let Some(child_node) = expr_node.child(0) {
-                eprintln!(
+                trace!(
                     "[Resolve Type V2]   Delegating 'expression' type resolution to child kind: '{}'",
                     child_node.kind()
                 );
@@ -1132,7 +1133,7 @@ fn resolve_expression_type_v2<'a>(
                     input,
                 )
             } else {
-                eprintln!("[Resolve Type V2]   'expression' node has no children.");
+                trace!("[Resolve Type V2]   'expression' node has no children.");
                 Ok(None) // Expression node with no children has no type
             }
         }
@@ -1144,7 +1145,7 @@ fn resolve_expression_type_v2<'a>(
                     get_node_text(&expr_node, source)
                 ))
             })?;
-            eprintln!(
+            trace!(
                 "[Resolve Type V2]   Array access: base kind '{}', text '{}'",
                 base_node.kind(),
                 get_node_text(&base_node, source)
@@ -1163,7 +1164,7 @@ fn resolve_expression_type_v2<'a>(
 
             if let Some(ref base_type_of_base_expr_str) = base_type_opt {
                 // Use `ref` to borrow
-                eprintln!(
+                trace!(
                     "[Resolve Type V2]     Base type of array_access resolved to: '{}'",
                     base_type_of_base_expr_str
                 );
@@ -1176,7 +1177,7 @@ fn resolve_expression_type_v2<'a>(
                             .contract_mappings
                             .get(&(contract_name.clone(), mapping_var_name.to_string()))
                         {
-                            eprintln!(
+                            trace!(
                                 "[Resolve Type V2]       Array access on known mapping '{}.{}'. Resolved value type from MappingInfo: '{}'",
                                 contract_name, mapping_var_name, mapping_info.value_type
                             );
@@ -1189,14 +1190,14 @@ fn resolve_expression_type_v2<'a>(
                 if base_type_of_base_expr_str.starts_with("mapping(") {
                     match parse_mapping_final_value_type(base_type_of_base_expr_str) {
                         Ok(final_value_type) => {
-                            eprintln!(
+                            trace!(
                                 "[Resolve Type V2]       Parsed mapping type string '{}'. Final value type: '{}'",
                                 base_type_of_base_expr_str, final_value_type
                             );
                             return Ok(Some(final_value_type));
                         }
                         Err(e) => {
-                            eprintln!(
+                            trace!(
                                 "[Resolve Type V2]       Error parsing mapping type string '{}': {}. Falling back.",
                                 base_type_of_base_expr_str, e
                             );
@@ -1211,13 +1212,13 @@ fn resolve_expression_type_v2<'a>(
                     let element_type =
                         base_type_of_base_expr_str[0..base_type_of_base_expr_str.len() - 2].trim();
                     if !element_type.is_empty() {
-                        eprintln!(
+                        trace!(
                             "[Resolve Type V2]       Array element type: '{}'",
                             element_type
                         );
                         return Ok(Some(element_type.to_string()));
                     }
-                    eprintln!(
+                    trace!(
                         "[Resolve Type V2]       Could not parse array type: {}",
                         base_type_of_base_expr_str // Fix: Use new variable name
                     );
@@ -1225,19 +1226,19 @@ fn resolve_expression_type_v2<'a>(
                 } else if base_type_of_base_expr_str == "bytes" {
                     // Fix: Use new variable name
                     // Indexing bytes returns bytes1
-                    eprintln!("[Resolve Type V2]       Bytes indexed, returning 'bytes1'");
+                    trace!("[Resolve Type V2]       Bytes indexed, returning 'bytes1'");
                     return Ok(Some("bytes1".to_string()));
                 }
                 // Add other special cases if needed (e.g., string)
                 else {
-                    eprintln!(
+                    trace!(
                             "[Resolve Type V2]     Base type '{}' is not a mapping, array, or bytes. Cannot determine indexed type.",
                             base_type_of_base_expr_str // Fix: Use new variable name
                         );
                     Ok(None)
                 }
             } else {
-                eprintln!("[Resolve Type V2]     Could not resolve base type of array_access.");
+                trace!("[Resolve Type V2]     Could not resolve base type of array_access.");
                 Ok(None)
             }
         }
@@ -1258,7 +1259,7 @@ fn resolve_expression_type_v2<'a>(
                     Some("uint256".to_string())
                 }
                 _ => {
-                    eprintln!(
+                    trace!(
                         "[Resolve Type V2]   Unhandled binary operator: '{}'",
                         operator_text
                     );
@@ -1279,7 +1280,7 @@ fn resolve_expression_type_v2<'a>(
                 Some("!") => Ok(Some("bool".to_string())),
                 Some("-") | Some("+") | Some("++") | Some("--") => Ok(Some("uint256".to_string())), // Assume numeric
                 _ => {
-                    eprintln!(
+                    trace!(
                         "[Resolve Type V2]   Unhandled unary operator: {:?}",
                         operator
                     );
@@ -1298,7 +1299,7 @@ fn resolve_expression_type_v2<'a>(
             }
         }
         _ => {
-            eprintln!(
+            trace!(
                 "[Resolve Type V2]   Unhandled expression kind: {}",
                 expr_node.kind()
             );
@@ -1319,7 +1320,7 @@ fn resolve_property_type<'a>(
     input: &'a CallGraphGeneratorInput,        // Pass input for potential use in future
 ) -> std::result::Result<Option<String>, TypeError> {
     // Use full path to Result
-    eprintln!(
+    trace!(
         "[Resolve Property Type] Resolving type for property '{}' on object type '{}'",
         property_name, object_type_name
     );
@@ -1331,7 +1332,7 @@ fn resolve_property_type<'a>(
             .state_var_types
             .get(&(object_type_name.to_string(), property_name.to_string()))
         {
-            eprintln!(
+            trace!(
                 "[Resolve Property Type]   Property resolved to state var type '{}'",
                 type_name
             );
@@ -1346,7 +1347,7 @@ fn resolve_property_type<'a>(
         property_name.to_string(),
     );
     if let Some(target_node_id) = graph.node_lookup.get(&function_key) {
-        eprintln!("[Resolve Property Type]   Property resolved to function member. Node ID: {}. Getting return type.", target_node_id);
+        trace!("[Resolve Property Type]   Property resolved to function member. Node ID: {}. Getting return type.", target_node_id);
         // Use the existing helper from cg.rs (or move/adapt it later)
         // Need to get the definition TsNode for the target function
         let target_def_node_opt = ctx
@@ -1356,13 +1357,13 @@ fn resolve_property_type<'a>(
             .map(|(_, n, _)| n.clone());
         if let Some(target_def_node) = target_def_node_opt {
             let return_type = get_function_return_type_v2(&target_def_node, input)?; // Use V2 helper
-            eprintln!(
+            trace!(
                 "[Resolve Property Type]     Return type from get_function_return_type_v2: {:?}",
                 return_type
             );
             return Ok(return_type);
         } else {
-            eprintln!("[Resolve Property Type]     Could not find definition node for target function ID {}", target_node_id);
+            trace!("[Resolve Property Type]     Could not find definition node for target function ID {}", target_node_id);
             return Ok(None); // Cannot determine return type without definition node
         }
     }
@@ -1384,7 +1385,7 @@ fn resolve_property_type<'a>(
         {
             let lib_func_key = (Some(lib_name.clone()), function_name.clone());
             if let Some(target_node_id) = graph.node_lookup.get(&lib_func_key) {
-                eprintln!("[Resolve Property Type]   Property resolved to 'using for' library function '{}.{}'. Node ID: {}. Getting return type.", lib_name, function_name, target_node_id);
+                trace!("[Resolve Property Type]   Property resolved to 'using for' library function '{}.{}'. Node ID: {}. Getting return type.", lib_name, function_name, target_node_id);
                 let target_def_node_opt = ctx
                     .definition_nodes_info
                     .iter()
@@ -1392,10 +1393,10 @@ fn resolve_property_type<'a>(
                     .map(|(_, n, _)| n.clone());
                 if let Some(target_def_node) = target_def_node_opt {
                     let return_type = get_function_return_type_v2(&target_def_node, input)?;
-                    eprintln!("[Resolve Property Type]     Return type from get_function_return_type_v2: {:?}", return_type);
+                    trace!("[Resolve Property Type]     Return type from get_function_return_type_v2: {:?}", return_type);
                     return Ok(return_type);
                 } else {
-                    eprintln!("[Resolve Property Type]     Could not find definition node for target library function ID {}", target_node_id);
+                    trace!("[Resolve Property Type]     Could not find definition node for target library function ID {}", target_node_id);
                     return Ok(None);
                 }
             }
@@ -1415,7 +1416,7 @@ fn resolve_property_type<'a>(
         return Ok(Some("uint256".to_string()));
     }
 
-    eprintln!(
+    trace!(
         "[Resolve Property Type]   Property '{}' type not resolved within type '{}'.",
         property_name, object_type_name
     );
@@ -1442,7 +1443,7 @@ fn resolve_property_type_from_node<'a>(
         .ok_or_else(|| TypeError::MissingChild("member_expression missing property".to_string()))?;
 
     if property_node.kind() != "identifier" {
-        eprintln!("[Resolve Type V2]   Member expr: Property is not an identifier.");
+        trace!("[Resolve Type V2]   Member expr: Property is not an identifier.");
         return Ok(None);
     }
     let property_name = get_node_text(&property_node, source).to_string();
@@ -1472,7 +1473,7 @@ fn resolve_property_type_from_node<'a>(
             input,
         )
     } else {
-        eprintln!("[Resolve Type V2]   Member expr: Could not resolve object type.");
+        trace!("[Resolve Type V2]   Member expr: Could not resolve object type.");
         Ok(None) // Object type couldn't be resolved
     }
 }
@@ -1490,14 +1491,14 @@ fn resolve_member_or_library_call_v2<'a>(
 ) -> std::result::Result<ResolvedTarget, TypeError> {
     // Use full path to Result
     let call_span_text = &source[call_span_bytes.0..call_span_bytes.1];
-    eprintln!(
+    trace!(
         "[Resolve Member/Lib V2] Resolving: Type='{}', Property='{}', CallerScope='{:?}', Span='{}'",
         object_type_name, property_name, caller_contract_name_opt, call_span_text
     );
 
     // --- Priority 1: Interface Implementation Resolution (if object type is an interface) ---
     if ctx.all_interfaces.contains_key(object_type_name) {
-        eprintln!(
+        trace!(
             "[Resolve Member/Lib V2]   Object type '{}' is an interface. Looking for implementations.",
             object_type_name
         );
@@ -1511,7 +1512,7 @@ fn resolve_member_or_library_call_v2<'a>(
                 implementing_contracts.push(contract.clone());
             }
         }
-        eprintln!(
+        trace!(
             "[Resolve Member/Lib V2]     Directly implementing contracts found: {:?}",
             implementing_contracts
         );
@@ -1548,7 +1549,7 @@ fn resolve_member_or_library_call_v2<'a>(
                 })
                 .map(|entry| entry.file_path.clone());
 
-            eprintln!(
+            trace!(
                 "[Resolve Member/Lib V2]       Interface file hint for binding lookup: {:?}",
                 interface_file_path_hint
             );
@@ -1559,9 +1560,9 @@ fn resolve_member_or_library_call_v2<'a>(
                 interface_file_path_hint.as_deref(),
             ) {
                 Ok(Some(binding_config)) => {
-                    eprintln!("[Resolve Member/Lib V2]       Natspec binding key '{}' found for interface '{}'.", binding_config.key, interface_name);
+                    trace!("[Resolve Member/Lib V2]       Natspec binding key '{}' found for interface '{}'.", binding_config.key, interface_name);
                     if let Some(concrete_contract_name) = &binding_config.contract_name {
-                        eprintln!("[Resolve Member/Lib V2]         Binding config specifies concrete contract: '{}'", concrete_contract_name);
+                        trace!("[Resolve Member/Lib V2]         Binding config specifies concrete contract: '{}'", concrete_contract_name);
                         let bound_target_key = (
                             Some(concrete_contract_name.clone()),
                             method_name.to_string(),
@@ -1575,7 +1576,7 @@ fn resolve_member_or_library_call_v2<'a>(
                                             function_name: method_name.to_string(),
                                             node_type: node_info.node_type.clone(),
                                         };
-                                        eprintln!("[Resolve Member/Lib V2]           Successfully resolved to bound callable implementation: {:?}", bound_implementation);
+                                        trace!("[Resolve Member/Lib V2]           Successfully resolved to bound callable implementation: {:?}", bound_implementation);
                                         natspec_binding_provided_concrete_impl = Some(ResolvedTarget::InterfaceMethod {
                                             interface_name: interface_name.to_string(),
                                             method_name: method_name.to_string(),
@@ -1589,34 +1590,34 @@ fn resolve_member_or_library_call_v2<'a>(
                                                 function_name: method_name.to_string(), // Getter name is var name
                                                 node_type: NodeType::Function, // The getter is conceptually a function
                                             };
-                                            eprintln!("[Resolve Member/Lib V2]           Successfully resolved to getter for public storage variable: {:?}", getter_implementation);
+                                            trace!("[Resolve Member/Lib V2]           Successfully resolved to getter for public storage variable: {:?}", getter_implementation);
                                             natspec_binding_provided_concrete_impl = Some(ResolvedTarget::InterfaceMethod {
                                                 interface_name: interface_name.to_string(),
                                                 method_name: method_name.to_string(),
                                                 implementation: Some(Box::new(getter_implementation)),
                                             });
                                         } else {
-                                            eprintln!("[Resolve Member/Lib V2]           Bound contract '{}' member '{}' is a non-public StorageVariable. Binding not used.", concrete_contract_name, method_name);
+                                            trace!("[Resolve Member/Lib V2]           Bound contract '{}' member '{}' is a non-public StorageVariable. Binding not used.", concrete_contract_name, method_name);
                                         }
                                     }
-                                    _ => eprintln!("[Resolve Member/Lib V2]           Bound contract '{}' member '{}' is not callable or a public storage variable (Type: {:?}). Binding not used.", concrete_contract_name, method_name, node_info.node_type),
+                                    _ => trace!("[Resolve Member/Lib V2]           Bound contract '{}' member '{}' is not callable or a public storage variable (Type: {:?}). Binding not used.", concrete_contract_name, method_name, node_info.node_type),
                                 }
                             } else {
-                                eprintln!("[Resolve Member/Lib V2]           Bound contract '{}' method '{}' (Node ID {}) not found in graph.nodes. Binding not used.", concrete_contract_name, method_name, node_id);
+                                trace!("[Resolve Member/Lib V2]           Bound contract '{}' method '{}' (Node ID {}) not found in graph.nodes. Binding not used.", concrete_contract_name, method_name, node_id);
                             }
                         } else { // node_id not found in graph.node_lookup
-                            eprintln!("[Resolve Member/Lib V2]           Method or Variable '{}' not found in bound contract '{}' via graph.node_lookup. Binding not used.", method_name, concrete_contract_name);
+                            trace!("[Resolve Member/Lib V2]           Method or Variable '{}' not found in bound contract '{}' via graph.node_lookup. Binding not used.", method_name, concrete_contract_name);
                         }
                     } else {
-                        eprintln!("[Resolve Member/Lib V2]         Binding for interface '{}' (key '{}') has no concrete_contract_name.", interface_name, binding_config.key);
+                        trace!("[Resolve Member/Lib V2]         Binding for interface '{}' (key '{}') has no concrete_contract_name.", interface_name, binding_config.key);
                         natspec_key_found_but_binding_non_concrete = true;
                     }
                 }
-                Ok(None) => eprintln!("[Resolve Member/Lib V2]       No Natspec binding key found for interface type '{}', or key not in registry.", interface_name),
-                Err(e) => eprintln!("Warning: Error resolving Natspec binding for interface type '{}': {}. Proceeding as if no binding found.", interface_name, e),
+                Ok(None) => trace!("[Resolve Member/Lib V2]       No Natspec binding key found for interface type '{}', or key not in registry.", interface_name),
+                Err(e) => trace!("Warning: Error resolving Natspec binding for interface type '{}': {}. Proceeding as if no binding found.", interface_name, e),
             }
         } else {
-            eprintln!("[Resolve Member/Lib V2]     Manifest or BindingRegistry not available for Natspec-driven interface binding resolution.");
+            trace!("[Resolve Member/Lib V2]     Manifest or BindingRegistry not available for Natspec-driven interface binding resolution.");
         }
 
         // Decision logic based on binding and direct implementations
@@ -1627,7 +1628,7 @@ fn resolve_member_or_library_call_v2<'a>(
         // Natspec binding did not provide a concrete implementation. Consider direct ones.
         if potential_direct_targets.len() == 1 {
             let direct_implementation = potential_direct_targets.remove(0);
-            eprintln!("[Resolve Member/Lib V2]     Resolved to single direct implementation (Natspec binding was not concrete or not found): {:?}", direct_implementation);
+            trace!("[Resolve Member/Lib V2]     Resolved to single direct implementation (Natspec binding was not concrete or not found): {:?}", direct_implementation);
             return Ok(ResolvedTarget::InterfaceMethod {
                 interface_name: interface_name.to_string(),
                 method_name: method_name.to_string(),
@@ -1637,7 +1638,7 @@ fn resolve_member_or_library_call_v2<'a>(
 
         if potential_direct_targets.len() > 1 {
             if natspec_key_found_but_binding_non_concrete {
-                eprintln!("[Resolve Member/Lib V2]     Ambiguous direct implementations for '{}.{}', but Natspec binding key was found (though non-concrete). Falling back to abstract.", interface_name, method_name);
+                trace!("[Resolve Member/Lib V2]     Ambiguous direct implementations for '{}.{}', but Natspec binding key was found (though non-concrete). Falling back to abstract.", interface_name, method_name);
                 return Ok(ResolvedTarget::InterfaceMethod {
                     interface_name: interface_name.to_string(),
                     method_name: method_name.to_string(),
@@ -1645,7 +1646,7 @@ fn resolve_member_or_library_call_v2<'a>(
                 });
             } else {
                 // Multiple direct implementers AND (no Natspec binding key found OR Natspec key lookup failed entirely).
-                eprintln!("[Resolve Member/Lib V2]     Ambiguous implementation for '{}.{}' ({} direct targets) and no overriding/clarifying Natspec binding. Implementations: {:?}", interface_name, method_name, potential_direct_targets.len(), implementing_contracts);
+                trace!("[Resolve Member/Lib V2]     Ambiguous implementation for '{}.{}' ({} direct targets) and no overriding/clarifying Natspec binding. Implementations: {:?}", interface_name, method_name, potential_direct_targets.len(), implementing_contracts);
                 return Err(TypeError::AmbiguousInterfaceImplementation {
                     interface_name: interface_name.to_string(),
                     method_name: method_name.to_string(),
@@ -1655,7 +1656,7 @@ fn resolve_member_or_library_call_v2<'a>(
         }
 
         // potential_direct_targets.len() == 0 and Natspec binding did not provide a concrete implementation.
-        eprintln!("[Resolve Member/Lib V2]     No specific implementation found for '{}.{}'. Assuming external or abstract.", interface_name, method_name);
+        trace!("[Resolve Member/Lib V2]     No specific implementation found for '{}.{}'. Assuming external or abstract.", interface_name, method_name);
         return Ok(ResolvedTarget::InterfaceMethod {
             interface_name: interface_name.to_string(),
             method_name: method_name.to_string(),
@@ -1669,7 +1670,7 @@ fn resolve_member_or_library_call_v2<'a>(
         property_name.to_string(),
     );
     let lookup_result = graph.node_lookup.get(&direct_lookup_key);
-    eprintln!(
+    trace!(
         "[Resolve Member/Lib V2]   Attempting direct lookup with key: {:?}. Found: {}",
         direct_lookup_key,
         lookup_result.is_some()
@@ -1680,7 +1681,7 @@ fn resolve_member_or_library_call_v2<'a>(
             // Ensure it's a callable type (Function, Modifier, Constructor)
             match node.node_type {
                 NodeType::Function | NodeType::Modifier | NodeType::Constructor => {
-                    eprintln!(
+                    trace!(
                         "[Resolve Member/Lib V2]   Found direct member: Node ID {}, Type: {:?}",
                         node_id, node.node_type
                     );
@@ -1691,7 +1692,7 @@ fn resolve_member_or_library_call_v2<'a>(
                     });
                 }
                 _ => {
-                    eprintln!("[Resolve Member/Lib V2]   Found direct member but it's not callable (Type: {:?}). Node ID {}", node.node_type, node_id);
+                    trace!("[Resolve Member/Lib V2]   Found direct member but it's not callable (Type: {:?}). Node ID {}", node.node_type, node_id);
                     // It's a state variable or other non-callable member.
                     return Ok(ResolvedTarget::NotCallable {
                         reason: format!(
@@ -1703,7 +1704,7 @@ fn resolve_member_or_library_call_v2<'a>(
             }
         }
     } else {
-        eprintln!(
+        trace!(
             "[Resolve Member/Lib V2]   Direct lookup failed for key: {:?}",
             direct_lookup_key
         );
@@ -1717,7 +1718,7 @@ fn resolve_member_or_library_call_v2<'a>(
         graph,
         ctx,
     )? {
-        eprintln!(
+        trace!(
             "[Resolve Member/Lib V2]   Found via 'using for': {:?}",
             library_target
         );
@@ -1727,7 +1728,7 @@ fn resolve_member_or_library_call_v2<'a>(
 
     // --- Priority 4: Built-in Members ---
     if let Some(builtin) = builtin::get_builtin(property_name, object_type_name) {
-        eprintln!(
+        trace!(
             "[Resolve Member/Lib V2]   Resolved to built-in member '{}' for type '{}'",
             builtin.name, builtin.object_type
         );
@@ -1738,7 +1739,7 @@ fn resolve_member_or_library_call_v2<'a>(
     }
 
     // --- Not Found ---
-    eprintln!(
+    trace!(
         "[Resolve Member/Lib V2]   Target '{}.{}' could not be resolved.",
         object_type_name, property_name
     );
@@ -1777,12 +1778,12 @@ fn find_using_for_target<'a>(
                 Some(caller_contract_name.clone()),
                 type_name.clone(), // Use type_name from loop
             );
-            eprintln!(
+            trace!(
                 "[Find UsingFor] Checking specific key: {:?}",
                 specific_type_key
             ); // DEBUG
             if let Some(libs) = ctx.using_for_directives.get(&specific_type_key) {
-                eprintln!(
+                trace!(
                     "[Find UsingFor]   Found specific directive for contract '{}', type '{}': {:?}",
                     caller_contract_name,
                     type_name,
@@ -1793,22 +1794,22 @@ fn find_using_for_target<'a>(
         }
         // Check for wildcard type: (Some(Contract), "*") - Only check once
         let wildcard_key = (Some(caller_contract_name.clone()), "*".to_string());
-        eprintln!("[Find UsingFor] Checking wildcard key: {:?}", wildcard_key); // DEBUG
+        trace!("[Find UsingFor] Checking wildcard key: {:?}", wildcard_key); // DEBUG
         if let Some(libs) = ctx.using_for_directives.get(&wildcard_key) {
-            eprintln!(
+            trace!(
                 "[Find UsingFor]   Found wildcard directive for contract '{}': {:?}",
                 caller_contract_name, libs
             );
             potential_libraries.extend(libs.iter().cloned());
         }
     } else {
-        eprintln!(
+        trace!(
             "[Find UsingFor]   No caller contract name provided. Skipping contract-specific directives."
         );
     }
     // TODO: Check global 'using for' directives (key: (None, Type) and (None, "*"))
 
-    eprintln!(
+    trace!(
         "[Find UsingFor]   All potential libraries before dedup: {:?}",
         potential_libraries
     );
@@ -1817,13 +1818,13 @@ fn find_using_for_target<'a>(
     potential_libraries.sort_unstable();
     potential_libraries.dedup();
 
-    eprintln!(
+    trace!(
         "[Find UsingFor]   Potential libraries after dedup: {:?}", // DEBUG
         potential_libraries
     );
 
     if !potential_libraries.is_empty() {
-        eprintln!(
+        trace!(
             "[Find UsingFor] Checking libraries for '{}.{}': {:?}",
             object_type_name,
             property_name,
@@ -1831,14 +1832,14 @@ fn find_using_for_target<'a>(
         );
         for library_name in potential_libraries {
             let library_method_key = (Some(library_name.clone()), property_name.to_string());
-            eprintln!(
+            trace!(
                 "[Find UsingFor]   Checking library key: {:?}",
                 library_method_key
             ); // DEBUG
             if let Some(id) = graph.node_lookup.get(&library_method_key) {
                 if let Some(node) = graph.nodes.get(*id) {
                     // Found a match in a library
-                    eprintln!(
+                    trace!(
                         "[Find UsingFor]   Found match in library '{}': Node ID {}",
                         library_name, id
                     );
@@ -1851,14 +1852,14 @@ fn find_using_for_target<'a>(
                     }));
                 }
             } else {
-                eprintln!(
+                trace!(
                     "[Find UsingFor]     Lookup failed for key: {:?}",
                     library_method_key
                 ); // DEBUG
             }
         }
     }
-    eprintln!("[Find UsingFor]   No match found via 'using for'."); // DEBUG
+    trace!("[Find UsingFor]   No match found via 'using for'."); // DEBUG
     Ok(None) // Not found via using for
 }
 
@@ -1938,7 +1939,7 @@ fn resolve_simple_call_v2<'a>(
     ctx: &CallGraphGeneratorContext,
 ) -> std::result::Result<ResolvedTarget, TypeError> {
     // Use full path to Result
-    eprintln!(
+    trace!(
         "[Resolve Simple V2] Resolving simple call '{}', CallerScope='{:?}'",
         name, caller_contract_name_opt
     );
@@ -1948,7 +1949,7 @@ fn resolve_simple_call_v2<'a>(
         let key = (Some(contract_name.clone()), name.to_string());
         if let Some(id) = graph.node_lookup.get(&key) {
             if let Some(node) = graph.nodes.get(*id) {
-                eprintln!(
+                trace!(
                     "[Resolve Simple V2]   Found in contract scope: Node ID {}, Type: {:?}",
                     id, node.node_type
                 );
@@ -1961,7 +1962,7 @@ fn resolve_simple_call_v2<'a>(
         }
         // --- Start: Check inherited contracts ---
         if let Some(inherited_names) = ctx.contract_inherits.get(contract_name) {
-            eprintln!(
+            trace!(
                 "[Resolve Simple V2]   Checking inheritance for '{}': {:?}",
                 contract_name, inherited_names
             );
@@ -1969,7 +1970,7 @@ fn resolve_simple_call_v2<'a>(
                 let base_key = (Some(base_name.clone()), name.to_string());
                 if let Some(id) = graph.node_lookup.get(&base_key) {
                     if let Some(node) = graph.nodes.get(*id) {
-                        eprintln!("[Resolve Simple V2]     Found in base contract '{}': Node ID {}, Type: {:?}", base_name, id, node.node_type);
+                        trace!("[Resolve Simple V2]     Found in base contract '{}': Node ID {}, Type: {:?}", base_name, id, node.node_type);
                         // TODO: Handle potential ambiguity if found in multiple bases? For now, return first found.
                         // TODO: Handle visibility checks for inherited functions.
                         return Ok(ResolvedTarget::Function {
@@ -1987,7 +1988,7 @@ fn resolve_simple_call_v2<'a>(
     let free_function_key = (None, name.to_string());
     if let Some(id) = graph.node_lookup.get(&free_function_key) {
         if let Some(node) = graph.nodes.get(*id) {
-            eprintln!(
+            trace!(
                 "[Resolve Simple V2]   Found free function: Node ID {}, Type: {:?}",
                 id, node.node_type
             );
@@ -2003,7 +2004,7 @@ fn resolve_simple_call_v2<'a>(
     if ctx.all_contracts.contains_key(name) {
         let constructor_key = (Some(name.to_string()), name.to_string());
         if graph.node_lookup.contains_key(&constructor_key) {
-            eprintln!(
+            trace!(
                 "[Resolve Simple V2]   Found constructor for contract '{}'",
                 name
             );
@@ -2016,7 +2017,7 @@ fn resolve_simple_call_v2<'a>(
     }
 
     // Not found
-    eprintln!(
+    trace!(
         "[Resolve Simple V2]   Simple call target '{}' not found.",
         name
     );
@@ -2113,21 +2114,21 @@ fn get_function_return_type_v2(
                 let type_name_text = get_node_text(&type_name_node, &input.source).to_string();
 
                 if !type_name_text.is_empty() {
-                    eprintln!(
+                    trace!(
                         "[Get Return Type V2] Found single return type name: '{}'",
                         type_name_text
                     );
                     // TODO: Handle multiple return types if the query is extended later
                     return Ok(Some(type_name_text)); // Return the captured type name text
                 } else {
-                    eprintln!("[Get Return Type V2] Found empty return type name node.");
+                    trace!("[Get Return Type V2] Found empty return type name node.");
                     // Fall through to return None if text is empty
                 }
             }
         }
     }
 
-    eprintln!("[Get Return Type V2] No return type name node captured or parsed.");
+    trace!("[Get Return Type V2] No return type name node captured or parsed.");
     Ok(None) // No return type found or parsed
 }
 
@@ -2156,7 +2157,7 @@ fn resolve_call_return_type<'a>(
                     NodeType::Function | NodeType::Modifier | NodeType::Constructor => {
                         // Prioritize graph_node.declared_return_type if available
                         if let Some(declared_type) = &graph_node.declared_return_type {
-                            eprintln!("[Resolve Call Return Type] Using declared_return_type '{}' for Node ID {}", declared_type, *node_id);
+                            trace!("[Resolve Call Return Type] Using declared_return_type '{}' for Node ID {}", declared_type, *node_id);
                             return Ok(Some(declared_type.clone()));
                         }
                         // Fallback to parsing TsNode via definition_nodes_info
@@ -2166,10 +2167,10 @@ fn resolve_call_return_type<'a>(
                             .find(|(id, _, _)| *id == *node_id)
                             .map(|(_, info, _)| info.clone());
                         if let Some(def_node_info) = def_node_info_opt {
-                            eprintln!("[Resolve Call Return Type] Falling back to get_function_return_type_v2 for Node ID {}", *node_id);
+                            trace!("[Resolve Call Return Type] Falling back to get_function_return_type_v2 for Node ID {}", *node_id);
                             return get_function_return_type_v2(&def_node_info, input);
                         }
-                        eprintln!("[Resolve Call Return Type] No declared_return_type and no NodeInfo for Node ID {}", *node_id);
+                        trace!("[Resolve Call Return Type] No declared_return_type and no NodeInfo for Node ID {}", *node_id);
                         return Ok(None);
                     }
                     NodeType::StorageVariable => {
@@ -2181,14 +2182,14 @@ fn resolve_call_return_type<'a>(
                                     )
                                 })?;
                             let var_name = &graph_node.name;
-                            eprintln!("[Resolve Call Return Type] ResolvedTarget::Function points to public StorageVariable '{}.{}'. Determining getter return type.", actual_contract_name, var_name);
+                            trace!("[Resolve Call Return Type] ResolvedTarget::Function points to public StorageVariable '{}.{}'. Determining getter return type.", actual_contract_name, var_name);
 
                             // For mappings, the getter returns the final value type.
                             if let Some(mapping_info) = ctx
                                 .contract_mappings
                                 .get(&(actual_contract_name.clone(), var_name.clone()))
                             {
-                                eprintln!("[Resolve Call Return Type]   Found mapping info. Value type: '{}'", mapping_info.value_type);
+                                trace!("[Resolve Call Return Type]   Found mapping info. Value type: '{}'", mapping_info.value_type);
                                 return Ok(Some(mapping_info.value_type.clone()));
                             }
                             // For other public state variables, the getter returns the variable's type.
@@ -2196,26 +2197,26 @@ fn resolve_call_return_type<'a>(
                                 .state_var_types
                                 .get(&(actual_contract_name.clone(), var_name.clone()))
                             {
-                                eprintln!("[Resolve Call Return Type]   Found state_var_types info. Type: '{}'", type_str);
+                                trace!("[Resolve Call Return Type]   Found state_var_types info. Type: '{}'", type_str);
                                 return Ok(Some(type_str.clone()));
                             }
-                            eprintln!("[Resolve Call Return Type]   Public StorageVariable {}.{} type info not found in contract_mappings or state_var_types.", actual_contract_name, var_name);
+                            trace!("[Resolve Call Return Type]   Public StorageVariable {}.{} type info not found in contract_mappings or state_var_types.", actual_contract_name, var_name);
                             return Err(TypeError::Internal(format!(
                                 "Public StorageVariable {}.{} type info not found.",
                                 actual_contract_name, var_name
                             )));
                         } else {
-                            eprintln!("[Resolve Call Return Type] ResolvedTarget::Function points to non-public StorageVariable '{}.{}'. No getter.", graph_node.contract_name.as_deref().unwrap_or("?"), graph_node.name);
+                            trace!("[Resolve Call Return Type] ResolvedTarget::Function points to non-public StorageVariable '{}.{}'. No getter.", graph_node.contract_name.as_deref().unwrap_or("?"), graph_node.name);
                             return Ok(None);
                         }
                     }
                     _ => {
-                        eprintln!("[Resolve Call Return Type] Warning: Node for '{:?}' (ID {}) is of unexpected type {:?}.", lookup_key, *node_id, graph_node.node_type);
+                        trace!("[Resolve Call Return Type] Warning: Node for '{:?}' (ID {}) is of unexpected type {:?}.", lookup_key, *node_id, graph_node.node_type);
                         return Ok(None);
                     }
                 }
             } else {
-                eprintln!("[Resolve Call Return Type] Warning: Node for '{:?}' not found in graph.node_lookup.", lookup_key);
+                trace!("[Resolve Call Return Type] Warning: Node for '{:?}' not found in graph.node_lookup.", lookup_key);
                 return Ok(None);
             }
         }
@@ -2256,7 +2257,7 @@ fn resolve_call_return_type<'a>(
                     Ok(Some(return_type_str.to_string()))
                 }
             } else {
-                eprintln!(
+                trace!(
                     "[Resolve Return Type] Warning: Could not find return type for known built-in {}.{}",
                     object_type, name
                 );
@@ -2530,7 +2531,7 @@ mod tests {
             if *capture_index == 0 {
                 // Dereference capture_index for indexing
                 let node = match_.captures[*capture_index].node; // Get the node from the capture
-                eprintln!(
+                trace!(
                     // DEBUG
                     "[find_nth_descendant] Found node: Kind='{}', Span=({},{}), Count={}",
                     node.kind(),
@@ -2539,13 +2540,13 @@ mod tests {
                     count
                 );
                 if count == n {
-                    eprintln!("[find_nth_descendant] Returning node at index {}", n); // DEBUG
+                    trace!("[find_nth_descendant] Returning node at index {}", n); // DEBUG
                     return Ok(Some(node)); // Found the nth descendant
                 }
                 count += 1;
             }
         }
-        eprintln!(
+        trace!(
             "[find_nth_descendant] Node of kind '{}' at index {} not found.",
             kind, n
         ); // DEBUG
@@ -2670,7 +2671,7 @@ mod tests {
         "#;
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
         // Use the new helper function to find the function definition node
-        let _caller_def_node =
+        let caller_def_node =
             find_function_definition_node_by_name(&tree, source, &lang, "caller")
                 .expect("Could not find function definition node for caller");
         let caller_node_id = graph
@@ -2809,7 +2810,7 @@ mod tests {
              }
          "#;
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
-        let _caller_def_node =
+        let caller_def_node =
             find_function_definition_node_by_name(&tree, source, &lang, "caller")
                 .expect("Could not find function definition node for caller");
         let caller_node_id = graph
@@ -2955,7 +2956,7 @@ mod tests {
         "#;
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
 
-        let _caller_def_node =
+        let caller_def_node =
             find_function_definition_node_by_name(&tree, source, &lang, "caller")
                 .expect("Could not find function definition node for caller");
         let caller_node_id = graph
@@ -2991,7 +2992,7 @@ mod tests {
             "call_expression",
             "Navigated node is not a call_expression"
         );
-        eprintln!(
+        trace!(
             "DEBUG [Test]: Analyzing node kind='{}', text='{}'",
             outer_call_expr_node.kind(),
             get_node_text(&outer_call_expr_node, source)
@@ -3196,7 +3197,7 @@ mod tests {
                 .expect("Could not find the outer call_expression node for .perform()");
 
         // Debug: Verify we found the correct node
-        eprintln!(
+        trace!(
             "[Test Inline Factory] Analyzing node kind='{}', text='{}'",
             outer_call_expr_node.kind(),
             get_node_text(&outer_call_expr_node, source)
@@ -3458,7 +3459,7 @@ mod tests {
             })?; // Propagate Option error
 
         // Optional: Add a debug print to verify the found node
-        // eprintln!("DEBUG [Test Constructor Call]: Found call_expr_node: kind='{}', text='{}'",
+        // trace!("DEBUG [Test Constructor Call]: Found call_expr_node: kind='{}', text='{}'",
         //           call_expr_node.kind(), get_node_text(&call_expr_node, source));
 
         let steps = analyze_chained_call(
@@ -4393,7 +4394,7 @@ mod tests {
         assert_eq!(steps.len(), 1, "Expected one step in the chain");
 
         let step1 = &steps[0];
-        eprintln!("Step 1: {:?}", step1);
+        trace!("Step 1: {:?}", step1);
         assert_eq!(
             step1.object_type,
             Some("IUniswapV2ERC20".to_string()),

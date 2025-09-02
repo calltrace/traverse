@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet}; // Import HashSet
 use std::iter;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node as TsNode, Query, QueryCursor, Tree};
+use tracing::debug;
 
 // Constants for synthetic node names
 pub(crate) const EVM_NODE_NAME: &str = "EVM";
@@ -202,8 +203,8 @@ impl CallGraph {
         event_name: Option<String>,               // Added: Event name for emits
         declared_return_type: Option<String>,     // Added: Declared return type
     ) {
-        eprintln!(
-            "[DEBUG add_edge] Attempting to add edge: {} -> {} (Type: {:?}, Seq: {}, RetVal: {:?}, Args: {:?}, DeclRetType: {:?})",
+        debug!(
+            "Attempting to add edge: {} -> {} (Type: {:?}, Seq: {}, RetVal: {:?}, Args: {:?}, DeclRetType: {:?})",
             source_node_id, target_node_id, edge_type, sequence_number, returned_value, argument_names, declared_return_type
         );
         let edge = Edge {
@@ -243,7 +244,7 @@ impl CallGraph {
         input: &CallGraphGeneratorInput, // Add input parameter containing source, tree, lang
         ctx: &CallGraphGeneratorContext, // Remove 'a
     ) -> Result<()> {
-        eprintln!(
+        debug!(
             "[Address Debug add_explicit_return_edges START] Graph: {:p}, Total Edges: {}",
             self,
             self.edges.len()
@@ -262,15 +263,15 @@ impl CallGraph {
                                 n.name
                             )
                         });
-                eprintln!(
-                    "[DEBUG Node 4 Edge Check START] Edge Index {}: {} -> {} (Target: '{}'), Type: {:?}, Seq: {}",
+                debug!(
+                    "Edge Index {}: {} -> {} (Target: '{}'), Type: {:?}, Seq: {}",
                     idx, edge.source_node_id, edge.target_node_id, target_node_name, edge.edge_type, edge.sequence_number
                 );
                 found_node4_edges = true;
             }
         }
         if !found_node4_edges {
-            eprintln!("[DEBUG Node 4 Edge Check START] No edges found originating from Node 4.");
+            debug!("No edges found originating from Node 4.");
         }
 
         // 1. Build a map of callee -> Vec<(caller_id, call_sequence_number)> from existing Call edges
@@ -316,7 +317,7 @@ impl CallGraph {
             // Retrieve the corresponding Node struct from the graph
             let callee_node_exists = self.nodes.get(*callee_node_id).is_some();
             if !callee_node_exists {
-                eprintln!(
+                debug!(
                     "Warning: Node ID {} found in definition_nodes_info but not in graph.nodes",
                     callee_node_id
                 );
@@ -325,8 +326,8 @@ impl CallGraph {
 
             // Use immutable borrow here for logging before potential mutable borrow
             if let Some(callee_node_for_log) = self.nodes.get(*callee_node_id) {
-                eprintln!(
-                    "[DEBUG Returns] Processing callee: Node ID {}, Name: {}.{}, Type: {:?}",
+                debug!(
+                    "Processing callee: Node ID {}, Name: {}.{}, Type: {:?}",
                     callee_node_for_log.id,
                     callee_node_for_log
                         .contract_name
@@ -338,8 +339,8 @@ impl CallGraph {
             }
 
             if *callee_node_id == 21 {
-                eprintln!(
-                    "[DEBUG AST Structure] S-expression for Node ID {}:\n{}",
+                debug!(
+                    "S-expression for Node ID {}:\n{}",
                     callee_node_id,
                     definition_ts_node.to_sexp()
                 );
@@ -369,8 +370,8 @@ impl CallGraph {
                             if return_check_matches.get().is_some() {
                                 node_mut.has_explicit_return = true;
                                 _nodes_with_explicit_return_set += 1;
-                                eprintln!(
-                                     "[DEBUG Returns Flag] Set has_explicit_return=true for Node ID {}",
+                                debug!(
+                                     "Set has_explicit_return=true for Node ID {}",
                                      *callee_node_id
                                 );
                             }
@@ -378,8 +379,8 @@ impl CallGraph {
                         // Set declared_return_type (clone from the one fetched above)
                         node_mut.declared_return_type = actual_declared_ret_type.clone();
                         if actual_declared_ret_type.is_some() {
-                             eprintln!(
-                                "[DEBUG Returns Type] Set declared_return_type='{:?}' for Node ID {}",
+                             debug!(
+                                "Set declared_return_type='{:?}' for Node ID {}",
                                 actual_declared_ret_type,
                                 *callee_node_id
                             );
@@ -418,10 +419,10 @@ impl CallGraph {
                                 let return_kind = return_node.kind();
 
                                 eprint!(
-                                    "[DEBUG Returns]   Found return statement within definition: Kind='{}', Span={:?}. ",
+                                    "  Found return statement within definition: Kind='{}', Span={:?}. ",
                                     return_kind, return_span
                                 );
-                                eprintln!(" => ACCEPTED (within definition node)");
+                                debug!(" => ACCEPTED (within definition node)");
 
                                 let returned_value_text = return_value_node_opt
                                     .map(|n| get_node_text(&n, &input.source).to_string());
@@ -444,7 +445,7 @@ impl CallGraph {
                                 }
                             } else {
                                 // This case should not happen if the query is correct and finds a match
-                                eprintln!("[DEBUG Returns]   Warning: Query matched but failed to extract @return capture.");
+                                debug!("  Warning: Query matched but failed to extract @return capture.");
                             }
                             matches.advance(); // Advance after processing captures for the current match
                         }
@@ -455,29 +456,29 @@ impl CallGraph {
         }
 
         // 4. Add the collected return edges to the graph
-        eprintln!(
-            "[DEBUG Returns Summary] Total returns found by query: {}", // DEBUG Summary
+        debug!(
+            "Total returns found by query: {}", // DEBUG Summary
             total_returns_found_by_query
         );
-        eprintln!(
-            "[DEBUG Returns Summary] Total returns processed (found within definition): {}", // DEBUG Summary
+        debug!(
+            "Total returns processed (found within definition): {}", // DEBUG Summary
             total_returns_processed
         );
-        eprintln!(
-            "[DEBUG Returns Summary] Total return edges generated: {}", // DEBUG Summary
+        debug!(
+            "Total return edges generated: {}", // DEBUG Summary
             new_return_edges.len()
         );
-        eprintln!(
-            "[DEBUG add_explicit_return_edges] Edge count BEFORE extend: {}",
+        debug!(
+            "Edge count BEFORE extend: {}",
             self.edges.len()
         );
-        eprintln!(
+        debug!(
             "[Address Debug add_explicit_return_edges] Graph: {:p}",
             self
         ); // Added address log
         self.edges.extend(new_return_edges);
-        eprintln!(
-            "[DEBUG add_explicit_return_edges] Edge count AFTER extend: {}",
+        debug!(
+            "Edge count AFTER extend: {}",
             self.edges.len()
         );
 
@@ -598,13 +599,13 @@ pub(crate) fn extract_function_parameters(
     source: &str,
 ) -> Vec<ParameterInfo> {
     let mut parameters = Vec::new();
-    eprintln!("[cg::extract_function_parameters DEBUG] Analyzing TsNode kind: '{}', text snippet: '{}'", fn_like_ts_node.kind(), get_node_text(&fn_like_ts_node, source).chars().take(70).collect::<String>());
+    debug!("[cg::extract_function_parameters DEBUG] Analyzing TsNode kind: '{}', text snippet: '{}'", fn_like_ts_node.kind(), get_node_text(&fn_like_ts_node, source).chars().take(70).collect::<String>());
 
     let mut child_cursor = fn_like_ts_node.walk();
     // Iterate through direct children of fn_like_ts_node (constructor_definition or function_definition)
     // The 'parameter' nodes are direct children, not nested under a 'parameter_list' node.
     for child_node in fn_like_ts_node.children(&mut child_cursor) {
-        eprintln!("[cg::extract_function_parameters DEBUG] Child of fn_like_ts_node: Kind='{}', Text='{}'", child_node.kind(), get_node_text(&child_node, source).chars().take(30).collect::<String>());
+        debug!("[cg::extract_function_parameters DEBUG] Child of fn_like_ts_node: Kind='{}', Text='{}'", child_node.kind(), get_node_text(&child_node, source).chars().take(30).collect::<String>());
         if child_node.kind() == "parameter" { // These are the actual parameter definitions
             let type_node = child_node.child_by_field_name("type");
             let name_node = child_node.child_by_field_name("name");
@@ -613,14 +614,14 @@ pub(crate) fn extract_function_parameters(
             if let (Some(tn), Some(nn)) = (type_node, name_node) {
                 let param_name = crate::parser::get_node_text(&nn, source).to_string();
                 let param_type = crate::parser::get_node_text(&tn, source).to_string();
-                eprintln!("[cg::extract_function_parameters DEBUG]   Extracted param: name='{}', type='{}'", param_name, param_type);
+                debug!("[cg::extract_function_parameters DEBUG]   Extracted param: name='{}', type='{}'", param_name, param_type);
                 parameters.push(ParameterInfo {
                     name: param_name,
                     param_type: param_type,
                     description: None,
                 });
             } else {
-                eprintln!("[cg::extract_function_parameters DEBUG]   Found 'parameter' node (Kind: '{}', Text: '{}') but missing type or name field.", child_node.kind(), get_node_text(&child_node, source).chars().take(30).collect::<String>());
+                debug!("[cg::extract_function_parameters DEBUG]   Found 'parameter' node (Kind: '{}', Text: '{}') but missing type or name field.", child_node.kind(), get_node_text(&child_node, source).chars().take(30).collect::<String>());
             }
         }
     }
@@ -642,16 +643,16 @@ pub(crate) fn extract_function_parameters(
             }
 
             if has_parameter_nodes_in_signature {
-                 eprintln!("[cg::extract_function_parameters DEBUG] No parameters extracted, but 'parameter' nodes were found as direct children. This indicates the loop logic might be incorrect or tree-sitter grammar differs from expectation.");
+                 debug!("[cg::extract_function_parameters DEBUG] No parameters extracted, but 'parameter' nodes were found as direct children. This indicates the loop logic might be incorrect or tree-sitter grammar differs from expectation.");
             } else {
-                 eprintln!("[cg::extract_function_parameters DEBUG] No parameters extracted, and no 'parameter' nodes found as direct children. This might be a function/constructor with no parameters, or an issue with identifying 'parameter' nodes.");
+                 debug!("[cg::extract_function_parameters DEBUG] No parameters extracted, and no 'parameter' nodes found as direct children. This might be a function/constructor with no parameters, or an issue with identifying 'parameter' nodes.");
             }
         } else {
-            eprintln!("[cg::extract_function_parameters DEBUG] No parameters extracted. This appears to be a function/constructor with no parameters based on signature text: '{}'", signature_text.chars().take(50).collect::<String>());
+            debug!("[cg::extract_function_parameters DEBUG] No parameters extracted. This appears to be a function/constructor with no parameters based on signature text: '{}'", signature_text.chars().take(50).collect::<String>());
         }
     }
 
-    eprintln!("[cg::extract_function_parameters DEBUG] For node kind '{}', extracted {} parameters: {:?}", fn_like_ts_node.kind(), parameters.len(), parameters);
+    debug!("[cg::extract_function_parameters DEBUG] For node kind '{}', extracted {} parameters: {:?}", fn_like_ts_node.kind(), parameters.len(), parameters);
     parameters
 }
 
@@ -661,38 +662,38 @@ pub(crate) fn extract_arguments<'a>(
     input: &CallGraphGeneratorInput,
 ) -> Vec<String> {
     let mut argument_texts: Vec<String> = Vec::new();
-    eprintln!(
+    debug!(
         "[cg::extract_arguments DEBUG] Extracting argument texts for Call Expr Node: Kind='{}', Span=({:?})",
         call_expr_node.kind(),
         (call_expr_node.start_byte(), call_expr_node.end_byte())
     );
 
     if let Some(arguments_field_node) = call_expr_node.child_by_field_name("arguments") {
-        eprintln!("[cg::extract_arguments DEBUG]   Found 'arguments' field. Iterating its children.");
+        debug!("[cg::extract_arguments DEBUG]   Found 'arguments' field. Iterating its children.");
         let mut arg_cursor = arguments_field_node.walk();
         for arg_node in arguments_field_node.children(&mut arg_cursor) { // Iterate children of 'arguments'
             // These children should be 'call_argument' nodes, which are expressions
             if arg_node.kind() == "call_argument" { // Ensure it's a call_argument
                 let arg_text = get_node_text(&arg_node, &input.source).to_string();
-                eprintln!("[cg::extract_arguments DEBUG]     Extracted argument text (from 'arguments' field, child is call_argument): '{}'", arg_text);
+                debug!("[cg::extract_arguments DEBUG]     Extracted argument text (from 'arguments' field, child is call_argument): '{}'", arg_text);
                 argument_texts.push(arg_text);
             }
         }
     } else {
         // If 'arguments' field is not found, iterate direct children of call_expr_node
         // and look for 'call_argument' nodes. This handles cases like `require(arg)`.
-        eprintln!("[cg::extract_arguments DEBUG]   No 'arguments' field found. Iterating direct children of call_expression for 'call_argument' nodes.");
+        debug!("[cg::extract_arguments DEBUG]   No 'arguments' field found. Iterating direct children of call_expression for 'call_argument' nodes.");
         let mut direct_child_cursor = call_expr_node.walk();
         for child_node in call_expr_node.children(&mut direct_child_cursor) {
             if child_node.kind() == "call_argument" {
                 // child_node is the 'call_argument', which is an _expression node.
                 let arg_text = get_node_text(&child_node, &input.source).to_string();
-                eprintln!("[cg::extract_arguments DEBUG]     Extracted argument text (direct child call_argument): '{}'", arg_text);
+                debug!("[cg::extract_arguments DEBUG]     Extracted argument text (direct child call_argument): '{}'", arg_text);
                 argument_texts.push(arg_text);
             }
         }
         if argument_texts.is_empty() {
-             eprintln!("[cg::extract_arguments DEBUG]   No 'call_argument' nodes found as direct children either (after checking 'arguments' field).");
+             debug!("[cg::extract_arguments DEBUG]   No 'call_argument' nodes found as direct children either (after checking 'arguments' field).");
         }
     }
     argument_texts
@@ -701,33 +702,33 @@ pub(crate) fn extract_arguments<'a>(
 /// Helper function to extract argument TsNode objects from a call expression node.
 pub(crate) fn extract_argument_nodes<'a>(call_expr_node: TsNode<'a>) -> Vec<TsNode<'a>> {
     let mut argument_nodes_ts: Vec<TsNode<'a>> = Vec::new();
-    eprintln!(
+    debug!(
         "[cg::extract_argument_nodes DEBUG] Extracting argument nodes for Call Expr Node: Kind='{}', Span=({:?})",
         call_expr_node.kind(),
         (call_expr_node.start_byte(), call_expr_node.end_byte())
     );
 
     if let Some(arguments_field_node) = call_expr_node.child_by_field_name("arguments") {
-        eprintln!("[cg::extract_argument_nodes DEBUG]   Found 'arguments' field. Iterating its children.");
+        debug!("[cg::extract_argument_nodes DEBUG]   Found 'arguments' field. Iterating its children.");
         let mut arg_cursor = arguments_field_node.walk();
         for arg_node in arguments_field_node.children(&mut arg_cursor) { // Iterate children of 'arguments'
             if arg_node.kind() == "call_argument" { // Ensure it's a call_argument
-                eprintln!("[cg::extract_argument_nodes DEBUG]     Extracted argument node (from 'arguments' field, child is call_argument): Kind='{}', Span=({:?})", arg_node.kind(), (arg_node.start_byte(), arg_node.end_byte()));
+                debug!("[cg::extract_argument_nodes DEBUG]     Extracted argument node (from 'arguments' field, child is call_argument): Kind='{}', Span=({:?})", arg_node.kind(), (arg_node.start_byte(), arg_node.end_byte()));
                 argument_nodes_ts.push(arg_node);
             }
         }
     } else {
-        eprintln!("[cg::extract_argument_nodes DEBUG]   No 'arguments' field found. Iterating direct children of call_expression for 'call_argument' nodes.");
+        debug!("[cg::extract_argument_nodes DEBUG]   No 'arguments' field found. Iterating direct children of call_expression for 'call_argument' nodes.");
         let mut direct_child_cursor = call_expr_node.walk();
         for child_node in call_expr_node.children(&mut direct_child_cursor) {
             if child_node.kind() == "call_argument" {
                 // child_node is the 'call_argument', which is an _expression node.
-                eprintln!("[cg::extract_argument_nodes DEBUG]     Extracted argument node (direct child call_argument): Kind='{}', Span=({:?})", child_node.kind(), (child_node.start_byte(), child_node.end_byte()));
+                debug!("[cg::extract_argument_nodes DEBUG]     Extracted argument node (direct child call_argument): Kind='{}', Span=({:?})", child_node.kind(), (child_node.start_byte(), child_node.end_byte()));
                 argument_nodes_ts.push(child_node);
             }
         }
         if argument_nodes_ts.is_empty() {
-            eprintln!("[cg::extract_argument_nodes DEBUG]   No 'call_argument' nodes found as direct children either (after checking 'arguments' field).");
+            debug!("[cg::extract_argument_nodes DEBUG]   No 'call_argument' nodes found as direct children either (after checking 'arguments' field).");
         }
     }
     argument_nodes_ts
@@ -754,12 +755,12 @@ pub(crate) fn get_function_return_type(
             .descendant_for_byte_range(definition_node_info.span.0, definition_node_info.span.1) {
             Some(node) => node,
             None => {
-                eprintln!("[Return Type Parse DEBUG] Failed to find TsNode for span {:?} for node ID {}", definition_node_info.span, target_node_id);
+                debug!("[Return Type Parse DEBUG] Failed to find TsNode for span {:?} for node ID {}", definition_node_info.span, target_node_id);
                 return None;
             }
         };
 
-        eprintln!("[Return Type Parse DEBUG] Analyzing definition node ID {} for return type. S-Expr:\n{}", target_node_id, definition_ts_node.to_sexp()); // Use retrieved node
+        debug!("[Return Type Parse DEBUG] Analyzing definition node ID {} for return type. S-Expr:\n{}", target_node_id, definition_ts_node.to_sexp()); // Use retrieved node
 
         // Query to find the actual type name node within the standard return structure.
         // NOTE: This simplified query only handles `returns (type)`.
@@ -790,14 +791,14 @@ pub(crate) fn get_function_return_type(
         let return_type_query = match Query::new(&input.solidity_lang, return_type_query_str) {
             Ok(q) => q,
             Err(e) => {
-                eprintln!(
+                debug!(
                     "[Return Type Parse DEBUG] Failed to create query for node ID {}: {}",
                     target_node_id, e
                 );
                 return None;
             }
         };
-        eprintln!(
+        debug!(
             "[Return Type Parse DEBUG] Query created successfully for node ID {}.",
             target_node_id
         );
@@ -806,7 +807,7 @@ pub(crate) fn get_function_return_type(
         let source_bytes = input.source.as_bytes();
 
         // Run the query only on the specific definition node
-        eprintln!("[Return Type Parse DEBUG] Running matches on definition node...");
+        debug!("[Return Type Parse DEBUG] Running matches on definition node...");
         let mut matches = cursor.matches(
             &return_type_query,
             definition_ts_node, // Use retrieved node
@@ -814,10 +815,10 @@ pub(crate) fn get_function_return_type(
         );
         matches.advance(); // Advance once
 
-        eprintln!("[Return Type Parse DEBUG] Checking for match result..."); // New log
+        debug!("[Return Type Parse DEBUG] Checking for match result..."); // New log
 
         if let Some(match_) = matches.get() {
-            eprintln!(
+            debug!(
                 "[Return Type Parse DEBUG] Match found! Processing {} captures...",
                 match_.captures.len()
             ); // New log
@@ -826,7 +827,7 @@ pub(crate) fn get_function_return_type(
             for (cap_idx, capture) in match_.captures.iter().enumerate() {
                 // Added index for logging
                 let capture_name = &return_type_query.capture_names()[capture.index as usize];
-                eprintln!(
+                debug!(
                     "[Return Type Parse DEBUG]   Capture {}: Name='{}', Node Kind='{}', Text='{}'",
                     cap_idx,
                     capture_name,
@@ -836,48 +837,48 @@ pub(crate) fn get_function_return_type(
 
                 if *capture_name == "return_type_name_node" {
                     // Use the new capture name
-                    eprintln!("[Return Type Parse DEBUG]     Match on '@return_type_name_node'!"); // New log
+                    debug!("[Return Type Parse DEBUG]     Match on '@return_type_name_node'!"); // New log
                     found_expected_capture = true; // Mark that we found it
                     let type_name_node = capture.node;
                     // Get the text of the type_name node directly
                     let type_name_text = get_node_text(&type_name_node, &input.source).to_string();
 
                     if !type_name_text.is_empty() {
-                        eprintln!(
+                        debug!(
                             "[Return Type Parse DEBUG] Found single return type name: '{}'",
                             type_name_text
                         );
                         return Some(type_name_text); // Return the captured type name text
                     } else {
-                        eprintln!("[Return Type Parse DEBUG] Found empty return type name node.");
+                        debug!("[Return Type Parse DEBUG] Found empty return type name node.");
                         // Let it fall through to return None at the end if text is empty
                     }
                     // TODO: Handle multiple return types if the query is extended later
                 } else {
-                    eprintln!("[Return Type Parse DEBUG]     Capture name '{}' did not match expected '@return_type_name_node'.", capture_name);
+                    debug!("[Return Type Parse DEBUG]     Capture name '{}' did not match expected '@return_type_name_node'.", capture_name);
                     // New log
                 }
             }
             // If the loop finishes without returning, check the flag
             if !found_expected_capture {
-                eprintln!("[Return Type Parse DEBUG] Loop finished. Query matched but the '@return_type_name_node' capture was not found among the captures for node ID {}.", target_node_id);
+                debug!("[Return Type Parse DEBUG] Loop finished. Query matched but the '@return_type_name_node' capture was not found among the captures for node ID {}.", target_node_id);
             } else {
-                eprintln!("[Return Type Parse DEBUG] Loop finished. Found '@return_type_name_node' capture but it resulted in empty text or didn't return for node ID {}.", target_node_id);
+                debug!("[Return Type Parse DEBUG] Loop finished. Found '@return_type_name_node' capture but it resulted in empty text or didn't return for node ID {}.", target_node_id);
             }
         } else {
-            eprintln!(
+            debug!(
                 "[Return Type Parse DEBUG] Query found no return type match for node ID {}.",
                 target_node_id
             ); // Refined log
         }
     } else {
-        eprintln!(
+        debug!(
             "[Return Type Parse DEBUG] Definition TsNode not found for node ID {}",
             target_node_id
         );
     }
 
-    eprintln!(
+    debug!(
         "[Return Type Parse DEBUG] Function returning None for node ID {}.",
         target_node_id
     ); // New log before returning None
@@ -941,7 +942,7 @@ impl CallGraphGeneratorPipeline {
         // Second pass: generate using enabled steps
         for step in &self.steps {
             if self.enabled_steps.contains(step.name()) {
-                eprintln!(
+                debug!(
                     "[Address Debug Pipeline] Running step '{}', Graph: {:p}",
                     step.name(),
                     graph

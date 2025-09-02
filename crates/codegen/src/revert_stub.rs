@@ -3,6 +3,8 @@
 //! This module generates revert tests using the new AST-based approach with
 //! SolidityTestContractBuilder and proper type-safe Solidity code generation.
 
+use tracing::debug;
+
 use crate::teststubs::{
     sanitize_identifier, to_pascal_case, ContractInfo, FunctionInfo,
     SolidityTestContract, SolidityTestContractBuilder,
@@ -21,16 +23,16 @@ pub fn generate_revert_tests_from_cfg(
     function_name: &str,
     function_params: &[ParameterInfo],
 ) -> Result<Vec<SolidityTestContract>> {
-    eprintln!(
+    debug!(
         "[REVERT DEBUG] Starting enhanced revert test generation for {}.{}",
         contract_name, function_name
     );
-    eprintln!(
+    debug!(
         "[REVERT DEBUG] Function has {} parameters",
         function_params.len()
     );
     for (i, param) in function_params.iter().enumerate() {
-        eprintln!(
+        debug!(
             "[REVERT DEBUG] Param {}: {} {}",
             i, param.param_type, param.name
         );
@@ -45,7 +47,7 @@ pub fn generate_revert_tests_from_cfg(
     });
 
     if let Some(func_node) = func_node {
-        eprintln!(
+        debug!(
             "[REVERT DEBUG] Found function node with ID: {}",
             func_node.id
         );
@@ -58,13 +60,13 @@ pub fn generate_revert_tests_from_cfg(
             })
             .collect();
 
-        eprintln!(
+        debug!(
             "[REVERT DEBUG] Found {} require edges for function",
             require_edges.len()
         );
 
         for (edge_idx, edge) in require_edges.iter().enumerate() {
-            eprintln!(
+            debug!(
                 "[REVERT DEBUG] Processing require edge {} of {}",
                 edge_idx + 1,
                 require_edges.len()
@@ -82,7 +84,7 @@ pub fn generate_revert_tests_from_cfg(
 
             let error_message = condition_node.revert_message.clone().unwrap_or_default();
 
-            eprintln!(
+            debug!(
                 "[REVERT DEBUG] Processing condition: '{}'",
                 descriptive_condition_text
             );
@@ -90,14 +92,14 @@ pub fn generate_revert_tests_from_cfg(
             let rt = tokio::runtime::Runtime::new().unwrap();
             let invariant_result = match rt.block_on(break_invariant(&descriptive_condition_text)) {
                 Ok(result) => {
-                    eprintln!(
+                    debug!(
                         "[REVERT DEBUG] Invariant breaker for '{}': success={}, entries={}",
                         descriptive_condition_text, result.success, result.entries.len()
                     );
                     if result.success && !result.entries.is_empty() {
                         Some(result)
                     } else {
-                        eprintln!(
+                        debug!(
                             "[REVERT DEBUG] Invariant breaker did not find a counterexample for '{}'",
                             descriptive_condition_text
                         );
@@ -105,7 +107,7 @@ pub fn generate_revert_tests_from_cfg(
                     }
                 }
                 Err(e) => {
-                    eprintln!(
+                    debug!(
                         "[REVERT DEBUG] Error calling invariant breaker for '{}': {}",
                         descriptive_condition_text, e
                     );
@@ -127,20 +129,20 @@ pub fn generate_revert_tests_from_cfg(
 
                 test_contracts.push(test_contract);
             } else {
-                eprintln!(
+                debug!(
                     "[REVERT DEBUG] Skipping test for condition '{}' - no counterexample found",
                     descriptive_condition_text
                 );
             }
         }
     } else {
-        eprintln!(
+        debug!(
             "[REVERT DEBUG] Function node not found in graph for {}.{}",
             contract_name, function_name
         );
     }
 
-    eprintln!(
+    debug!(
         "[REVERT DEBUG] Generated {} enhanced revert test contracts",
         test_contracts.len()
     );
@@ -180,7 +182,7 @@ fn create_revert_test_contract(
         function_name, test_name_condition_identifier
     );
 
-    eprintln!(
+    debug!(
         "[REVERT DEBUG] Creating test contract '{}' with function '{}'",
         test_contract_name, test_function_name
     );
@@ -279,7 +281,7 @@ fn create_revert_test_contract(
                             }));
                         }
                         Err(e) => {
-                            eprintln!("[REVERT DEBUG] Failed to generate function arguments: {}", e);
+                            debug!("[REVERT DEBUG] Failed to generate function arguments: {}", e);
                             // Add a comment about the error
                             body.expression(Expression::FunctionCall(FunctionCallExpression {
                                 function: Box::new(identifier("// Failed to generate arguments")),
@@ -319,7 +321,7 @@ fn extract_prank_info(
         // Look for address variables in the counterexample
         for (var_name, var_value) in variables {
             if let InvariantBreakerValue::Address(addr) = var_value {
-                eprintln!(
+                debug!(
                     "[REVERT DEBUG] Found address variable '{}' = '{}' for prank",
                     var_name, addr
                 );
@@ -327,7 +329,7 @@ fn extract_prank_info(
             }
         }
 
-        eprintln!(
+        debug!(
             "[REVERT DEBUG] No address variable found in invariant breaker results for condition: {}",
             condition
         );
@@ -365,14 +367,14 @@ fn generate_function_args_from_invariant(
 
     for param in function_params {
         if let Some(var_value) = variables.get(&param.name) {
-            eprintln!(
+            debug!(
                 "[REVERT DEBUG] Using invariant value for param '{}': {:?}",
                 param.name, var_value
             );
             // Convert the invariant value to match the parameter's Solidity type
             args.push(invariant_value_to_expression_with_type(var_value, &param.param_type));
         } else {
-            eprintln!(
+            debug!(
                 "[REVERT DEBUG] No invariant value found for param '{}'",
                 param.name
             );
@@ -466,7 +468,7 @@ pub fn create_comprehensive_revert_test_contract(
     function_info: &FunctionInfo,
     graph: &CallGraph,
 ) -> Result<SolidityTestContract> {
-    eprintln!(
+    debug!(
         "[REVERT DEBUG] Creating comprehensive revert test contract for {}.{}",
         contract_info.name, function_info.name
     );

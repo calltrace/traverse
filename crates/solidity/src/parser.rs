@@ -3,6 +3,7 @@ use pest::iterators::Pair;
 use pest::Parser;
 use pest_derive::Parser;
 use std::fmt;
+use tracing::warn;
 
 #[derive(Parser)]
 #[grammar = "solidity.pest"]
@@ -828,7 +829,7 @@ impl Literal {
                 Literal::UnicodeString(UnicodeStringLiteral::from(pair))
             }
             _ => {
-                eprintln!(
+                warn!(
                     "Unexpected rule in from_specific_literal_rule: {:?}",
                     pair.as_rule()
                 );
@@ -846,7 +847,7 @@ impl From<Pair<'_, Rule>> for Literal {
                 if let Some(specific_literal_pair) = pair.into_inner().next() {
                     Literal::from_specific_literal_rule(specific_literal_pair)
                 } else {
-                    eprintln!("Rule::literal had no inner pair: {:?}", pair_str);
+                    warn!("Rule::literal had no inner pair: {:?}", pair_str);
                     Literal::Boolean(false)
                 }
             }
@@ -879,7 +880,7 @@ impl From<Pair<'_, Rule>> for Literal {
                 Literal::UnicodeString(UnicodeStringLiteral::from(pair))
             }
             _ => {
-                eprintln!("Unexpected rule in Literal::from: {:?}", pair.as_rule());
+                warn!("Unexpected rule in Literal::from: {:?}", pair.as_rule());
                 Literal::Boolean(false)
             }
         }

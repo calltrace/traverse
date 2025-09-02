@@ -28,6 +28,8 @@
 //! The module uses the Solidity parser, interpreter, and writer from the `solidity` crate
 //! to parse expressions, evaluate them with random values, and generate concrete output.
 
+use tracing::debug;
+
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use solidity::ast::*;
@@ -187,9 +189,9 @@ pub async fn break_invariant_with_config(
     let mut uint_candidates = std::collections::HashSet::new();
     collect_comparison_vars_recursive(&parsed_expr, &variables, &mut uint_candidates);
 
-    eprintln!("[INV_BREAK DEBUG] Original Expression: {}", expression);
-    eprintln!("[INV_BREAK DEBUG] Extracted Variables: {:?}", variables);
-    eprintln!("[INV_BREAK DEBUG] Uint Candidates: {:?}", uint_candidates);
+    debug!("[INV_BREAK DEBUG] Original Expression: {}", expression);
+    debug!("[INV_BREAK DEBUG] Extracted Variables: {:?}", variables);
+    debug!("[INV_BREAK DEBUG] Uint Candidates: {:?}", uint_candidates);
 
     let mut entries = Vec::new();
     let mut attempts = 0;
@@ -222,7 +224,7 @@ pub async fn break_invariant_with_config(
                 .set_variable(name.clone(), value.clone());
         }
 
-        eprintln!(
+        debug!(
             "[INV_BREAK DEBUG] Attempt {}: Variable Assignments: {:?}",
             attempts,
             variable_assignments
@@ -233,7 +235,7 @@ pub async fn break_invariant_with_config(
 
         match interpreter.evaluate_predicate(&parsed_expr) {
             Ok(false) => {
-                eprintln!(
+                debug!(
                     "[INV_BREAK DEBUG] Attempt {}: Found counterexample (predicate returned false)",
                     attempts
                 );
@@ -248,14 +250,14 @@ pub async fn break_invariant_with_config(
                 });
             }
             Ok(true) => {
-                eprintln!(
+                debug!(
                     "[INV_BREAK DEBUG] Attempt {}: Predicate returned true",
                     attempts
                 );
                 // Expression evaluated to true, continue searching
             }
             Err(e) => {
-                eprintln!(
+                debug!(
                     "[INV_BREAK DEBUG] Attempt {}: Error evaluating predicate: {}. Skipping.",
                     attempts, e
                 );
@@ -266,12 +268,12 @@ pub async fn break_invariant_with_config(
     }
 
     if entries.is_empty() {
-        eprintln!(
+        debug!(
             "[INV_BREAK DEBUG] No counterexamples found after {} attempts for expression: '{}'",
             attempts, expression
         );
     } else {
-        eprintln!(
+        debug!(
             "[INV_BREAK DEBUG] Found {} counterexamples for expression: '{}'",
             entries.len(),
             expression

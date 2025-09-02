@@ -15,33 +15,23 @@ COPY Cargo.toml Cargo.toml
 COPY Cargo.lock Cargo.lock
 
 # Copy workspace member manifests
-COPY crates/backend/Cargo.toml ./crates/backend/Cargo.toml
-COPY crates/compiler/Cargo.toml ./crates/compiler/Cargo.toml
-COPY crates/core/Cargo.toml ./crates/core/Cargo.toml
-COPY crates/frontend/Cargo.toml ./crates/frontend/Cargo.toml
+COPY crates/cli/Cargo.toml ./crates/cli/Cargo.toml
+COPY crates/codegen/Cargo.toml ./crates/codegen/Cargo.toml
 COPY crates/graph/Cargo.toml ./crates/graph/Cargo.toml
-COPY crates/ir/Cargo.toml ./crates/ir/Cargo.toml
 COPY crates/language/Cargo.toml ./crates/language/Cargo.toml
+COPY crates/logging/Cargo.toml ./crates/logging/Cargo.toml
 COPY crates/mermaid/Cargo.toml ./crates/mermaid/Cargo.toml
-COPY crates/sol2seq/Cargo.toml ./crates/sol2seq/Cargo.toml
-COPY crates/traverse-cli/Cargo.toml ./crates/traverse-cli/Cargo.toml
-COPY crates/tree-sitter-traverse/Cargo.toml ./crates/tree-sitter-traverse/Cargo.toml
-COPY crates/mermaid/Cargo.toml ./crates/mermaid/Cargo.toml
+COPY crates/solidity/Cargo.toml ./crates/solidity/Cargo.toml
 # Create dummy source files needed to build dependencies only
 # This prevents needing the full source code just for dependency resolution/caching
-RUN mkdir -p src/bin && echo "fn main() {}" > src/bin/sol2cg.rs
 # Create dummy lib.rs files for all workspace crates
-RUN mkdir -p crates/backend/src && echo "// dummy" > crates/backend/src/lib.rs
-RUN mkdir -p crates/compiler/src && echo "// dummy" > crates/compiler/src/lib.rs
-RUN mkdir -p crates/core/src && echo "// dummy" > crates/core/src/lib.rs
-RUN mkdir -p crates/frontend/src && echo "// dummy" > crates/frontend/src/lib.rs
+RUN mkdir -p crates/cli/src/bin && echo "fn main() {}" > crates/cli/src/bin/sol2cg.rs
+RUN mkdir -p crates/codegen/src && echo "// dummy" > crates/codegen/src/lib.rs
 RUN mkdir -p crates/graph/src && echo "// dummy" > crates/graph/src/lib.rs
-RUN mkdir -p crates/ir/src && echo "// dummy" > crates/ir/src/lib.rs
 RUN mkdir -p crates/language/src && echo "// dummy" > crates/language/src/lib.rs
+RUN mkdir -p crates/logging/src && echo "// dummy" > crates/logging/src/lib.rs
 RUN mkdir -p crates/mermaid/src && echo "// dummy" > crates/mermaid/src/lib.rs
-RUN mkdir -p crates/sol2seq/src && echo "// dummy" > crates/sol2seq/src/lib.rs
-RUN mkdir -p crates/traverse-cli/src/bin && echo "fn main() {}" > crates/traverse-cli/src/bin/sol2cg.rs
-RUN mkdir -p crates/tree-sitter-traverse/bindings/rust && echo "// dummy" > crates/tree-sitter-traverse/bindings/rust/lib.rs
+RUN mkdir -p crates/solidity/src && echo "// dummy" > crates/solidity/src/lib.rs
 # Add for other crates as needed
 
 # Build *only* the dependencies to cache them
@@ -54,11 +44,14 @@ RUN rm -rf src crates target/release/.fingerprint target/release/build target/re
 # This includes the actual src/bin/sol2cg.rs and all crate sources
 COPY . .
 
-# Build the application binary, leveraging the cached dependencies
+# Build the application binaries, leveraging the cached dependencies
 # Force removal of potentially outdated build script artifacts before the final build
 RUN rm -rf target/release/build/
 RUN cargo build --release --bin sol2cg
+RUN cargo build --release --bin sol2test
+RUN cargo build --release --bin sol2bnd
 RUN cargo build --release --bin storage-trace
+RUN cargo build --release --bin sol-storage-analyzer
 
 # Stage 2: Create the final runtime image
 # Use a minimal base image like Debian Slim for the final stage
@@ -68,14 +61,17 @@ FROM debian:bullseye-slim
 RUN groupadd --system --gid 1001 appgroup && \
     useradd --system --uid 1001 --gid 1001 --shell /sbin/nologin appuser
 
-# Copy the compiled binary from the builder stage to the final image
-# Place it in a standard location like /usr/local/bin
+# Copy the compiled binaries from the builder stage to the final image
+# Place them in a standard location like /usr/local/bin
 COPY --from=builder /usr/src/app/target/release/sol2cg /usr/local/bin/sol2cg
+COPY --from=builder /usr/src/app/target/release/sol2test /usr/local/bin/sol2test
+COPY --from=builder /usr/src/app/target/release/sol2bnd /usr/local/bin/sol2bnd
 COPY --from=builder /usr/src/app/target/release/storage-trace /usr/local/bin/storage-trace
+COPY --from=builder /usr/src/app/target/release/sol-storage-analyzer /usr/local/bin/sol-storage-analyzer
 
 
-# Ensure the binary is executable
-RUN chmod +x /usr/local/bin/sol2cg
+# Ensure the binaries are executable
+RUN chmod +x /usr/local/bin/sol2cg /usr/local/bin/sol2test /usr/local/bin/sol2bnd /usr/local/bin/storage-trace /usr/local/bin/sol-storage-analyzer
 
 # Switch to the non-root user
 USER appuser

@@ -1045,19 +1045,19 @@ mod tests {
 
         let result = parse(input).unwrap();
         
-        // Print the structure for debugging
-        println!("Number of statements: {}", result.statements.len());
+        // Print the structure for debugging (commented out trace! calls)
+        // Number of statements: result.statements.len()
         
-        for (i, stmt) in result.statements.iter().enumerate() {
-            println!("Statement {}: {:?}", i, stmt);
+        for (_i, _stmt) in result.statements.iter().enumerate() {
+            // Statement i: stmt
         }
         
         // Check specifically for the signal statement
-        if let Statement::Signal(signal) = &result.statements[2] {
-            println!("Signal from: {}", signal.from);
-            println!("Signal to: {}", signal.to);
-            println!("Arrow: {:?}", signal.arrow);
-            println!("Message: {:?}", signal.message);
+        if let Statement::Signal(_signal) = &result.statements[2] {
+            // Signal from: signal.from
+            // Signal to: signal.to
+            // Arrow: signal.arrow
+            // Message: signal.message
         }
     }
 }

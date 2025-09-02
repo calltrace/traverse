@@ -3,6 +3,8 @@
 //! This module generates access control tests using the new AST-based approach with
 //! SolidityTestContractBuilder and proper type-safe Solidity code generation.
 
+use tracing::debug;
+
 use crate::teststubs::{
     generate_valid_args_for_function, to_pascal_case, ContractInfo, FunctionInfo,
     SolidityTestContract, SolidityTestContractBuilder,
@@ -158,7 +160,7 @@ fn create_access_control_test_contract(
                             }));
                         }
                         Err(e) => {
-                            eprintln!("Failed to generate function arguments: {}", e);
+                            debug!("Failed to generate function arguments: {}", e);
                             // Add a comment about the error
                             body.expression(Expression::FunctionCall(FunctionCallExpression {
                                 function: Box::new(identifier("// Failed to generate arguments")),

@@ -10,6 +10,7 @@ use crate::{
 use anyhow::{anyhow, Context, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node as TsNode, Query, QueryCursor};
+use tracing::debug;
 
 #[derive(Default)] // Add Default derive
 pub struct ContractHandling {
@@ -170,7 +171,7 @@ impl CallGraphGeneratorStep for ContractHandling {
         let source_bytes = input.source.as_bytes();
 
         // --- Pass 1: Identify all contract, interface, and library names and add their primary nodes ---
-        eprintln!("[ContractHandling] Pass 1: Identifying Contracts, Interfaces, Libraries...");
+        debug!("[ContractHandling] Pass 1: Identifying Contracts, Interfaces, Libraries...");
         let mut matches_pass1 =
             definition_cursor.matches(&definition_query, root_node, |node: TsNode| {
                 iter::once(&source_bytes[node.byte_range()])
@@ -240,10 +241,10 @@ impl CallGraphGeneratorStep for ContractHandling {
             }
             matches_pass1.advance();
         }
-        eprintln!("[ContractHandling] Pass 1: Found {} contracts, {} interfaces, {} libraries.", ctx.all_contracts.len(), ctx.all_interfaces.len(), ctx.all_libraries.len());
+        debug!("[ContractHandling] Pass 1: Found {} contracts, {} interfaces, {} libraries.", ctx.all_contracts.len(), ctx.all_interfaces.len(), ctx.all_libraries.len());
 
         // --- Pass 2: Process members, inheritance, and other relationships ---
-        eprintln!("[ContractHandling] Pass 2: Processing members and relationships...");
+        debug!("[ContractHandling] Pass 2: Processing members and relationships...");
         let mut matches_pass2 =
             definition_cursor.matches(&definition_query, root_node, |node: TsNode| {
                 iter::once(&source_bytes[node.byte_range()])
@@ -274,7 +275,7 @@ impl CallGraphGeneratorStep for ContractHandling {
                             let inherited_name = get_node_text(inherited_name_node, &input.source).to_string();
                             if ctx.all_interfaces.contains_key(&inherited_name) {
                                 ctx.contract_implements.entry(contract_name.clone()).or_default().push(inherited_name.clone());
-                                eprintln!("[ContractHandling] Contract '{}' implements interface '{}'", contract_name, inherited_name);
+                                debug!("[ContractHandling] Contract '{}' implements interface '{}'", contract_name, inherited_name);
                             }
                             ctx.contract_inherits.entry(contract_name).or_default().push(inherited_name);
                         }
@@ -315,7 +316,7 @@ impl CallGraphGeneratorStep for ContractHandling {
                         };
 
                         if final_name.is_empty() && node_type != NodeType::Constructor { // Constructors can have scope as name
-                            eprintln!("Warning: Empty name for {:?} at span {:?}", node_type, def_node.byte_range());
+                            debug!("Warning: Empty name for {:?} at span {:?}", node_type, def_node.byte_range());
                             matches_pass2.advance();
                             continue;
                         }
@@ -404,7 +405,7 @@ impl CallGraphGeneratorStep for ContractHandling {
                                     Ok((final_value_type, full_type_str, is_mapping)) => {
                                         // Always store the full type string in state_var_types
                                         ctx.state_var_types.insert((contract_name.clone(), var_name_str.clone()), full_type_str.clone());
-                                        eprintln!("[ContractHandling DEBUG] Adding to state_var_types (any type): Key=({}, {}), Value={}", contract_name, var_name_str, full_type_str);
+                                        debug!("[ContractHandling DEBUG] Adding to state_var_types (any type): Key=({}, {}), Value={}", contract_name, var_name_str, full_type_str);
 
                                         if is_mapping {
                                             // If it was a mapping, populate contract_mappings
@@ -417,17 +418,17 @@ impl CallGraphGeneratorStep for ContractHandling {
                                                 full_type_str: full_type_str.clone(), // This is the full "mapping(...)" string
                                             };
                                             ctx.contract_mappings.insert((contract_name.clone(), var_name_str.clone()), mapping_info.clone());
-                                            eprintln!("[ContractHandling] Added mapping info for {}.{}: Name='{}', Visibility='{:?}', Keys='{:?}', ValueType='{}', FullType='{}'",
+                                            debug!("[ContractHandling] Added mapping info for {}.{}: Name='{}', Visibility='{:?}', Keys='{:?}', ValueType='{}', FullType='{}'",
                                                 contract_name, var_name_str,
                                                 mapping_info.name, mapping_info.visibility, mapping_info.key_types, mapping_info.value_type, mapping_info.full_type_str);
                                         } else {
                                             // If it wasn't a mapping, full_type_str is just the simple type string.
                                             // state_var_types is already populated above. No need to populate contract_mappings.
-                                            eprintln!("[ContractHandling] State variable {}.{} is not a mapping. Type: {}", contract_name, var_name_str, full_type_str);
+                                            debug!("[ContractHandling] State variable {}.{} is not a mapping. Type: {}", contract_name, var_name_str, full_type_str);
                                         }
                                     }
                                     Err(e) => {
-                                        eprintln!("Error parsing type for {}.{}: {}", contract_name, var_name_str, e);
+                                        debug!("Error parsing type for {}.{}: {}", contract_name, var_name_str, e);
                                         // Fallback: store the raw text if parsing fails, though parse_mapping_recursive should handle non-mappings gracefully.
                                         let raw_type_str = get_node_text(&var_type_node, &input.source).to_string();
                                         ctx.state_var_types.insert((contract_name.clone(), var_name_str.clone()), raw_type_str);
@@ -448,7 +449,7 @@ impl CallGraphGeneratorStep for ContractHandling {
                             ctx.storage_var_nodes.insert((Some(contract_name), var_name_str), node_id);
 
                         } else {
-                             eprintln!("Warning: Could not extract type or name for state variable in contract '{}' at span {:?}. Type found: {}, Name found: {}", 
+                             debug!("Warning: Could not extract type or name for state variable in contract '{}' at span {:?}. Type found: {}, Name found: {}", 
                                 contract_name, 
                                 state_var_decl_node.byte_range(),
                                 type_node_opt.is_some(),
@@ -471,7 +472,7 @@ impl CallGraphGeneratorStep for ContractHandling {
                     // contract_def_item, interface_def_item, library_def_item were handled in Pass 1
                     "contract_def_item" | "interface_def_item" | "library_def_item" => { /* Already handled */ }
                     _ => {
-                        eprintln!("Warning: Unhandled item kind in Pass 2: {}", item_kind_name);
+                        debug!("Warning: Unhandled item kind in Pass 2: {}", item_kind_name);
                     }
                 }
             }
@@ -494,7 +495,7 @@ impl CallGraphGeneratorStep for ContractHandling {
                 // No need to add to definition_nodes_info for default constructors as they have no TsNode
             }
         }
-        eprintln!("[ContractHandling] Pass 2: Processing complete.");
+        debug!("[ContractHandling] Pass 2: Processing complete.");
         Ok(())
     }
 
@@ -540,7 +541,6 @@ mod tests {
     use crate::cg::{
             CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, Visibility,
         };
-    use anyhow::Context as _; // Ensure anyhow::Context is in scope for .context()
     use language::{Language, Solidity}; // Added for Solidity language access
     
     use tree_sitter::Parser;

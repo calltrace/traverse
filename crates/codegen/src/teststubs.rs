@@ -2,6 +2,8 @@
 //!
 //! This module provides a comprehensive framework for generating Solidity test contracts
 
+use tracing::debug;
+
 use anyhow::{Context, Result};
 use graph::cg::{CallGraph, CallGraphGeneratorContext, ParameterInfo};
 use serde::{Deserialize, Serialize};
@@ -152,7 +154,7 @@ impl FoundryIntegration {
     fn init_foundry_project(project_root: &Path) -> Result<()> {
         use std::process::Command;
 
-        println!("🔧 Initializing Foundry project at: {}", project_root.display());
+        debug!("🔧 Initializing Foundry project at: {}", project_root.display());
 
         let output = Command::new("forge")
             .arg("init")
@@ -162,12 +164,12 @@ impl FoundryIntegration {
             .context("Failed to execute 'forge init' command")?;
 
         if output.status.success() {
-            println!("✅ Foundry project initialized successfully");
+            debug!("✅ Foundry project initialized successfully");
             Ok(())
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
             if stderr.contains("already exists") || stderr.contains("already initialized") {
-                println!("✅ Foundry project initialized (some files already existed)");
+                debug!("✅ Foundry project initialized (some files already existed)");
                 Ok(())
             } else {
                 Err(anyhow::anyhow!("Failed to initialize Foundry project: {}", stderr))
@@ -183,7 +185,7 @@ impl FoundryIntegration {
         if contract_path.exists() {
             fs::copy(contract_path, &dest_path)
                 .context("Failed to copy contract to src directory")?;
-            println!("📄 Copied {} to {}", contract_path.display(), dest_path.display());
+            debug!("📄 Copied {} to {}", contract_path.display(), dest_path.display());
         }
 
         Ok(())
@@ -221,7 +223,7 @@ impl FoundryIntegration {
             Ok(true)
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            eprintln!("Forge build failed: {}", stderr);
+            debug!("Forge build failed: {}", stderr);
             Ok(false)
         }
     }
@@ -239,11 +241,11 @@ impl FoundryIntegration {
         let output = cmd.output().context("Failed to execute 'forge test' command")?;
 
         if output.status.success() {
-            println!("✅ All tests passed!");
+            debug!("✅ All tests passed!");
             Ok(true)
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            eprintln!("Some tests failed: {}", stderr);
+            debug!("Some tests failed: {}", stderr);
             Ok(false)
         }
     }
@@ -461,7 +463,7 @@ pub(crate) fn generate_and_write_test_file(
         })?;
 
     if verbose {
-        println!("📝 Generated test file: {}", test_file_path.display());
+        debug!("📝 Generated test file: {}", test_file_path.display());
     }
 
     Ok(())
@@ -478,7 +480,7 @@ pub fn generate_tests_with_foundry(
     original_contract_paths: &HashMap<String, PathBuf>,
 ) -> Result<()> {
     if verbose {
-        println!("🚀 Starting sol2test with enhanced Foundry integration");
+        debug!("🚀 Starting sol2test with enhanced Foundry integration");
     }
 
     let foundry_root = foundry_root
@@ -494,7 +496,7 @@ pub fn generate_tests_with_foundry(
         let contract_name = &contract_info.name;
         if let Some(original_path) = original_contract_paths.get(contract_name) {
             if verbose {
-                println!(
+                debug!(
                     "📜 Copying original contract '{}' from {} to Foundry src...",
                     contract_name,
                     original_path.display()
@@ -509,7 +511,7 @@ pub fn generate_tests_with_foundry(
                     ))
                 })?;
         } else {
-            eprintln!(
+            debug!(
                 "⚠️ Warning: Original source path for contract '{}' not found. Skipping copy.",
                 contract_name
             );
@@ -517,9 +519,9 @@ pub fn generate_tests_with_foundry(
     }
 
     if verbose {
-        println!("🏗️  Found {} contracts in CFG:", contracts.len());
+        debug!("🏗️  Found {} contracts in CFG:", contracts.len());
         for contract in &contracts {
-            println!(
+            debug!(
                 "  - {} (functions: {})",
                 contract.name,
                 contract.functions.len()
@@ -537,7 +539,7 @@ pub fn generate_tests_with_foundry(
             .any(|n| n.node_type == graph::cg::NodeType::Interface && n.name == contract_info.name)
         {
             if verbose {
-                println!("  ⏭️  Skipping interface: {}", contract_info.name);
+                debug!("  ⏭️  Skipping interface: {}", contract_info.name);
             }
             continue;
         }
@@ -564,14 +566,14 @@ pub fn generate_tests_with_foundry(
                     generated_count += 1;
                 }
                 Err(e) => {
-                    eprintln!("Failed to generate deployer test for {}: {}", contract_info.name, e);
+                    debug!("Failed to generate deployer test for {}: {}", contract_info.name, e);
                 }
             }
         }
 
         for function_info in &contract_info.functions {
             if verbose {
-                println!(
+                debug!(
                     "Processing function: {}.{}",
                     contract_info.name, function_info.name
                 );
@@ -596,7 +598,7 @@ pub fn generate_tests_with_foundry(
                 }
                 Err(e) => {
                     if verbose {
-                        eprintln!(
+                        debug!(
                             "Error generating revert tests for {}.{}: {}",
                             contract_info.name, function_info.name, e
                         );
@@ -623,7 +625,7 @@ pub fn generate_tests_with_foundry(
                 }
                 Err(e) => {
                     if verbose {
-                        eprintln!(
+                        debug!(
                             "Error generating state change tests for {}.{}: {}",
                             contract_info.name, function_info.name, e
                         );
@@ -650,7 +652,7 @@ pub fn generate_tests_with_foundry(
                 }
                 Err(e) => {
                     if verbose {
-                        eprintln!(
+                        debug!(
                             "Error generating access control tests for {}.{}: {}",
                             contract_info.name, function_info.name, e
                         );
@@ -662,43 +664,43 @@ pub fn generate_tests_with_foundry(
 
     if validate_compilation && generated_count > 0 {
         if verbose {
-            println!("\n⚙️ Attempting to compile the entire project with 'forge build'...");
+            debug!("\n⚙️ Attempting to compile the entire project with 'forge build'...");
         }
         match foundry.run_project_build() {
             Ok(build_successful) => {
                 if build_successful {
                     validated_count = generated_count;
                     if verbose {
-                        println!("✅ Project build successful. All {} generated test contracts are valid.", generated_count);
+                        debug!("✅ Project build successful. All {} generated test contracts are valid.", generated_count);
                     }
                     
                     // Run tests after successful build
                     if verbose {
-                        println!("\n🧪 Running generated tests with 'forge test'...");
+                        debug!("\n🧪 Running generated tests with 'forge test'...");
                     }
                     match foundry.run_tests(None) {
                         Ok(tests_passed) => {
                             if tests_passed {
                                 if verbose {
-                                    println!("✅ All tests passed successfully!");
+                                    debug!("✅ All tests passed successfully!");
                                 }
                             } else if verbose {
-                                println!("❌ Some tests failed. Check 'forge test' output above for details.");
+                                debug!("❌ Some tests failed. Check 'forge test' output above for details.");
                             }
                         }
                         Err(e) => {
                             if verbose {
-                                eprintln!("⚠️ Error running tests: {}", e);
+                                debug!("⚠️ Error running tests: {}", e);
                             }
                         }
                     }
                 } else if verbose {
-                    eprintln!("❌ Project build failed. Some of the {} generated test contracts may have errors. Check 'forge build' output above.", generated_count);
+                    debug!("❌ Project build failed. Some of the {} generated test contracts may have errors. Check 'forge build' output above.", generated_count);
                 }
             }
             Err(e) => {
                 if verbose {
-                    eprintln!(
+                    debug!(
                         "⚠️ Error during final project build: {}. Validation status uncertain.",
                         e
                     );
@@ -706,17 +708,17 @@ pub fn generate_tests_with_foundry(
             }
         }
     } else if generated_count == 0 && verbose && validate_compilation {
-        println!("\n🤷 No test contracts were generated, skipping compilation validation.");
+        debug!("\n🤷 No test contracts were generated, skipping compilation validation.");
     } else if !validate_compilation && verbose {
-        println!("\nℹ️ Compilation validation was skipped via configuration.");
+        debug!("\nℹ️ Compilation validation was skipped via configuration.");
     }
 
     if verbose {
-        println!("\n📊 Generation Summary:");
-        println!("  - Generated: {} test contracts", generated_count);
+        debug!("\n📊 Generation Summary:");
+        debug!("  - Generated: {} test contracts", generated_count);
         if validate_compilation {
-            println!("  - Validated: {} test contracts", validated_count);
-            println!(
+            debug!("  - Validated: {} test contracts", validated_count);
+            debug!(
                 "  - Validation rate: {:.1}%",
                 if generated_count > 0 {
                     (validated_count as f64 / generated_count as f64) * 100.0

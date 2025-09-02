@@ -15,6 +15,7 @@ name = "ts_parse"  # Name of the binary (executable)
 path = "src/bin/main.rs"
 
 [dependencies]
+tracing = { workspace = true }
 indexmap = { version= "2.7.0", features = ["serde"] }
 proc-macro2 = "1.0.92"
 quote = "1.0.37"

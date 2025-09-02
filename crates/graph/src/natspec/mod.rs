@@ -660,7 +660,7 @@ mod tests {
     fn test_multiline_invalid_delimiter() {
         let comment = "/*** @notice Some text\n    ** */";
         let res = parse_natspec_comment(comment);
-        eprintln!("Parse result for '/***': {:?}", res);
+        // Debug: Parse result for '/***'
         assert!(res.is_err(), "Expected error for input: {}", comment);
     }
 
