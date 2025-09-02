@@ -472,6 +472,6 @@ Potential future directions for the Traverse project:
 
 ## Conclusion
 
-The Traverse architecture demonstrates how a well-designed core abstraction (the Call Graph) can power a diverse suite of analysis tools. By maintaining a clear separation between parsing, graph construction, analysis, and output generation, the system remains extensible while ensuring consistency across all tools.
+The Call Graph serves as the central abstraction powering all Traverse analysis tools. The architecture maintains a clear separation between parsing, graph construction, analysis, and output generation, enabling extensibility while ensuring consistency across all tools.
 
-The pipeline architecture allows for future enhancements without disrupting existing functionality, while the use of Rust ensures performance and safety. As the Solidity ecosystem evolves, Traverse's modular design positions it well to adapt and expand its capabilities.
+The pipeline architecture allows for future enhancements without disrupting existing functionality, while Rust provides performance and memory safety guarantees. Traverse's modular design enables adaptation as the Solidity ecosystem evolves.
