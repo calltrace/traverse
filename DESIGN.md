@@ -1,47 +1,560 @@
+# Traverse: Architecture and Design
 
-# Solidity Call Graph Generator (sol2cg) - High-Level Design
+## 1. Introduction and Core Philosophy
 
-## Overview
+### 1.1 Project Vision
 
-This tool analyzes Solidity source code to generate a detailed call graph. This graph represents the interactions between functions, contracts, and state variables, serving as a foundation for static analysis, visualization, and understanding code execution flow.
+Traverse is a comprehensive suite of static analysis tools for Solidity smart contracts. Its core philosophy centers on a fundamental insight: all meaningful interactions in a smart contract system can be represented as a Call Graph. By building a single, highly accurate Call Graph representation of a codebase, Traverse creates a unified data model that powers multiple specialized analysis tools.
 
-## Core Workflow and Components
+This approach ensures consistency across tools, reduces redundancy, and allows each tool to benefit from improvements to the core graph extraction engine. Whether generating visualizations, creating test suites, or analyzing storage patterns, all Traverse tools operate on the same foundational Call Graph structure.
 
-The process involves several distinct stages, orchestrated by a flexible pipeline architecture.
+### 1.2 High-Level Architectural Diagram
 
-```ascii
-+-----------------+      +--------+      +--------------------------+      +-----------+      +---------------+
-| Solidity Source | ---> | Parser | ---> | AST (Abstract Syntax Tree)| ---> | Pipeline  | ---> | CallGraph     |
-+-----------------+      +--------+      +--------------------------+      | (Steps)   |      | (Data Struct) |
-                                                                           +-----------+      +-----------+---+
-                                                                                |  ^               |        |
-                                                                                |  |               |        |
-                                           +------------------------------------+  |               |        |
-                                           |  +------------------------------------+               |        |
-                                           |  |                                                    |        |
-                                           v  v                                                    v        v
-+--------------------------------+     +-----------+                                          +--------+   +----------+
-| Expression Analyzer (chains.rs)| <-- | Calls Step|                                          | DOT Gen|   | Mermaid Gen|
-+--------------------------------+     +-----------+                                          +--------+   +----------+
+```mermaid
+graph TD
+    subgraph "CLI Tools Layer"
+        sol2cg[sol2cg - Visualizer]
+        sol2test[sol2test - Test Gen]
+        storage_analyzer[sol-storage-analyzer]
+        storage_trace[storage-trace]
+        sol2bnd[sol2bnd - Bindings]
+    end
+    
+    subgraph "Core Libraries"
+        graph[graph - Call Graph Core]
+        codegen[codegen - Test Generation]
+        language[language - Tree-sitter]
+        solidity[solidity - Solidity Utils]
+    end
+    
+    subgraph "Support Libraries"
+        mermaid[mermaid - Diagram Support]
+        logging[logging - Diagnostics]
+    end
+    
+    sol2cg --> graph
+    sol2test --> graph
+    sol2test --> codegen
+    storage_analyzer --> graph
+    storage_trace --> graph
+    sol2bnd --> graph
+    
+    codegen --> graph
+    codegen --> solidity
+    
+    graph --> language
+    graph --> solidity
+    graph --> mermaid
+    
+    sol2cg -.-> logging
+    sol2test -.-> logging
+    storage_analyzer -.-> logging
+    storage_trace -.-> logging
+    sol2bnd -.-> logging
 ```
 
-1.  **Parsing:** The input Solidity code is first processed by a `tree-sitter`-based parser, utilizing a specific Solidity grammar. This generates an Abstract Syntax Tree (AST), a structured representation of the code.
+### 1.3 Glossary of Terms
 
-2.  **Pipeline Execution:** The core analysis happens within a `CallGraphGeneratorPipeline`. This pipeline executes a sequence of distinct steps (`CallGraphGeneratorStep` implementations). Each step is responsible for a specific aspect of graph generation, operating on the AST and contributing to a shared `CallGraphGeneratorContext` and the final `CallGraph`. Key steps include:
-    *   **Entity Handling (`steps::entity`):** Identifies fundamental code structures like contracts, libraries, interfaces, functions, constructors, modifiers, state variables, and inheritance relationships. It populates the initial nodes in the graph and gathers essential context information (e.g., types, inheritance maps).
-    *   **Channel Handling (`steps::channel`):** Analyzes function bodies to identify interactions like function calls, event emissions, require checks, and storage access (reads/writes). This step is crucial for building the edges of the call graph.
+- **AST (Abstract Syntax Tree)**: A tree representation of the syntactic structure of source code, produced by the parser
+- **Call Graph**: A directed graph where nodes represent functions/contracts and edges represent relationships like calls, storage access, or control flow
+- **Node**: A vertex in the Call Graph representing a code element (function, modifier, state variable, etc.)
+- **Edge**: A directed connection between nodes representing a relationship (call, return, storage read/write)
+- **Span**: Source code location information (start and end positions) for AST nodes
+- **Entry Point**: A public or external function that can be called from outside the contract
+- **Pipeline Step**: A modular analysis phase that processes the AST to build or enrich the Call Graph
 
-3.  **Expression & Chain Analysis (`chains.rs`):** To handle complex interactions within the `CallsHandling` step, such as chained calls (`a.b().c()`) or calls on return values, a dedicated `Expression Analyzer` module (`chains.rs`) is employed. It recursively breaks down expressions, resolves intermediate types, and determines the specific target of each call segment. This analysis produces detailed information that the `CallsHandling` step uses to create accurate graph edges with correct sequencing.
+---
 
-4.  **Call Graph Data Structure (`cg.rs`):** The central data structure, `cg::CallGraph`, accumulates the results from the pipeline steps. It stores nodes (representing code elements like functions, contracts, state variables) and edges (representing interactions like calls, returns, storage access). This structure provides the complete representation of the analyzed code's interactions.
+## 2. The Data Processing Pipeline: From Source Code to Call Graph
 
-5.  **Output Generation (`cg_dot.rs`, `cg_mermaid.rs`):** Finally, the populated `CallGraph` can be transformed into standard visualization formats. Dedicated modules generate DOT language output (for Graphviz) and Mermaid sequence diagram syntax, allowing users to visualize the call graph and execution flow.
+The Traverse architecture follows a clear data flow pipeline that transforms Solidity source code into actionable insights.
 
-## Design Principles
+### 2.1 The Flow
 
-The design emphasizes several key principles:
+```mermaid
+graph LR
+    source[Solidity Source Files]
+    manifest[Manifest Discovery]
+    parser[Tree-sitter Parser]
+    ast[Abstract Syntax Tree]
+    pipeline[Core Pipeline]
+    base_graph[Base Call Graph]
+    analyzers[Specialized Analyzers]
+    enriched[Enriched Call Graph]
+    generators[Output Generators]
+    outputs[Visualizations/Tests/Reports]
+    
+    source --> manifest
+    manifest --> parser
+    parser --> ast
+    ast --> pipeline
+    pipeline --> base_graph
+    base_graph --> analyzers
+    analyzers --> enriched
+    enriched --> generators
+    generators --> outputs
+```
 
-*   **Decoupling & Cohesiveness:** The pipeline architecture allows different analysis phases (entity identification, call analysis, etc.) to be implemented as independent, cohesive steps (`CallGraphGeneratorStep`). Steps operate on the shared context and graph but don't need direct knowledge of each other's internal workings. This separation of concerns makes the system easier to extend, modify, understand, and test.
-*   **Minimal Dependencies:** The core graph generation logic relies primarily on the `tree-sitter` parsing library and its corresponding Solidity grammar. This minimizes external dependencies, simplifying integration and maintenance. Output generation modules (DOT, Mermaid) introduce dependencies specific to those formats.
-*   **Parsing Resilience:** By leveraging `tree-sitter`, the parser exhibits tolerance to syntax errors and Solidity language version mismatches. `tree-sitter` attempts to parse as much of the code as possible even in the presence of errors, allowing the analysis pipeline to potentially extract partial call graph information from incomplete or slightly incompatible source files. This is crucial when dealing with diverse codebases.
-*   **Performance:** While not the primary focus over correctness and extensibility, performance is considered. The choice of **Rust** as the implementation language provides a strong foundation for performance due to its memory safety guarantees without garbage collection and its efficient compilation to native code. `tree-sitter` provides efficient incremental parsing. The pipeline architecture, while currently sequential, offers potential for future parallelization of independent analysis steps. Direct graph manipulation avoids complex intermediate representations where possible.
+### 2.2 Stage 1: Parsing
+
+The parsing stage transforms raw Solidity source code into a structured AST.
+
+#### Components:
+- **`crates/language`**: Provides Tree-sitter grammar bindings for Solidity. This crate encapsulates the low-level parsing infrastructure.
+- **`crates/graph/src/parser.rs`**: High-level parsing utilities that consume Tree-sitter output to build a strongly-typed, project-specific AST.
+- **`crates/graph/src/manifest.rs`**: Discovers and manages Solidity files across a project, handling directory traversal and file filtering.
+
+The parser is resilient to syntax errors thanks to Tree-sitter's error recovery, allowing partial analysis of malformed code.
+
+### 2.3 Stage 2: Core Graph Construction
+
+The heart of Traverse is the `CallGraphGeneratorPipeline` (defined in `cg.rs`), which orchestrates a sequence of analysis steps to build the Call Graph.
+
+#### Pipeline Architecture:
+- **Modularity**: Each step implements the `CallGraphGeneratorStep` trait
+- **Configurability**: Steps can be enabled, disabled, or configured independently
+- **Shared Context**: Steps communicate through a shared `CallGraphGeneratorContext`
+
+#### Essential Pipeline Steps:
+
+1. **`ContractHandling` (`steps/entity.rs`)**:
+   - Scans the AST for structural elements
+   - Creates nodes for contracts, interfaces, libraries
+   - Identifies functions, constructors, modifiers, and state variables
+   - Builds inheritance relationships
+   - Populates the initial node structure of the graph
+
+2. **`CallsHandling` (`steps/channel.rs`)**:
+   - Analyzes function bodies for interactions
+   - Identifies direct function calls, library calls, and contract creations
+   - Detects storage variable access (reads and writes)
+   - Recognizes event emissions and require statements
+   - Creates edges between nodes based on these interactions
+   - Leverages Expression Analysis for complex call resolution
+
+#### Supporting Components:
+- **`interface_resolver.rs` (BindingRegistry)**: Maps interfaces to their implementations, crucial for accurate call target resolution
+- **`builtin.rs`**: Provides definitions for standard Solidity functions and types (msg.sender, block.timestamp, etc.)
+
+### 2.4 Stage 3: Specialized Graph Analyzers
+
+These modules consume the base Call Graph and add specialized analysis layers:
+
+#### Expression Analysis (`chains.rs`)
+Critical for resolving complex, chained calls like `getFactory().createPair(tokenA, tokenB).initialize()`:
+- Recursively breaks down nested expressions
+- Tracks types through method chains
+- Resolves intermediate return values
+- Determines final call targets
+
+#### Storage Access Analysis (`storage_access.rs`)
+Tracks state variable interactions:
+- Identifies which functions read from specific storage variables
+- Tracks storage writes and their locations
+- Adds `StorageRead` and `StorageWrite` edges to the graph
+- Aggregates storage access patterns for summary generation
+
+#### Reachability Analysis (`reachability.rs`)
+Determines code accessibility:
+- Identifies all public/external functions as entry points
+- Uses graph traversal algorithms (DFS/BFS) to trace reachable code
+- Detects dead code (unreachable functions)
+- Provides traversal utilities for other analyzers
+
+---
+
+## 3. The Call Graph Data Structure
+
+The Call Graph is the central unifying data structure that all Traverse tools operate on. Defined in `crates/graph/src/cg.rs`, it provides a comprehensive representation of all code interactions.
+
+### 3.1 Node Types
+
+```rust
+pub enum NodeType {
+    Function,         // Regular functions
+    Interface,        // Interface definitions
+    Constructor,      // Contract constructors
+    Modifier,         // Function modifiers
+    Library,          // Library functions
+    StorageVariable,  // State variables
+    Evm,             // Synthetic node for EVM interactions
+    EventListener,   // Synthetic node for event listeners
+    RequireCondition,// Require/assert statements
+    IfStatement,     // Control flow - if conditions
+    ThenBlock,       // Control flow - then branches
+    ElseBlock,       // Control flow - else branches
+    WhileStatement,  // Control flow - while loops
+    WhileBlock,      // Control flow - while body
+    ForCondition,    // Control flow - for loops
+    ForBlock,        // Control flow - for body
+}
+```
+
+### 3.2 Edge Types
+
+```rust
+pub enum EdgeType {
+    Call,                // Function calls
+    Return,              // Return statements
+    StorageRead,         // Reading state variables
+    StorageWrite,        // Writing state variables
+    Require,             // Require checks
+    IfConditionBranch,   // Edge to if condition
+    ThenBranch,          // True branch of if
+    ElseBranch,          // False branch of if
+    WhileConditionBranch,// Edge to while condition
+    WhileBodyBranch,     // While loop body
+    ForConditionBranch,  // Edge to for condition
+    ForBodyBranch,       // For loop body
+}
+```
+
+### 3.3 Node Metadata
+
+Each node carries rich metadata:
+- **Visibility**: Public, Private, Internal, External, Default
+- **Location**: Source file span (start and end positions)
+- **Contract Association**: Which contract contains this element
+- **Parameters**: Function parameters with types and names
+- **Return Types**: Declared return types for functions
+- **Additional Context**: Revert messages, condition expressions, etc.
+
+### 3.4 Why This Structure is Universal
+
+The Call Graph structure is sufficiently general to support all analysis needs:
+- **Visualization tools** traverse nodes and edges directly
+- **Test generators** use function signatures and parameters
+- **Storage analyzers** filter for StorageRead/Write edges
+- **Security tools** can trace call paths and control flow
+- **Documentation generators** access natspec and signatures
+
+---
+
+## 4. The `codegen` Crate: From Call Graph to Foundry Tests
+
+The `codegen` crate is responsible for transforming the abstract Call Graph into concrete, executable Foundry test files. It demonstrates how the Call Graph serves as a foundation for code generation.
+
+### 4.1 Purpose
+
+The codegen crate bridges the gap between static analysis and practical testing. It:
+- Analyzes the Call Graph to identify testable functions
+- Generates appropriate test patterns based on function characteristics
+- Produces Foundry-compatible Solidity test files
+- Handles complex scenarios like access control and state changes
+
+### 4.2 Core Components & Their Roles
+
+#### `teststubs.rs` - Main Test Generation Engine
+The primary orchestrator that:
+- Iterates over Call Graph nodes to find testable functions
+- Extracts metadata (names, parameters, visibility modifiers)
+- Generates boilerplate test functions with proper setup
+- Creates both positive tests (`test_functionName`) and negative tests (`test_revert_functionName`)
+
+#### `revert_stub.rs` - Revert Test Generation
+Specializes in generating tests for failure conditions:
+- Creates tests that expect specific revert conditions
+- Handles different revert patterns (require, revert, assert)
+- Generates appropriate setup to trigger revert conditions
+
+#### `invariant_breaker.rs` - Invariant Testing
+Advanced test pattern generation for:
+- Property-based testing using Foundry's invariant testing
+- Generating functions that attempt to break contract invariants
+- Creating comprehensive state exploration tests
+
+#### `state_change_stub.rs` - State Transition Testing
+Focuses on state modifications:
+- Generates tests that verify state changes
+- Creates before/after assertions
+- Handles complex state transitions across multiple calls
+
+#### `access_control_stub.rs` - Permission Testing
+Generates tests for access control:
+- Tests different caller contexts (owner, user, attacker)
+- Verifies role-based access control
+- Tests modifier-based restrictions
+
+#### `deployer_stub.rs` - Deployment Testing
+Handles contract deployment scenarios:
+- Generates deployment test boilerplate
+- Tests constructor parameters
+- Verifies initial state after deployment
+
+---
+
+## 5. Output Generators: Serializing the Call Graph
+
+Output generators transform the in-memory Call Graph into various useful formats. Each generator serves different use cases while operating on the same underlying data.
+
+### 5.1 DOT Generator (`cg_dot.rs`)
+
+Provides direct, detailed graph serialization for Graphviz:
+
+**Characteristics:**
+- One-to-one mapping of Call Graph to DOT format
+- Preserves all nodes and edges without abstraction
+- Ideal for deep, comprehensive analysis
+
+**Features:**
+- Node styling based on type (functions, modifiers, state variables)
+- Edge labeling with parameters and return values
+- Color coding for visibility levels
+- Optional filtering (e.g., `--exclude-isolated-nodes`)
+
+**Use Cases:**
+- Architectural documentation
+- Security audits requiring full detail
+- Debugging contract interactions
+
+### 5.2 Mermaid Generator (`cg_mermaid.rs`)
+
+Creates abstracted, user-friendly sequence diagrams:
+
+**Characteristics:**
+- Intelligently traverses from public entry points
+- Focuses on inter-contract communication
+- Abstracts internal implementation details
+
+**Features:**
+- Generates sequence diagrams showing execution flow
+- Groups interactions by contract boundaries
+- Highlights external calls and state changes
+- Produces GitHub-compatible Mermaid syntax
+
+**Use Cases:**
+- Documentation for developers
+- High-level system overviews
+- Communication with non-technical stakeholders
+
+---
+
+## 6. CLI Tools: Tying It All Together
+
+Each CLI tool demonstrates a different way of leveraging the Call Graph, from direct visualization to complex transformations.
+
+### 6.1 `sol2cg` - Direct Call Graph Visualization
+
+**Pipeline**: Source → Parser → Call Graph → DOT/Mermaid Generator
+
+The most straightforward consumer of the Call Graph:
+- Builds the graph using the standard pipeline
+- Applies minimal transformation
+- Outputs via selected generator (DOT or Mermaid)
+- Supports configuration options for graph filtering
+
+### 6.2 `sol2test` - Foundry Test Generation
+
+**Pipeline**: Source → Parser → Call Graph → codegen Crate → Foundry Test Files
+
+The most complex transformation:
+- Builds complete Call Graph of the contract system
+- Analyzes function signatures and dependencies
+- Invokes codegen crate for test generation
+- Produces ready-to-run Foundry test suites
+
+### 6.3 `sol-storage-analyzer` - Storage Access Reporter
+
+**Pipeline**: Source → Parser → Call Graph → Storage Access Analyzer → Markdown Table
+
+Specialized analysis tool:
+- Builds Call Graph with storage access edges
+- Runs storage access analysis on all entry points
+- Aggregates read/write patterns per function
+- Generates markdown tables for documentation
+
+### 6.4 `storage-trace` - Comparative Storage Analysis
+
+**Pipeline**: Source → Parser → Call Graph → Storage Analyzer (2 functions) → Diff Output
+
+Differential analysis tool:
+- Builds Call Graph for the entire codebase
+- Extracts subgraphs for specified functions
+- Compares storage access patterns
+- Outputs differences for upgrade safety analysis
+
+### 6.5 `sol2bnd` - Binding Configuration Generator
+
+**Pipeline**: Source → Parser → Call Graph with Natspec → Binding Config File
+
+Interface mapping tool:
+- Extracts Natspec documentation from source
+- Identifies interfaces and implementations
+- Maps relationships using Call Graph structure
+- Generates YAML configuration for cross-contract bindings
+
+---
+
+## 7. Design Principles, Limitations, and Future Work
+
+### 7.1 Design Principles
+
+The Traverse architecture embodies several key principles:
+
+#### Unified Data Model
+- Single Call Graph structure serves all analysis needs
+- Ensures consistency across tools
+- Reduces redundancy and maintenance burden
+
+#### Pipeline Extensibility
+- New analysis steps can be added without modifying the core
+- Steps are composable and independently configurable
+- Facilitates experimentation and tool evolution
+
+#### Type Safety
+- Rust's type system ensures graph integrity
+- Prevents invalid graph states at compile time
+- Makes refactoring safer and more predictable
+
+#### Error Resilience
+- Tree-sitter provides robust error recovery
+- Partial parsing allows analysis of incomplete code
+- Tools degrade gracefully with malformed input
+
+#### Performance Consciousness
+- Direct graph manipulation avoids intermediate representations
+- Rust's zero-cost abstractions ensure efficiency
+- Memory-safe without garbage collection overhead
+
+### 7.2 Known Limitations
+
+Current limitations stem from the inherent challenges of static analysis:
+
+#### Dynamic Dispatch
+- Cannot fully analyze calls through arbitrary interface addresses
+- Limited visibility into delegate calls and proxy patterns
+- Difficulty tracking storage slots in upgradeable contracts
+
+#### Low-Level Constructs
+- Assembly blocks are not fully analyzed
+- Raw `delegatecall` and `call` operations have limited tracking
+- Bytecode-level operations are outside current scope
+
+#### Complex Inheritance
+- Deep inheritance hierarchies may have resolution edge cases
+- Virtual function overrides across multiple levels need careful handling
+- Diamond inheritance patterns require special consideration
+
+#### Library Usage
+- External library calls without source code cannot be fully analyzed
+- Linked libraries require additional binding configuration
+
+### 7.3 Future Work
+
+Potential future directions for the Traverse project:
+
+#### Enhanced Language Support
+- **Vyper Integration**: Extend the parser to handle Vyper contracts
+- **Yul/Assembly**: Deeper analysis of inline assembly blocks
+- **Cross-Language**: Analyze interactions between different smart contract languages
+
+#### Deeper Semantic Analysis
+- **Taint Analysis**: Track data flow from untrusted sources
+- **Symbolic Execution**: Integration with formal verification tools
+- **Gas Optimization**: Identify expensive call patterns and suggest optimizations
+
+#### Advanced Security Features
+- **Vulnerability Detection**: Automated scanning for common vulnerabilities
+- **Invariant Inference**: Automatically derive contract invariants from code
+- **Attack Path Generation**: Find potential exploit sequences
+
+#### IDE and Tooling Integration
+- **Language Server Protocol**: Real-time analysis in development environments
+- **CI/CD Integration**: Automated analysis in deployment pipelines
+- **Cloud-Based Analysis**: Scalable analysis service for large codebases
+
+#### Machine Learning Applications
+- **Pattern Recognition**: Learn common contract patterns and anti-patterns
+- **Anomaly Detection**: Identify unusual code structures
+- **Code Quality Metrics**: ML-based code quality assessment
+
+---
+
+## 8. Code Organization
+
+Understanding the codebase structure is essential for contributors and maintainers.
+
+### 8.1 Crate Structure
+
+```
+traverse/
+├── crates/
+│   ├── graph/          # Core Call Graph and analysis algorithms
+│   │   ├── src/
+│   │   │   ├── cg.rs              # Call Graph data structures
+│   │   │   ├── parser.rs          # AST parsing utilities
+│   │   │   ├── steps/             # Pipeline steps
+│   │   │   │   ├── entity.rs      # ContractHandling
+│   │   │   │   └── channel.rs     # CallsHandling
+│   │   │   ├── chains.rs          # Expression analysis
+│   │   │   ├── storage_access.rs  # Storage analysis
+│   │   │   ├── reachability.rs    # Graph traversal
+│   │   │   ├── manifest.rs        # File discovery
+│   │   │   ├── interface_resolver.rs # Binding resolution
+│   │   │   ├── natspec.rs         # Documentation extraction
+│   │   │   ├── builtin.rs         # Standard definitions
+│   │   │   ├── cg_dot.rs          # DOT generator
+│   │   │   └── cg_mermaid.rs      # Mermaid generator
+│   │   
+│   ├── language/       # Tree-sitter language support
+│   │   └── vendor/tree-sitter-solidity/  # Solidity grammar
+│   │
+│   ├── solidity/       # Solidity-specific utilities
+│   │
+│   ├── codegen/        # Test generation logic
+│   │   ├── src/
+│   │   │   ├── teststubs.rs       # Main test generator
+│   │   │   ├── revert_stub.rs     # Revert tests
+│   │   │   ├── invariant_breaker.rs # Invariant tests
+│   │   │   ├── state_change_stub.rs # State tests
+│   │   │   ├── access_control_stub.rs # Permission tests
+│   │   │   └── deployer_stub.rs   # Deployment tests
+│   │
+│   ├── cli/            # Command-line tools
+│   │   └── src/bin/
+│   │       ├── sol2cg.rs          # Visualizer CLI
+│   │       ├── sol2test.rs        # Test generator CLI
+│   │       ├── sol-storage-analyzer.rs # Storage analyzer CLI
+│   │       ├── storage-trace.rs   # Storage comparison CLI
+│   │       └── sol2bnd.rs         # Binding generator CLI
+│   │
+│   ├── mermaid/        # Mermaid diagram support
+│   │
+│   └── logging/        # Tracing and diagnostics
+```
+
+### 8.2 Module Dependencies
+
+The dependency graph ensures clean architecture:
+
+```
+CLI Tools → {graph, codegen}
+codegen → {graph, solidity}
+graph → {language, solidity, mermaid}
+language → {tree-sitter}
+```
+
+**Key Principles:**
+- CLI tools never depend on each other
+- Core libraries (graph, codegen) are independent
+- Language support is isolated in dedicated crates
+- Minimal external dependencies throughout
+
+### 8.3 External Dependencies
+
+Traverse minimizes external dependencies for security and maintainability:
+
+- **tree-sitter**: Core parsing infrastructure
+- **clap**: Command-line argument parsing
+- **anyhow**: Error handling
+- **tracing**: Logging and diagnostics
+- **walkdir**: Directory traversal
+- **petgraph**: Graph algorithms (used internally)
+
+---
+
+## Conclusion
+
+The Traverse architecture demonstrates how a well-designed core abstraction (the Call Graph) can power a diverse suite of analysis tools. By maintaining a clear separation between parsing, graph construction, analysis, and output generation, the system remains extensible while ensuring consistency across all tools.
+
+The pipeline architecture allows for future enhancements without disrupting existing functionality, while the use of Rust ensures performance and safety. As the Solidity ecosystem evolves, Traverse's modular design positions it well to adapt and expand its capabilities.
