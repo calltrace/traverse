@@ -84,6 +84,7 @@ jobs:
           CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS: "-C link-arg=-mmacosx-version-min=10.15"
           CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: "-C link-arg=-mmacosx-version-min=11.0"
           LZMA_API_STATIC: "1"
+        shell: bash
         run: |
           # For macOS, we need to ensure static linking of certain libraries
           if [[ "${{ matrix.os }}" == "macos-latest" ]] || [[ "${{ matrix.os }}" == "macos-14" ]]; then
@@ -231,6 +232,7 @@ jobs:
           echo "=== Notarization completed successfully ==="
 
       - name: Create archive
+        shell: bash
         run: |
           # Create archive directory
           mkdir -p dist
