@@ -1,6 +1,3 @@
-[submodule "crates/language/vendor/tree-sitter-solidity"]
-	path = crates/language/vendor/tree-sitter-solidity
-	url = https://github.com/JoranHonig/tree-sitter-solidity.git
 [submodule "foundry-tests/lib/forge-std"]
 	path = foundry-tests/lib/forge-std
 	url = https://github.com/foundry-rs/forge-std

@@ -541,7 +541,7 @@ mod tests {
     use crate::cg::{
             CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, Visibility,
         };
-    use language::{Language, Solidity}; // Added for Solidity language access
+    use crate::parser::get_solidity_language;
     
     use tree_sitter::Parser;
 
@@ -549,7 +549,7 @@ mod tests {
         source_code: &str,
     ) -> Result<(CallGraph, CallGraphGeneratorContext)> {
         let mut parser = Parser::new();
-        let sol_lang = Solidity.get_tree_sitter_language(); // Get language using Solidity struct
+        let sol_lang = get_solidity_language();
         parser
             .set_language(&sol_lang) // Use the fetched language
             .expect("Error loading Solidity grammar");

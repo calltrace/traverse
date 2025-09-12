@@ -11,7 +11,7 @@ use graph::natspec::extract::extract_source_comments;
 use graph::parser::parse_solidity;
 use graph::steps::{CallsHandling, ContractHandling};
 use graph::storage_access::StorageAccessSummary; 
-use language::{Language, Solidity};
+use graph::parser::get_solidity_language;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{stdout, Write};
@@ -73,7 +73,7 @@ fn main() -> Result<()> {
     let combined_ast =
         parse_solidity(&combined_source).context("Failed to parse combined Solidity source")?;
 
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: combined_source.to_string(),

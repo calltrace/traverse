@@ -6,7 +6,7 @@ use crate::cg::{
 };
 use crate::parser::get_node_text;
 use std::collections::VecDeque;
-use streaming_iterator::StreamingIterator; // Not directly used, but QueryCursor uses it. Keep for now if indirect.
+use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node as TsNode, Query, QueryCursor};
 use tracing::{trace, error};
 
@@ -2282,7 +2282,7 @@ mod tests {
     use crate::steps::CallsHandling;
     use crate::steps::ContractHandling;
     use anyhow::{Context, Result};
-    use language::{Language, Solidity};
+    use crate::parser::get_solidity_language;
     use std::collections::HashMap;
     // use std::sync::Arc; // Removed unused import
     use tree_sitter::{Parser, Tree};
@@ -2303,7 +2303,7 @@ mod tests {
         tree_sitter::Language,
         CallGraphGeneratorInput,
     )> {
-        let solidity_lang = Solidity.get_tree_sitter_language();
+        let solidity_lang = get_solidity_language();
         let mut parser = Parser::new();
         parser
             .set_language(&solidity_lang)
@@ -2355,7 +2355,7 @@ mod tests {
         tree_sitter::Language,
         CallGraphGeneratorInput,
     )> {
-        let solidity_lang = Solidity.get_tree_sitter_language();
+        let solidity_lang = get_solidity_language();
         let mut parser = Parser::new();
         parser
             .set_language(&solidity_lang)
@@ -2631,7 +2631,7 @@ mod tests {
         let _func_node = find_nth_node_of_kind(&tree, "function_definition", 0)
             .expect("Could not find function definition node for getX");
         // Find the member_expression node for c_instance.x
-        let member_expr_node = find_nth_node_of_kind(&tree, "member_expression", 0)
+        let _member_expr_node = find_nth_node_of_kind(&tree, "member_expression", 0)
             .expect("Could not find the first member_expression node (c_instance.x)"); // Add expect
         let caller_node_id = graph
             .node_lookup
@@ -2671,7 +2671,7 @@ mod tests {
         "#;
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
         // Use the new helper function to find the function definition node
-        let caller_def_node =
+        let _caller_def_node =
             find_function_definition_node_by_name(&tree, source, &lang, "caller")
                 .expect("Could not find function definition node for caller");
         let caller_node_id = graph
@@ -2810,7 +2810,7 @@ mod tests {
              }
          "#;
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
-        let caller_def_node =
+        let _caller_def_node =
             find_function_definition_node_by_name(&tree, source, &lang, "caller")
                 .expect("Could not find function definition node for caller");
         let caller_node_id = graph
@@ -2874,7 +2874,7 @@ mod tests {
             }
         "#;
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
-        let caller_def_node = find_function_definition_node_by_name(&tree, source, &lang, "caller")
+        let _caller_def_node = find_function_definition_node_by_name(&tree, source, &lang, "caller")
             .expect("Could not find function definition node for caller");
         let caller_node_id = graph
             .node_lookup
@@ -2956,7 +2956,7 @@ mod tests {
         "#;
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
 
-        let caller_def_node =
+        let _caller_def_node =
             find_function_definition_node_by_name(&tree, source, &lang, "caller")
                 .expect("Could not find function definition node for caller");
         let caller_node_id = graph
@@ -3069,7 +3069,7 @@ mod tests {
          "#;
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
 
-        let caller_def_node = find_function_definition_node_by_name(&tree, source, &lang, "caller")
+        let _caller_def_node = find_function_definition_node_by_name(&tree, source, &lang, "caller")
             .expect("Could not find function definition node for caller");
         let caller_node_id = graph
             .node_lookup
@@ -3182,7 +3182,7 @@ mod tests {
          "#;
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
 
-        let caller_def_node = find_function_definition_node_by_name(&tree, source, &lang, "caller")
+        let _caller_def_node = find_function_definition_node_by_name(&tree, source, &lang, "caller")
             .expect("Could not find function definition node for caller");
         let caller_node_id = graph
             .node_lookup
@@ -3512,7 +3512,7 @@ mod tests {
              }
          "#;
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
-        let caller_def_node = find_function_definition_node_by_name(&tree, source, &lang, "caller")
+        let _caller_def_node = find_function_definition_node_by_name(&tree, source, &lang, "caller")
             .expect("Could not find function definition node for caller");
         let caller_node_id = graph
             .node_lookup

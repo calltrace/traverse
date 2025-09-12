@@ -1,6 +1,10 @@
 use anyhow::{Context, Result};
-use language::{Language, Solidity};
-use tree_sitter::{Parser, Tree};
+use tree_sitter::{Language, Parser, Tree};
+
+/// Get the Solidity tree-sitter language
+pub fn get_solidity_language() -> Language {
+    tree_sitter_solidity::LANGUAGE.into()
+}
 
 /// Represents a parsed Solidity AST
 #[derive(Debug)] // Add Debug for easier testing/logging if needed
@@ -11,17 +15,15 @@ pub struct SolidityAST {
 
 /// Parse Solidity source code into an AST
 pub fn parse_solidity(source: &str) -> Result<SolidityAST> {
-    // let source_code = "function test() {}"; // Remove this unused block
-    let solidity = Solidity;
     let mut parser = Parser::new();
     parser
-        .set_language(&solidity.get_tree_sitter_language())
-        .context("Failed to set language for Solidity parser")?; // Use context for better error
+        .set_language(&get_solidity_language())
+        .context("Failed to set language for Solidity parser")?;
 
     // Parse the source code
     let tree = parser
         .parse(source, None)
-        .context("Failed to parse Solidity source")?; // Keep this context
+        .context("Failed to parse Solidity source")?;
 
     Ok(SolidityAST {
         tree,

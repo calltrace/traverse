@@ -27,7 +27,7 @@
 */
 use crate::parser::get_node_text;
 use anyhow::{Context, Result};
-use language::{Language, Solidity};
+use crate::parser::get_solidity_language;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node, Parser, Query, QueryCursor};
 use serde::{Serialize, Deserialize};
@@ -96,7 +96,7 @@ const SOURCE_ITEM_COMMENT_QUERY: &str = r#"
 "#;
 
 pub fn extract_source_comments(source: &str) -> Result<Vec<SourceComment>> {
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
     let mut parser = Parser::new();
     parser
         .set_language(&solidity_lang)

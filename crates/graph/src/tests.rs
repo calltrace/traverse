@@ -14,7 +14,7 @@ use crate::cg::{
 use crate::cg_dot;
 use crate::parser::parse_solidity;
 use anyhow::Result; // Add anyhow!
-use language::{Language, Solidity};
+use crate::parser::get_solidity_language;
 use std::collections::HashMap; // Import HashSet
 
 use crate::steps::CallsHandling;
@@ -50,7 +50,7 @@ fn test_simple_contract_call() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -120,7 +120,7 @@ fn test_delete_keyword() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -207,7 +207,7 @@ fn test_interface_call_no_implementation() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -242,7 +242,7 @@ fn test_interface_call_no_implementation() -> Result<()> {
         .expect("ActionCaller.triggerAction node missing");
     let iface_perform_node = find_node(&graph, "performAction", Some("IAction"))
         .expect("IAction.performAction node missing");
-    let iface_node =
+    let _iface_node =
         find_node(&graph, "IAction", Some("IAction")).expect("IAction interface node missing"); // Check interface node exists
     let _caller_ctor_node = find_node(&graph, "ActionCaller", Some("ActionCaller")) // Mark unused
         .expect("ActionCaller constructor node missing");
@@ -325,7 +325,7 @@ fn test_contract_inheritance() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -450,7 +450,7 @@ fn test_modifier_call() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -510,7 +510,7 @@ fn test_free_function_call() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -561,7 +561,7 @@ fn test_no_calls() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
         tree: ast.tree,               // Pass tree by value
@@ -596,7 +596,7 @@ fn test_call_order_within_function() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -651,7 +651,7 @@ fn test_call_order_within_function() -> Result<()> {
 fn test_empty_source() -> Result<()> {
     let source = "pragma solidity ^0.8.0;";
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),   // Pass source string by value
@@ -683,7 +683,7 @@ fn test_unresolved_call() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -737,7 +737,7 @@ fn test_inter_contract_call() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -851,7 +851,7 @@ fn test_return_boolean_literal() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -920,7 +920,7 @@ fn test_pipeline_execution() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -984,7 +984,7 @@ fn test_pipeline_step_enable_disable() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -1074,7 +1074,7 @@ fn test_using_for_directive_extraction() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -1146,7 +1146,7 @@ fn test_library_definition_and_usage() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -1255,7 +1255,7 @@ fn test_using_for_call_resolution() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -1380,7 +1380,7 @@ fn test_interface_definition() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -1519,7 +1519,7 @@ fn test_interface_inheritance() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -1700,7 +1700,7 @@ fn test_interface_invocation_single_implementation() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -1763,7 +1763,7 @@ fn test_interface_invocation_single_implementation() -> Result<()> {
         .expect("CounterUser.useCounter node missing");
     let impl_inc_node =
         find_node(&graph, "increment", Some("Counter")).expect("Counter.increment node missing");
-    let iface_inc_node =
+    let _iface_inc_node =
         find_node(&graph, "increment", Some("ICounter")).expect("ICounter.increment node missing"); // Keep for node count check
 
     // Edges:
@@ -1835,7 +1835,7 @@ fn test_chained_call_resolution() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -1948,7 +1948,7 @@ fn test_explicit_return_edge_generation() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -2097,7 +2097,7 @@ fn test_direct_library_call() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -2178,7 +2178,7 @@ fn test_chained_library_call_resolution() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -2316,7 +2316,7 @@ fn test_interface_call_resolution_factory_pattern() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -2524,7 +2524,7 @@ fn test_argument_capturing() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -2628,7 +2628,7 @@ fn test_simple_emit_statement() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -2777,7 +2777,7 @@ fn test_interface_call_resolution_factory_pattern_no_return() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -2916,7 +2916,7 @@ fn test_storage_read_write() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -3039,7 +3039,7 @@ fn test_library_call_on_return_value() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -3176,7 +3176,7 @@ fn test_inherited_storage_access() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
@@ -3268,7 +3268,7 @@ fn test_require_statement() -> Result<()> {
         }
         "#;
     let ast = parse_solidity(source)?;
-    let solidity_lang = Solidity.get_tree_sitter_language();
+    let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
