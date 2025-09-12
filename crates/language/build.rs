@@ -8,7 +8,6 @@ use cc::Build;
 fn main() {
     let grammars = vec![
         ("solidity", "vendor/tree-sitter-solidity/src"),
-        ("mermaid", "vendor/tree-sitter-mermaid/src"),
     ];
 
     for (name, grammar_dir) in grammars {
@@ -16,7 +15,6 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=vendor/tree-sitter-solidity/src/");
-    println!("cargo:rerun-if-changed=vendor/tree-sitter-mermaid/src/");
 }
 
 fn compile_grammar(name: &str, grammar_dir: &str) {

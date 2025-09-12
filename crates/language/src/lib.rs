@@ -48,32 +48,11 @@ impl Language for Solidity {
     }
 }
 
-/// Mermaid language implementation
-pub struct Mermaid;
-
-extern "C" {
-    fn tree_sitter_mermaid() -> TreeSitterLanguage;
-}
-
-impl Language for Mermaid {
-    fn name(&self) -> &str {
-        "Mermaid"
-    }
-
-    fn extensions(&self) -> &[&str] {
-        &[".mmd"]
-    }
-
-    fn get_tree_sitter_language(&self) -> TreeSitterLanguage {
-        unsafe { tree_sitter_mermaid() }
-    }
-}
 
 /// Factory function to get a language implementation by file extension
 pub fn get_language_by_extension(ext: &str) -> Option<Box<dyn Language>> {
     match ext {
         "sol" => Some(Box::new(Solidity)),
-        "mmd" => Some(Box::new(Mermaid)),
         _ => None,
     }
 }
@@ -98,22 +77,12 @@ mod tests {
         assert_eq!(solidity.extensions(), &[".sol"]);
     }
 
-    #[test]
-    fn test_mermaid_language() {
-        let mermaid = Mermaid;
-        assert_eq!(mermaid.name(), "Mermaid");
-        assert_eq!(mermaid.extensions(), &[".mmd"]);
-    }
 
     #[test]
     fn test_get_language_by_extension() {
         let lang = get_language_by_extension("sol");
         assert!(lang.is_some());
         assert_eq!(lang.unwrap().name(), "Solidity");
-
-        let lang = get_language_by_extension("mmd");
-        assert!(lang.is_some());
-        assert_eq!(lang.unwrap().name(), "Mermaid");
 
         let lang = get_language_by_extension("unknown");
         assert!(lang.is_none());
@@ -122,16 +91,11 @@ mod tests {
     #[test]
     fn test_get_language_for_file() {
         let solidity_file = Path::new("example.sol");
-        let mermaid_file = Path::new("example.mmd");
         let unknown_file = Path::new("example.txt");
 
         let lang = get_language_for_file(solidity_file);
         assert!(lang.is_some());
         assert_eq!(lang.unwrap().name(), "Solidity");
-
-        let lang = get_language_for_file(mermaid_file);
-        assert!(lang.is_some());
-        assert_eq!(lang.unwrap().name(), "Mermaid");
 
         let lang = get_language_for_file(unknown_file);
         assert!(lang.is_none());
