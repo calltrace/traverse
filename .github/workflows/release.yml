@@ -1,0 +1,365 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger on version tags like v0.1.0
+
+permissions:
+  contents: write # Needed to create releases
+  packages: write # Needed to push to GitHub Container Registry
+
+jobs:
+  create_release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          body: |
+            ## Traverse Tools ${{ github.ref_name }}
+            
+            This release includes the following tools:
+            - `sol-storage-analyzer` - Analyze Solidity storage layouts
+            - `storage-trace` - Trace storage operations
+            - `sol2cg` - Generate call graphs from Solidity
+            - `sol2bnd` - Generate bindings from Solidity
+            - `sol2test` - Generate tests from Solidity
+
+  build_binaries:
+    name: Build Binaries for ${{ matrix.target }}
+    needs: create_release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            asset_name_suffix: linux-amd64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset_name_suffix: windows-amd64
+            ext: .exe
+          - os: macos-latest # Intel runner
+            target: x86_64-apple-darwin
+            asset_name_suffix: macos-amd64
+          - os: macos-14 # ARM64/M1 runner
+            target: aarch64-apple-darwin
+            asset_name_suffix: macos-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust for target ${{ matrix.target }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl-tools (Linux MUSL target only)
+        if: matrix.os == 'ubuntu-latest' && contains(matrix.target, 'musl')
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y musl-tools
+
+      - name: Setup macOS build environment
+        if: matrix.os == 'macos-latest' || matrix.os == 'macos-14'
+        run: |
+          # Remove any existing dynamic xz/lzma libraries to force static linking
+          if [ -d "/opt/homebrew/opt/xz" ]; then
+            echo "Found Homebrew xz, will configure for static linking"
+          fi
+          if [ -d "/usr/local/opt/xz" ]; then
+            echo "Found local xz, will configure for static linking"
+          fi
+
+      - name: Build all binaries
+        env:
+          CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS: "-C link-arg=-mmacosx-version-min=10.15"
+          CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: "-C link-arg=-mmacosx-version-min=11.0"
+          LZMA_API_STATIC: "1"
+        run: |
+          # For macOS, we need to ensure static linking of certain libraries
+          if [[ "${{ matrix.os }}" == "macos-latest" ]] || [[ "${{ matrix.os }}" == "macos-14" ]]; then
+            # Set feature flags to prefer static linking
+            export LZMA_API_STATIC=1
+            export CARGO_FEATURE_STATIC=1
+            # Disable lzma feature in zip crate if possible
+            export CARGO_NO_DEFAULT_FEATURES=1
+          fi
+          
+          # Build all binaries
+          cargo build --verbose --release --target ${{ matrix.target }} --package cli --bin sol-storage-analyzer
+          cargo build --verbose --release --target ${{ matrix.target }} --package cli --bin storage-trace
+          cargo build --verbose --release --target ${{ matrix.target }} --package cli --bin sol2cg
+          cargo build --verbose --release --target ${{ matrix.target }} --package cli --bin sol2bnd
+          cargo build --verbose --release --target ${{ matrix.target }} --package cli --bin sol2test
+
+      - name: Check dynamic dependencies (macOS only)
+        if: matrix.os == 'macos-latest' || matrix.os == 'macos-14'
+        run: |
+          echo "=== Checking dynamic library dependencies for all binaries ==="
+          for binary in sol-storage-analyzer storage-trace sol2cg sol2bnd sol2test; do
+            echo "Checking $binary:"
+            otool -L ./target/${{ matrix.target }}/release/$binary || true
+            echo ""
+          done
+          echo "=== Checking for problematic dependencies ==="
+          for binary in sol-storage-analyzer storage-trace sol2cg sol2bnd sol2test; do
+            if otool -L ./target/${{ matrix.target }}/release/$binary | grep -E "(liblzma|/opt/homebrew|/usr/local)"; then
+              echo "WARNING: Found dynamic dependencies in $binary that may cause issues with code signing"
+            fi
+          done
+
+      - name: Import Apple Certificate (macOS only)
+        if: matrix.os == 'macos-latest' || matrix.os == 'macos-14'
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          # Create temporary keychain with proper extension
+          security create-keychain -p temp-password build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p temp-password build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          
+          # Add build keychain to search list
+          security list-keychains -d user -s build.keychain $(security list-keychains -d user | sed s/\"//g)
+          
+          # Import certificate with -A flag to avoid access control issues
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > certificate.p12
+          
+          # Import certificate (should contain both cert and private key)
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -A -T /usr/bin/codesign
+          
+          # Import Apple intermediate certificate (DER format)
+          curl -o DeveloperIDG2CA.cer https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security import DeveloperIDG2CA.cer -k build.keychain -A -T /usr/bin/codesign
+          
+          # Import Apple Worldwide Developer Relations CA G3 (DER format)
+          curl -o AppleWWDRCAG3.cer https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer
+          security import AppleWWDRCAG3.cer -k build.keychain -A -T /usr/bin/codesign
+          
+          # Set partition list to avoid password prompts
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k temp-password build.keychain
+          
+          # Clean up certificate files
+          rm certificate.p12 DeveloperIDG2CA.cer AppleWWDRCAG3.cer
+
+      - name: Code Sign Binaries (macOS only)
+        if: matrix.os == 'macos-latest' || matrix.os == 'macos-14'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          # Check identities in build keychain
+          echo "=== Code signing identities in build.keychain ==="
+          security find-identity -v -p codesigning build.keychain || true
+          
+          # Extract signing identity hash from build keychain
+          SIGNING_HASH=$(security find-identity -v -p codesigning build.keychain | grep "$APPLE_SIGNING_IDENTITY" | grep -oE "[0-9A-F]{40}" | head -n 1)
+          echo "Using signing hash: $SIGNING_HASH"
+          
+          # Sign all binaries
+          for binary in sol-storage-analyzer storage-trace sol2cg sol2bnd sol2test; do
+            echo "Signing $binary..."
+            /usr/bin/codesign --force --sign "$SIGNING_HASH" --timestamp --options runtime ./target/${{ matrix.target }}/release/$binary -v
+            
+            # Verify signature
+            /usr/bin/codesign --verify --verbose ./target/${{ matrix.target }}/release/$binary
+          done
+
+      - name: Notarize Binaries (macOS only)
+        if: matrix.os == 'macos-latest' || matrix.os == 'macos-14'
+        env:
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          # Create API key file
+          echo "=== Creating API key file ==="
+          API_KEY_FILE="AuthKey_${APPLE_API_KEY_ID}.p8"
+          echo "$APPLE_API_KEY_BASE64" | base64 --decode > "$API_KEY_FILE"
+          echo "Created: $API_KEY_FILE"
+          
+          # Create a single zip with all binaries for notarization
+          echo "=== Creating zip file for notarization ==="
+          ZIP_FILE="traverse-tools-${{ matrix.asset_name_suffix }}-notarization.zip"
+          
+          # Create temporary directory and copy binaries
+          mkdir -p notarization-temp
+          for binary in sol-storage-analyzer storage-trace sol2cg sol2bnd sol2test; do
+            cp ./target/${{ matrix.target }}/release/$binary notarization-temp/
+          done
+          
+          # Create zip using ditto
+          ditto -c -k --sequesterRsrc --keepParent notarization-temp "$ZIP_FILE"
+          echo "Created: $ZIP_FILE"
+          
+          # Submit for notarization
+          echo "=== Submitting for notarization ==="
+          echo "This may take several minutes..."
+          xcrun notarytool submit "$ZIP_FILE" \
+            --key "$API_KEY_FILE" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER_ID" \
+            --wait
+          
+          # Attempt to staple the notarization (will fail for command-line tools - this is expected)
+          echo "=== Attempting to staple notarization ==="
+          echo "Note: Stapling fails for command-line tools - this is normal"
+          for binary in sol-storage-analyzer storage-trace sol2cg sol2bnd sol2test; do
+            xcrun stapler staple ./target/${{ matrix.target }}/release/$binary || echo "Stapling failed for $binary (expected for command-line tools)"
+          done
+          
+          # Final verification
+          echo "=== Final signature and notarization verification ==="
+          for binary in sol-storage-analyzer storage-trace sol2cg sol2bnd sol2test; do
+            echo "Verifying $binary:"
+            codesign --verify --verbose ./target/${{ matrix.target }}/release/$binary
+            spctl --assess --type execute --verbose ./target/${{ matrix.target }}/release/$binary || echo "spctl assessment completed for $binary"
+          done
+          
+          # Clean up files
+          rm -rf notarization-temp "$ZIP_FILE" "$API_KEY_FILE"
+          
+          echo "=== Notarization completed successfully ==="
+
+      - name: Create archive
+        run: |
+          # Create archive directory
+          mkdir -p dist
+          
+          # Copy all binaries to dist with proper naming
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            for binary in sol-storage-analyzer storage-trace sol2cg sol2bnd sol2test; do
+              cp ./target/${{ matrix.target }}/release/${binary}.exe dist/${binary}-${{ matrix.asset_name_suffix }}
+            done
+            # Create a zip archive for Windows
+            cd dist
+            7z a traverse-tools-${{ matrix.asset_name_suffix }}.zip *
+            cd ..
+          else
+            for binary in sol-storage-analyzer storage-trace sol2cg sol2bnd sol2test; do
+              cp ./target/${{ matrix.target }}/release/$binary dist/${binary}-${{ matrix.asset_name_suffix }}
+            done
+            # Create a tar.gz archive for Unix systems
+            cd dist
+            tar czf traverse-tools-${{ matrix.asset_name_suffix }}.tar.gz *
+            cd ..
+          fi
+
+      - name: Upload individual binaries
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          asset_path: ./dist/sol-storage-analyzer-${{ matrix.asset_name_suffix }}
+          asset_name: sol-storage-analyzer-${{ matrix.asset_name_suffix }}
+          asset_content_type: application/octet-stream
+
+      - name: Upload storage-trace
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          asset_path: ./dist/storage-trace-${{ matrix.asset_name_suffix }}
+          asset_name: storage-trace-${{ matrix.asset_name_suffix }}
+          asset_content_type: application/octet-stream
+
+      - name: Upload sol2cg
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          asset_path: ./dist/sol2cg-${{ matrix.asset_name_suffix }}
+          asset_name: sol2cg-${{ matrix.asset_name_suffix }}
+          asset_content_type: application/octet-stream
+
+      - name: Upload sol2bnd
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          asset_path: ./dist/sol2bnd-${{ matrix.asset_name_suffix }}
+          asset_name: sol2bnd-${{ matrix.asset_name_suffix }}
+          asset_content_type: application/octet-stream
+
+      - name: Upload sol2test
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          asset_path: ./dist/sol2test-${{ matrix.asset_name_suffix }}
+          asset_name: sol2test-${{ matrix.asset_name_suffix }}
+          asset_content_type: application/octet-stream
+
+      - name: Upload archive (Unix)
+        if: matrix.os != 'windows-latest'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          asset_path: ./dist/traverse-tools-${{ matrix.asset_name_suffix }}.tar.gz
+          asset_name: traverse-tools-${{ matrix.asset_name_suffix }}.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload archive (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          asset_path: ./dist/traverse-tools-${{ matrix.asset_name_suffix }}.zip
+          asset_name: traverse-tools-${{ matrix.asset_name_suffix }}.zip
+          asset_content_type: application/zip
+
+  build_docker:
+    name: Build and Push Docker Image
+    needs: create_release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
