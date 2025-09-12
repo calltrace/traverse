@@ -350,8 +350,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
+      - name: Extract metadata for all-in-one image
+        id: meta-all
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
@@ -359,13 +359,80 @@ jobs:
             type=ref,event=tag
             type=raw,value=latest
 
-      - name: Build and push Docker image
+      - name: Build and push all-in-one Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          target: all
+          tags: ${{ steps.meta-all.outputs.tags }}
+          labels: ${{ steps.meta-all.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Build and push individual tool images
+      - name: Build and push sol2cg image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          target: sol2cg
+          tags: |
+            ghcr.io/${{ github.repository }}/sol2cg:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}/sol2cg:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push sol2test image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          target: sol2test
+          tags: |
+            ghcr.io/${{ github.repository }}/sol2test:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}/sol2test:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push sol2bnd image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          target: sol2bnd
+          tags: |
+            ghcr.io/${{ github.repository }}/sol2bnd:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}/sol2bnd:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push storage-trace image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          target: storage-trace
+          tags: |
+            ghcr.io/${{ github.repository }}/storage-trace:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}/storage-trace:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push sol-storage-analyzer image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          target: sol-storage-analyzer
+          tags: |
+            ghcr.io/${{ github.repository }}/sol-storage-analyzer:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}/sol-storage-analyzer:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
