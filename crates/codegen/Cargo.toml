@@ -24,6 +24,7 @@ solidity = { path = "../solidity" }
 tokio = { version = "1.0", features = ["full"] }
 rand = "0.8"
 hex = "0.4"
+getrandom = { version = "0.2", features = ["js"] }
 [build-dependencies]
 cc = "1.0"
 

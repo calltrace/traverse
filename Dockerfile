@@ -18,7 +18,6 @@ COPY Cargo.lock Cargo.lock
 COPY crates/cli/Cargo.toml ./crates/cli/Cargo.toml
 COPY crates/codegen/Cargo.toml ./crates/codegen/Cargo.toml
 COPY crates/graph/Cargo.toml ./crates/graph/Cargo.toml
-COPY crates/language/Cargo.toml ./crates/language/Cargo.toml
 COPY crates/logging/Cargo.toml ./crates/logging/Cargo.toml
 COPY crates/mermaid/Cargo.toml ./crates/mermaid/Cargo.toml
 COPY crates/solidity/Cargo.toml ./crates/solidity/Cargo.toml
@@ -28,7 +27,6 @@ COPY crates/solidity/Cargo.toml ./crates/solidity/Cargo.toml
 RUN mkdir -p crates/cli/src/bin && echo "fn main() {}" > crates/cli/src/bin/sol2cg.rs
 RUN mkdir -p crates/codegen/src && echo "// dummy" > crates/codegen/src/lib.rs
 RUN mkdir -p crates/graph/src && echo "// dummy" > crates/graph/src/lib.rs
-RUN mkdir -p crates/language/src && echo "// dummy" > crates/language/src/lib.rs
 RUN mkdir -p crates/logging/src && echo "// dummy" > crates/logging/src/lib.rs
 RUN mkdir -p crates/mermaid/src && echo "// dummy" > crates/mermaid/src/lib.rs
 RUN mkdir -p crates/solidity/src && echo "// dummy" > crates/solidity/src/lib.rs
