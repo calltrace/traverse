@@ -14,6 +14,7 @@ Traverse is a comprehensive collection of command-line tools for analyzing, visu
 - [Tool: sol-storage-analyzer - Storage Access Analyzer](#tool-sol-storage-analyzer---storage-access-analyzer)
 - [Tool: storage-trace - Storage Trace Comparator](#tool-storage-trace---storage-trace-comparator)
 - [Tool: sol2bnd - Binding File Generator](#tool-sol2bnd---binding-file-generator)
+- [Development Workflow Integration](#development-workflow-integration)
 - [Tool Integration & Workflows](#tool-integration--workflows)
 - [Building from Source](#building-from-source)
 - [Docker Usage](#docker-usage)
@@ -561,6 +562,58 @@ contracts:
       - transfer(address,uint256)
       - approve(address,uint256)
 ```
+
+## Development Workflow Integration
+
+### Editor Integration
+
+Traverse provides first-class editor support through dedicated extensions and language server protocol (LSP) implementations:
+
+#### VSCode Extension
+
+Install the **Traverse Solidity Analyzer** extension for integrated Solidity analysis directly in VSCode:
+
+- **Repository**: [traverse-vscode](https://github.com/calltrace/traverse-vscode)
+- **Marketplace**: [Traverse Solidity Analyzer](https://marketplace.visualstudio.com/items?itemName=GianlucaBrigandi.traverse-vscode)
+- **Features**:
+  - Call graph generation (DOT format)
+  - Sequence diagram creation (Mermaid format)
+  - Storage variable analysis and access patterns
+  - Automatic LSP server binary download on first use
+
+Install from VSCode Marketplace:
+```bash
+# Search "Traverse Solidity Analyzer" in Extensions panel or use command:
+code --install-extension GianlucaBrigandi.traverse-vscode
+```
+
+#### Language Server Protocol (LSP)
+
+For Neovim, Emacs, and other LSP-compatible editors, use the **Traverse Language Server**:
+
+- **Repository**: [traverse-lsp](https://github.com/calltrace/traverse-lsp)
+- **Supported Editors**: Neovim, Emacs, Sublime Text, Helix, any LSP-compatible editor
+- **Features**:
+  - Go-to-definition for cross-contract calls
+  - Hover information with function signatures and storage access
+  - Code completion for contract interfaces
+  - Diagnostics for potential issues
+  - Document symbols and outline
+
+##### Neovim Setup
+
+```lua
+-- In your init.lua or config
+require('lspconfig').traverse.setup{
+  cmd = {'traverse-lsp'},
+  filetypes = {'solidity'},
+  root_dir = require('lspconfig').util.root_pattern('foundry.toml', '.git'),
+}
+```
+
+##### Other Editors
+
+Refer to the [traverse-lsp documentation](https://github.com/calltrace/traverse-lsp#installation) for setup instructions specific to your editor.
 
 ## Tool Integration & Workflows
 
