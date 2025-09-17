@@ -32,13 +32,16 @@ Get started quickly with the most common use case - generating a call graph from
 ```bash
 # Download sol2cg (choose your platform)
 # macOS Intel:
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/sol2cg-darwin-amd64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/sol2cg https://github.com/calltrace/traverse/releases/latest/download/sol2cg-macos-amd64
+chmod +x /usr/local/bin/sol2cg
 
 # macOS Apple Silicon:
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/sol2cg-darwin-arm64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/sol2cg https://github.com/calltrace/traverse/releases/latest/download/sol2cg-macos-arm64
+chmod +x /usr/local/bin/sol2cg
 
 # Linux x86_64:
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/sol2cg-linux-amd64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/sol2cg https://github.com/calltrace/traverse/releases/latest/download/sol2cg-linux-amd64
+chmod +x /usr/local/bin/sol2cg
 
 # Generate a call graph visualization
 sol2cg contracts/*.sol -o callgraph.dot
@@ -55,85 +58,95 @@ Download pre-built binaries for your platform:
 
 ```bash
 # macOS Intel
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/sol2cg-darwin-amd64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/sol2cg https://github.com/calltrace/traverse/releases/latest/download/sol2cg-macos-amd64
+chmod +x /usr/local/bin/sol2cg
 
 # macOS Apple Silicon
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/sol2cg-darwin-arm64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/sol2cg https://github.com/calltrace/traverse/releases/latest/download/sol2cg-macos-arm64
+chmod +x /usr/local/bin/sol2cg
 
 # Linux x86_64
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/sol2cg-linux-amd64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/sol2cg https://github.com/calltrace/traverse/releases/latest/download/sol2cg-linux-amd64
+chmod +x /usr/local/bin/sol2cg
 
 # Windows PowerShell
-Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol2cg-windows-amd64.zip" -OutFile sol2cg.zip
-Expand-Archive sol2cg.zip -DestinationPath C:\bin
+Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol2cg-windows-amd64.exe" -OutFile "C:\bin\sol2cg.exe"
 ```
 
 #### sol2test - Test Generator
 
 ```bash
 # macOS Intel
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/sol2test-darwin-amd64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/sol2test https://github.com/calltrace/traverse/releases/latest/download/sol2test-macos-amd64
+chmod +x /usr/local/bin/sol2test
 
 # macOS Apple Silicon
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/sol2test-darwin-arm64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/sol2test https://github.com/calltrace/traverse/releases/latest/download/sol2test-macos-arm64
+chmod +x /usr/local/bin/sol2test
 
 # Linux x86_64
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/sol2test-linux-amd64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/sol2test https://github.com/calltrace/traverse/releases/latest/download/sol2test-linux-amd64
+chmod +x /usr/local/bin/sol2test
 
 # Windows PowerShell
-Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol2test-windows-amd64.zip" -OutFile sol2test.zip
-Expand-Archive sol2test.zip -DestinationPath C:\bin
+Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol2test-windows-amd64.exe" -OutFile "C:\bin\sol2test.exe"
 ```
 
 #### sol-storage-analyzer - Storage Analyzer
 
 ```bash
 # macOS Intel
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/sol-storage-analyzer-darwin-amd64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/sol-storage-analyzer https://github.com/calltrace/traverse/releases/latest/download/sol-storage-analyzer-macos-amd64
+chmod +x /usr/local/bin/sol-storage-analyzer
 
 # macOS Apple Silicon
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/sol-storage-analyzer-darwin-arm64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/sol-storage-analyzer https://github.com/calltrace/traverse/releases/latest/download/sol-storage-analyzer-macos-arm64
+chmod +x /usr/local/bin/sol-storage-analyzer
 
 # Linux x86_64
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/sol-storage-analyzer-linux-amd64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/sol-storage-analyzer https://github.com/calltrace/traverse/releases/latest/download/sol-storage-analyzer-linux-amd64
+chmod +x /usr/local/bin/sol-storage-analyzer
 
 # Windows PowerShell
-Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol-storage-analyzer-windows-amd64.zip" -OutFile sol-storage-analyzer.zip
-Expand-Archive sol-storage-analyzer.zip -DestinationPath C:\bin
+Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol-storage-analyzer-windows-amd64.exe" -OutFile "C:\bin\sol-storage-analyzer.exe"
 ```
 
 #### storage-trace - Storage Trace Comparator
 
 ```bash
 # macOS Intel
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/storage-trace-darwin-amd64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/storage-trace https://github.com/calltrace/traverse/releases/latest/download/storage-trace-macos-amd64
+chmod +x /usr/local/bin/storage-trace
 
 # macOS Apple Silicon
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/storage-trace-darwin-arm64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/storage-trace https://github.com/calltrace/traverse/releases/latest/download/storage-trace-macos-arm64
+chmod +x /usr/local/bin/storage-trace
 
 # Linux x86_64
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/storage-trace-linux-amd64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/storage-trace https://github.com/calltrace/traverse/releases/latest/download/storage-trace-linux-amd64
+chmod +x /usr/local/bin/storage-trace
 
 # Windows PowerShell
-Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/storage-trace-windows-amd64.zip" -OutFile storage-trace.zip
-Expand-Archive storage-trace.zip -DestinationPath C:\bin
+Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/storage-trace-windows-amd64.exe" -OutFile "C:\bin\storage-trace.exe"
 ```
 
 #### sol2bnd - Binding Generator
 
 ```bash
 # macOS Intel
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/sol2bnd-darwin-amd64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/sol2bnd https://github.com/calltrace/traverse/releases/latest/download/sol2bnd-macos-amd64
+chmod +x /usr/local/bin/sol2bnd
 
 # macOS Apple Silicon
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/sol2bnd-darwin-arm64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/sol2bnd https://github.com/calltrace/traverse/releases/latest/download/sol2bnd-macos-arm64
+chmod +x /usr/local/bin/sol2bnd
 
 # Linux x86_64
-curl -sSfL https://github.com/calltrace/traverse/releases/latest/download/sol2bnd-linux-amd64.tar.gz | tar xz -C /usr/local/bin
+curl -sSfL -o /usr/local/bin/sol2bnd https://github.com/calltrace/traverse/releases/latest/download/sol2bnd-linux-amd64
+chmod +x /usr/local/bin/sol2bnd
 
 # Windows PowerShell
-Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol2bnd-windows-amd64.zip" -OutFile sol2bnd.zip
-Expand-Archive sol2bnd.zip -DestinationPath C:\bin
+Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol2bnd-windows-amd64.exe" -OutFile "C:\bin\sol2bnd.exe"
 ```
 
 ### Docker
