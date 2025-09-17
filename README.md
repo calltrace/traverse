@@ -70,7 +70,7 @@ curl -sSfL -o /usr/local/bin/sol2cg https://github.com/calltrace/traverse/releas
 chmod +x /usr/local/bin/sol2cg
 
 # Windows PowerShell
-Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol2cg-windows-amd64.exe" -OutFile "C:\bin\sol2cg.exe"
+Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol2cg-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\Microsoft\WindowsApps\sol2cg.exe"
 ```
 
 #### sol2test - Test Generator
@@ -89,7 +89,7 @@ curl -sSfL -o /usr/local/bin/sol2test https://github.com/calltrace/traverse/rele
 chmod +x /usr/local/bin/sol2test
 
 # Windows PowerShell
-Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol2test-windows-amd64.exe" -OutFile "C:\bin\sol2test.exe"
+Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol2test-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\Microsoft\WindowsApps\sol2test.exe"
 ```
 
 #### sol-storage-analyzer - Storage Analyzer
@@ -108,7 +108,7 @@ curl -sSfL -o /usr/local/bin/sol-storage-analyzer https://github.com/calltrace/t
 chmod +x /usr/local/bin/sol-storage-analyzer
 
 # Windows PowerShell
-Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol-storage-analyzer-windows-amd64.exe" -OutFile "C:\bin\sol-storage-analyzer.exe"
+Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol-storage-analyzer-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\Microsoft\WindowsApps\sol-storage-analyzer.exe"
 ```
 
 #### storage-trace - Storage Trace Comparator
@@ -127,7 +127,7 @@ curl -sSfL -o /usr/local/bin/storage-trace https://github.com/calltrace/traverse
 chmod +x /usr/local/bin/storage-trace
 
 # Windows PowerShell
-Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/storage-trace-windows-amd64.exe" -OutFile "C:\bin\storage-trace.exe"
+Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/storage-trace-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\Microsoft\WindowsApps\storage-trace.exe"
 ```
 
 #### sol2bnd - Binding Generator
@@ -146,7 +146,7 @@ curl -sSfL -o /usr/local/bin/sol2bnd https://github.com/calltrace/traverse/relea
 chmod +x /usr/local/bin/sol2bnd
 
 # Windows PowerShell
-Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol2bnd-windows-amd64.exe" -OutFile "C:\bin\sol2bnd.exe"
+Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol2bnd-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\Microsoft\WindowsApps\sol2bnd.exe"
 ```
 
 ### Docker

@@ -242,7 +242,7 @@ jobs:
           # Copy all binaries to dist with proper naming
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             for binary in sol-storage-analyzer storage-trace sol2cg sol2bnd sol2test; do
-              cp ./target/${{ matrix.target }}/release/${binary}.exe dist/${binary}-${{ matrix.asset_name_suffix }}
+              cp ./target/${{ matrix.target }}/release/${binary}.exe dist/${binary}-${{ matrix.asset_name_suffix }}.exe
             done
             # Create a zip archive for Windows
             cd dist
@@ -264,8 +264,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create_release.outputs.upload_url }}
-          asset_path: ./dist/sol-storage-analyzer-${{ matrix.asset_name_suffix }}
-          asset_name: sol-storage-analyzer-${{ matrix.asset_name_suffix }}
+          asset_path: ./dist/sol-storage-analyzer-${{ matrix.asset_name_suffix }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          asset_name: sol-storage-analyzer-${{ matrix.asset_name_suffix }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
           asset_content_type: application/octet-stream
 
       - name: Upload storage-trace
@@ -274,8 +274,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create_release.outputs.upload_url }}
-          asset_path: ./dist/storage-trace-${{ matrix.asset_name_suffix }}
-          asset_name: storage-trace-${{ matrix.asset_name_suffix }}
+          asset_path: ./dist/storage-trace-${{ matrix.asset_name_suffix }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          asset_name: storage-trace-${{ matrix.asset_name_suffix }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
           asset_content_type: application/octet-stream
 
       - name: Upload sol2cg
@@ -284,8 +284,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create_release.outputs.upload_url }}
-          asset_path: ./dist/sol2cg-${{ matrix.asset_name_suffix }}
-          asset_name: sol2cg-${{ matrix.asset_name_suffix }}
+          asset_path: ./dist/sol2cg-${{ matrix.asset_name_suffix }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          asset_name: sol2cg-${{ matrix.asset_name_suffix }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
           asset_content_type: application/octet-stream
 
       - name: Upload sol2bnd
@@ -294,8 +294,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create_release.outputs.upload_url }}
-          asset_path: ./dist/sol2bnd-${{ matrix.asset_name_suffix }}
-          asset_name: sol2bnd-${{ matrix.asset_name_suffix }}
+          asset_path: ./dist/sol2bnd-${{ matrix.asset_name_suffix }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          asset_name: sol2bnd-${{ matrix.asset_name_suffix }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
           asset_content_type: application/octet-stream
 
       - name: Upload sol2test
@@ -304,8 +304,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create_release.outputs.upload_url }}
-          asset_path: ./dist/sol2test-${{ matrix.asset_name_suffix }}
-          asset_name: sol2test-${{ matrix.asset_name_suffix }}
+          asset_path: ./dist/sol2test-${{ matrix.asset_name_suffix }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          asset_name: sol2test-${{ matrix.asset_name_suffix }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
           asset_content_type: application/octet-stream
 
       - name: Upload archive (Unix)
