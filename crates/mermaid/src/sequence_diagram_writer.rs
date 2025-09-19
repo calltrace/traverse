@@ -60,7 +60,9 @@ fn write_statement(output: &mut String, statement: &Statement, indent: &mut Stri
         Statement::Loop(s) => {
             write!(output, "{indent}loop").unwrap();
             if let Some(label) = &s.label {
-                write!(output, " {}", label).unwrap();
+                // Clean up multi-line labels for Mermaid compatibility
+                let clean_label = label.replace('\n', " ").split_whitespace().collect::<Vec<_>>().join(" ");
+                write!(output, " {}", clean_label).unwrap();
             }
             writeln!(output).unwrap();
 
@@ -75,7 +77,9 @@ fn write_statement(output: &mut String, statement: &Statement, indent: &mut Stri
         Statement::Opt(s) => {
             write!(output, "{indent}opt").unwrap();
             if let Some(label) = &s.label {
-                write!(output, " {}", label).unwrap();
+                // Clean up multi-line labels for Mermaid compatibility
+                let clean_label = label.replace('\n', " ").split_whitespace().collect::<Vec<_>>().join(" ");
+                write!(output, " {}", clean_label).unwrap();
             }
             writeln!(output).unwrap();
 
@@ -125,9 +129,24 @@ fn write_statement(output: &mut String, statement: &Statement, indent: &mut Stri
         Statement::Destroy(s) => writeln!(output, "{indent}destroy {}", s.id).unwrap(),
 
         // --- Alt Block Statements ---
-        Statement::AltStart(s) => writeln!(output, "{indent}alt {}", s.label).unwrap(),
-        Statement::AltElse(s) => writeln!(output, "{indent}else {}", s.label).unwrap(),
-        Statement::AltEnd(_) => writeln!(output, "{indent}end").unwrap(),
+        Statement::AltStart(s) => {
+            // Clean up multi-line conditions for Mermaid compatibility
+            let clean_label = s.label.replace('\n', " ").split_whitespace().collect::<Vec<_>>().join(" ");
+            writeln!(output, "{indent}alt {}", clean_label).unwrap();
+            indent.push_str(INDENT_STEP);
+        },
+        Statement::AltElse(s) => {
+            // Reduce indent for else (it's at the same level as alt)
+            indent.truncate(indent.len().saturating_sub(INDENT_STEP.len()));
+            // Clean up multi-line conditions for Mermaid compatibility
+            let clean_label = s.label.replace('\n', " ").split_whitespace().collect::<Vec<_>>().join(" ");
+            writeln!(output, "{indent}else {}", clean_label).unwrap();
+            indent.push_str(INDENT_STEP);
+        },
+        Statement::AltEnd(_) => {
+            indent.truncate(indent.len().saturating_sub(INDENT_STEP.len()));
+            writeln!(output, "{indent}end").unwrap();
+        },
 
 
         // --- TODO: Implement remaining statement types ---
