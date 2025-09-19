@@ -11,11 +11,11 @@ use crate::teststubs::{
 };
 use crate::invariant_breaker::{break_invariant, InvariantBreakerValue};
 use anyhow::Result;
-use graph::cg::{CallGraph, EdgeType, NodeType, ParameterInfo};
+use traverse_graph::cg::{CallGraph, EdgeType, NodeType, ParameterInfo};
 use std::collections::HashMap;
 
-use solidity::ast::*;
-use solidity::builder::*;
+use traverse_solidity::ast::*;
+use traverse_solidity::builder::*;
 
 pub fn generate_revert_tests_from_cfg(
     graph: &CallGraph,

@@ -1,7 +1,15 @@
 [package]
-name = "logging"
-version = "0.1.0"
+name = "traverse-logging"
+version = "0.1.1"
 edition = "2021"
+authors = ["Traverse Contributors"]
+license = "MIT OR Apache-2.0"
+description = "Logging utilities for Traverse Solidity analysis tools"
+repository = "https://github.com/calltrace/traverse"
+homepage = "https://github.com/calltrace/traverse"
+documentation = "https://docs.rs/traverse-logging"
+keywords = ["logging", "tracing", "solidity"]
+categories = ["development-tools"]
 
 [dependencies]
 tracing = { workspace = true }

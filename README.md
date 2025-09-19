@@ -166,6 +166,24 @@ curl -O https://raw.githubusercontent.com/calltrace/traverse/main/docker-compose
 docker-compose up
 ```
 
+### Install via Cargo
+
+For Rust developers who have cargo installed:
+
+```bash
+# Install all CLI tools at once (available after rate limit expires)
+cargo install traverse-cli
+
+# This will install all binary tools:
+# - sol2cg: Call graph generator
+# - sol2test: Test generator
+# - sol2bnd: Solidity boundary analyzer
+# - sol-storage-analyzer: Storage access analyzer
+# - storage-trace: Storage operation tracer
+```
+
+> **Note**: The `traverse-cli` package will be available after the crates.io rate limit expires (Sept 19, 2025). In the meantime, you can build from source below.
+
 ### Build from Source
 
 For contributors and advanced users:
@@ -971,6 +989,142 @@ RUST_LOG=sol2cg=debug,parser=trace sol2cg contracts/*.sol
 | Linux | Full | Primary development platform |
 | macOS | Full | Intel and Apple Silicon |
 | Windows | Full | Native and WSL2 |
+
+## Using Traverse as a Library
+
+Traverse's modular architecture allows you to use its components as libraries in your own Rust projects. This is useful for building custom analysis tools, IDE plugins, or specialized CLIs.
+
+### Available Libraries
+
+The following crates are available on crates.io:
+
+```toml
+[dependencies]
+traverse-graph = "0.1.1"      # Call graph generation and analysis
+traverse-codegen = "0.1.1"    # Test generation and code synthesis
+traverse-solidity = "0.1.1"   # Solidity parser and AST
+traverse-mermaid = "0.1.1"    # Mermaid diagram generation
+traverse-logging = "0.1.1"    # Logging utilities
+```
+
+### Example: Building a Custom Analysis Tool
+
+```rust
+use traverse_graph::cg::{CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput};
+use traverse_graph::parser::parse_solidity;
+use std::fs;
+
+fn main() -> anyhow::Result<()> {
+    // Parse Solidity source
+    let source = fs::read_to_string("contract.sol")?;
+    let tree = parse_solidity(&source)?;
+    
+    // Create call graph context
+    let mut ctx = CallGraphGeneratorContext::default();
+    let mut graph = CallGraph::new();
+    
+    // Generate call graph
+    let input = CallGraphGeneratorInput {
+        source: &source,
+        tree,
+        file_path: "contract.sol".into(),
+    };
+    
+    // Analyze the graph
+    for node in graph.nodes.iter() {
+        println!("Function: {} in {}", 
+            node.name, 
+            node.contract_name.as_ref().unwrap_or(&"<global>".to_string())
+        );
+    }
+    
+    Ok(())
+}
+```
+
+### Example: Custom Test Generator
+
+```rust
+use traverse_codegen::teststubs::{ContractInfo, generate_tests_with_foundry};
+use traverse_graph::cg::CallGraph;
+
+fn generate_custom_tests(graph: &CallGraph) -> anyhow::Result<()> {
+    // Extract contract information
+    let contracts = extract_contract_info_from_graph(graph);
+    
+    // Generate Foundry tests
+    let foundry_config = FoundryConfig {
+        project_root: "./".into(),
+        verbose: true,
+    };
+    
+    generate_tests_with_foundry(
+        graph,
+        &ctx,
+        &foundry_config,
+        false, // don't validate
+    )?;
+    
+    Ok(())
+}
+```
+
+### Example: Mermaid Diagram Generation
+
+```rust
+use traverse_graph::cg::CallGraph;
+use traverse_graph::cg_mermaid::{MermaidGenerator, ToSequenceDiagram};
+use traverse_mermaid::sequence_diagram_writer;
+
+fn export_to_mermaid(graph: &CallGraph) -> String {
+    let generator = MermaidGenerator::new();
+    let sequence_diagram = generator.to_sequence_diagram(graph);
+    sequence_diagram_writer::write_diagram(&sequence_diagram)
+}
+```
+
+### Building Your Own CLI
+
+```rust
+use clap::Parser;
+use traverse_graph::parser::parse_solidity;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about)]
+struct MyCli {
+    /// Solidity files to analyze
+    input_files: Vec<String>,
+    
+    /// Custom analysis flag
+    #[arg(long)]
+    deep_analysis: bool,
+}
+
+fn main() -> anyhow::Result<()> {
+    let cli = MyCli::parse();
+    
+    for file in cli.input_files {
+        let source = std::fs::read_to_string(&file)?;
+        let tree = parse_solidity(&source)?;
+        
+        // Your custom analysis logic here
+        if cli.deep_analysis {
+            // Perform deep analysis
+        }
+    }
+    
+    Ok(())
+}
+```
+
+### API Documentation
+
+Full API documentation for each crate is available on docs.rs:
+- [traverse-graph](https://docs.rs/traverse-graph)
+- [traverse-codegen](https://docs.rs/traverse-codegen)
+- [traverse-solidity](https://docs.rs/traverse-solidity)
+- [traverse-mermaid](https://docs.rs/traverse-mermaid)
+- [traverse-logging](https://docs.rs/traverse-logging)
 
 ## Contributing
 

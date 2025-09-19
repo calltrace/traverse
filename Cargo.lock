@@ -257,65 +257,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
 
 [[package]]
-name = "cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytes",
- "chrono",
- "clap",
- "codegen",
- "graph",
- "logging",
- "mermaid",
- "proc-macro2",
- "quote",
- "reedline",
- "regex",
- "serde",
- "serde_derive",
- "serde_json",
- "serde_yaml",
- "syn",
- "tempfile",
- "tera",
- "thiserror 1.0.69",
- "toml",
- "tracing",
- "tracing-subscriber",
- "tree-sitter",
- "walkdir",
- "which",
-]
-
-[[package]]
-name = "codegen"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cc",
- "clap",
- "getrandom 0.2.16",
- "graph",
- "hex",
- "nom",
- "once_cell",
- "rand",
- "semver",
- "serde",
- "serde_json",
- "serde_yaml",
- "solidity",
- "streaming-iterator",
- "tempfile",
- "thiserror 2.0.12",
- "tokio",
- "tracing",
- "tree-sitter",
- "walkdir",
-]
-
-[[package]]
 name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -536,29 +477,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "graph"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cc",
- "clap",
- "mermaid",
- "nom",
- "once_cell",
- "petgraph",
- "serde",
- "serde_json",
- "serde_yaml",
- "streaming-iterator",
- "tempfile",
- "thiserror 2.0.12",
- "tracing",
- "tree-sitter",
- "tree-sitter-solidity",
- "walkdir",
-]
-
-[[package]]
 name = "hashbrown"
 version = "0.15.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -718,14 +636,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 
 [[package]]
-name = "logging"
-version = "0.1.0"
-dependencies = [
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "matchers"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -739,15 +649,6 @@ name = "memchr"
 version = "2.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
-
-[[package]]
-name = "mermaid"
-version = "0.1.0"
-dependencies = [
- "pest",
- "pest_derive",
- "tracing",
-]
 
 [[package]]
 name = "miniz_oxide"
@@ -1318,16 +1219,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "solidity"
-version = "0.1.0"
-dependencies = [
- "hex",
- "pest",
- "pest_derive",
- "tracing",
-]
-
-[[package]]
 name = "streaming-iterator"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1594,6 +1485,115 @@ dependencies = [
 ]
 
 [[package]]
+name = "traverse-cli"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "chrono",
+ "clap",
+ "proc-macro2",
+ "quote",
+ "reedline",
+ "regex",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_yaml",
+ "syn",
+ "tempfile",
+ "tera",
+ "thiserror 1.0.69",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "traverse-codegen",
+ "traverse-graph",
+ "traverse-logging",
+ "traverse-mermaid",
+ "tree-sitter",
+ "walkdir",
+ "which",
+]
+
+[[package]]
+name = "traverse-codegen"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "cc",
+ "clap",
+ "getrandom 0.2.16",
+ "hex",
+ "nom",
+ "once_cell",
+ "rand",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "streaming-iterator",
+ "tempfile",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+ "traverse-graph",
+ "traverse-solidity",
+ "tree-sitter",
+ "walkdir",
+]
+
+[[package]]
+name = "traverse-graph"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "cc",
+ "clap",
+ "nom",
+ "once_cell",
+ "petgraph",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "streaming-iterator",
+ "tempfile",
+ "thiserror 2.0.12",
+ "tracing",
+ "traverse-mermaid",
+ "tree-sitter",
+ "tree-sitter-solidity-traverse",
+ "walkdir",
+]
+
+[[package]]
+name = "traverse-logging"
+version = "0.1.1"
+dependencies = [
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "traverse-mermaid"
+version = "0.1.1"
+dependencies = [
+ "pest",
+ "pest_derive",
+ "tracing",
+]
+
+[[package]]
+name = "traverse-solidity"
+version = "0.1.1"
+dependencies = [
+ "hex",
+ "pest",
+ "pest_derive",
+ "tracing",
+]
+
+[[package]]
 name = "tree-sitter"
 version = "0.25.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1614,9 +1614,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4013970217383f67b18aef68f6fb2e8d409bc5755227092d32efb0422ba24b8"
 
 [[package]]
-name = "tree-sitter-solidity"
-version = "1.2.13"
-source = "git+https://github.com/JoranHonig/tree-sitter-solidity#4e938a46c7030dd001bc99e1ac0f0c750ac98254"
+name = "tree-sitter-solidity-traverse"
+version = "1.2.13-4e938a4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "547040ab2b2c6b84a6d4778f8ca714c90087382a49bdc073cb4bbdf6c36dfa50"
 dependencies = [
  "cc",
  "tree-sitter-language",

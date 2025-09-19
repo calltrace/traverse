@@ -1,11 +1,19 @@
 [package]
-name = "codegen"
-version = "0.1.0"
+name = "traverse-codegen"
+version = "0.1.1"
 edition = "2021"
 resolver = "2"
+authors = ["Traverse Contributors"]
+license = "MIT OR Apache-2.0"
+description = "Code generation utilities for Solidity test generation and analysis"
+repository = "https://github.com/calltrace/traverse"
+homepage = "https://github.com/calltrace/traverse"
+documentation = "https://docs.rs/traverse-codegen"
+keywords = ["solidity", "codegen", "testing", "ethereum"]
+categories = ["development-tools"]
 
 [dependencies]
-graph = { path = "../graph" }
+traverse-graph = { version = "0.1.1", path = "../graph" }
 tracing = { workspace = true }
 anyhow = "1.0.97"
 clap = "4.5.35"
@@ -20,7 +28,7 @@ serde_yaml = "0.9"
 walkdir = "2" 
 tempfile = "3.20.0"
 semver = "1.0.26"
-solidity = { path = "../solidity" }
+traverse-solidity = { version = "0.1.1", path = "../solidity" }
 tokio = { version = "1.0", features = ["full"] }
 rand = "0.8"
 hex = "0.4"

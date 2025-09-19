@@ -1,6 +1,6 @@
 use crate::cg::{CallGraph, Edge, EdgeType, Node, NodeType};
-use mermaid::sequence_diagram_ast::SequenceDiagram;
-use mermaid::sequence_diagram_builder::SequenceDiagramBuilder;
+use traverse_mermaid::sequence_diagram_ast::SequenceDiagram;
+use traverse_mermaid::sequence_diagram_builder::SequenceDiagramBuilder;
 use std::collections::{HashMap, HashSet}; // Import HashMap
 
 /// Trait for converting a CallGraph into a Mermaid Sequence Diagram AST.
@@ -740,7 +740,7 @@ impl ToSequenceDiagram for MermaidGenerator {
 mod tests {
     use super::*;
     use crate::cg::{CallGraph, EdgeType, NodeType, Visibility};
-    use mermaid::sequence_diagram_ast::*; // Import AST elements for assertions
+    use traverse_mermaid::sequence_diagram_ast::*; // Import AST elements for assertions
 
     // Helper to create a simple graph for testing
     fn create_test_graph() -> CallGraph {

@@ -10,9 +10,9 @@ use crate::teststubs::{
     SolidityTestContract, SolidityTestContractBuilder,
 };
 use anyhow::Result;
-use graph::cg::{CallGraph, EdgeType, NodeType, ParameterInfo};
-use solidity::ast::*;
-use solidity::builder::*;
+use traverse_graph::cg::{CallGraph, EdgeType, NodeType, ParameterInfo};
+use traverse_solidity::ast::*;
+use traverse_solidity::builder::*;
 
 pub fn generate_access_control_tests_from_cfg(
     graph: &CallGraph,

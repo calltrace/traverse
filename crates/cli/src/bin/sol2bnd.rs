@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use tracing::warn;
-use graph::{
+use traverse_graph::{
     interface_resolver::{BindingConfig, BindingFile}, // Renamed to avoid conflict
     manifest::{find_solidity_files_for_manifest, Manifest, ManifestEntry},
     natspec::{extract::extract_source_comments, parse_natspec_comment, NatSpecKind},
@@ -26,7 +26,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Initialize logging
-    logging::init_subscriber(false);
+    traverse_logging::init_subscriber(false);
 
     let project_root = fs::canonicalize(&cli.project_path).with_context(|| {
         format!(

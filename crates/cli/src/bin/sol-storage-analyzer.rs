@@ -1,17 +1,17 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use tracing::warn;
-use graph::cg::{
+use traverse_graph::cg::{
     CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline
 };
-use graph::reachability::NodeId;
-use graph::interface_resolver::BindingRegistry;
-use graph::manifest::{find_solidity_files_for_manifest, Manifest, ManifestEntry};
-use graph::natspec::extract::extract_source_comments;
-use graph::parser::parse_solidity;
-use graph::steps::{CallsHandling, ContractHandling};
-use graph::storage_access::StorageAccessSummary; 
-use graph::parser::get_solidity_language;
+use traverse_graph::reachability::NodeId;
+use traverse_graph::interface_resolver::BindingRegistry;
+use traverse_graph::manifest::{find_solidity_files_for_manifest, Manifest, ManifestEntry};
+use traverse_graph::natspec::extract::extract_source_comments;
+use traverse_graph::parser::parse_solidity;
+use traverse_graph::steps::{CallsHandling, ContractHandling};
+use traverse_graph::storage_access::StorageAccessSummary; 
+use traverse_graph::parser::get_solidity_language;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{stdout, Write};
@@ -37,7 +37,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Initialize logging (default to info level)
-    logging::init_subscriber(false);
+    traverse_logging::init_subscriber(false);
 
     let sol_files = find_solidity_files(&cli.input_paths)?;
     if sol_files.is_empty() {
@@ -107,7 +107,7 @@ fn main() -> Result<()> {
             "[sol-storage-analyzer] Attempting to load manifest from: {}",
             absolute_manifest_path.display()
         );
-        match graph::manifest::load_manifest(&absolute_manifest_path) {
+        match traverse_graph::manifest::load_manifest(&absolute_manifest_path) {
             Ok(loaded_manifest) => {
                 warn!(
                     "[sol-storage-analyzer] Manifest loaded successfully from file with {} entries.",
@@ -231,7 +231,7 @@ fn main() -> Result<()> {
         .add_explicit_return_edges(&input, &ctx)
         .context("Failed to add explicit return edges")?;
 
-    let storage_summary_map = graph::storage_access::analyze_storage_access(&graph);
+    let storage_summary_map = traverse_graph::storage_access::analyze_storage_access(&graph);
 
     let markdown_output = format_storage_summary_to_markdown(&graph, &storage_summary_map);
 

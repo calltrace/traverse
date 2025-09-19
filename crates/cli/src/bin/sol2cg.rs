@@ -1,21 +1,21 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use tracing::warn;
-use graph::cg::{
+use traverse_graph::cg::{
     CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline,
 };
-use graph::cg_dot::CgToDot;
-use graph::cg_mermaid::{MermaidGenerator, ToSequenceDiagram};
-use graph::interface_resolver::BindingRegistry;
-use graph::manifest::{
+use traverse_graph::cg_dot::CgToDot;
+use traverse_graph::cg_mermaid::{MermaidGenerator, ToSequenceDiagram};
+use traverse_graph::interface_resolver::BindingRegistry;
+use traverse_graph::manifest::{
     find_solidity_files_for_manifest, Manifest,
     ManifestEntry,
 }; // Added ManifestEntry
-use graph::natspec::extract::extract_source_comments; // Added
-use graph::parser::parse_solidity;
-use graph::steps::{CallsHandling, ContractHandling};
-use graph::parser::get_solidity_language;
-use mermaid::sequence_diagram_writer;
+use traverse_graph::natspec::extract::extract_source_comments; // Added
+use traverse_graph::parser::parse_solidity;
+use traverse_graph::steps::{CallsHandling, ContractHandling};
+use traverse_graph::parser::get_solidity_language;
+use traverse_mermaid::sequence_diagram_writer;
 use std::collections::HashMap;
 use std::fmt;
 use std::fs;
@@ -138,7 +138,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Initialize logging
-    logging::init_subscriber(false);
+    traverse_logging::init_subscriber(false);
 
     // 1. Find all .sol files
     let sol_files = find_solidity_files(&cli.input_paths)?;
@@ -220,8 +220,8 @@ fn main() -> Result<()> {
             "[sol2cg] Attempting to load manifest from: {}",
             absolute_manifest_path.display()
         );
-        // Use graph::manifest::load_manifest directly
-        match graph::manifest::load_manifest(&absolute_manifest_path) {
+        // Use traverse_graph::manifest::load_manifest directly
+        match traverse_graph::manifest::load_manifest(&absolute_manifest_path) {
             Ok(loaded_manifest) => {
                 warn!(
                     "[sol2cg] Manifest loaded successfully from file with {} entries.",
@@ -416,12 +416,12 @@ fn main() -> Result<()> {
     let call_edges_count = graph
         .edges
         .iter()
-        .filter(|e| e.edge_type == graph::cg::EdgeType::Call)
+        .filter(|e| e.edge_type == traverse_graph::cg::EdgeType::Call)
         .count();
     let return_edges_count = graph
         .edges
         .iter()
-        .filter(|e| e.edge_type == graph::cg::EdgeType::Return)
+        .filter(|e| e.edge_type == traverse_graph::cg::EdgeType::Return)
         .count();
     warn!(
         "[DEBUG sol2cg] Before serialization: Total Edges = {}, Call Edges = {}, Return Edges = {}",
@@ -432,7 +432,7 @@ fn main() -> Result<()> {
     let output_string = match cli.format {
         OutputFormat::Dot => {
             // Create DotExportConfig based on CLI flag
-            let dot_config = graph::cg_dot::DotExportConfig {
+            let dot_config = traverse_graph::cg_dot::DotExportConfig {
                 exclude_isolated_nodes: cli.exclude_isolated_nodes,
             };
             graph.to_dot("Solidity Call Graph", &dot_config) // Pass config

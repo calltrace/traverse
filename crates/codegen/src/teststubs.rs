@@ -5,15 +5,15 @@
 use tracing::debug;
 
 use anyhow::{Context, Result};
-use graph::cg::{CallGraph, CallGraphGeneratorContext, ParameterInfo};
+use traverse_graph::cg::{CallGraph, CallGraphGeneratorContext, ParameterInfo};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf};
 use std::{fs, path::Path};
 
 // Import proper Solidity AST and builders
-use solidity::ast::*;
-use solidity::builder::*;
-use solidity::solidity_writer::write_source_unit;
+use traverse_solidity::ast::*;
+use traverse_solidity::builder::*;
+use traverse_solidity::solidity_writer::write_source_unit;
 
 use crate::deployer_stub;
 use crate::revert_stub;
@@ -22,8 +22,8 @@ use crate::access_control_stub;
 use crate::CodeGenError;
 
 // Re-export for backward compatibility during migration
-pub use solidity::ast::{Expression, Statement, TypeName, Visibility, StateMutability};
-pub use solidity::builder::{SolidityBuilder, ContractBuilder, FunctionBuilder, BlockBuilder};
+pub use traverse_solidity::ast::{Expression, Statement, TypeName, Visibility, StateMutability};
+pub use traverse_solidity::builder::{SolidityBuilder, ContractBuilder, FunctionBuilder, BlockBuilder};
 
 #[derive(Debug, serde::Serialize)]
 pub struct ContractInfo {
@@ -409,7 +409,7 @@ pub(crate) fn extract_contracts_from_graph(
         if let Some(contract_name_str) = &node.contract_name {
             let is_interface_scope = ctx.all_interfaces.contains_key(contract_name_str);
             
-            if node.node_type == graph::cg::NodeType::Interface && &node.name == contract_name_str {
+            if node.node_type == traverse_graph::cg::NodeType::Interface && &node.name == contract_name_str {
                 continue;
             }
 
@@ -423,11 +423,11 @@ pub(crate) fn extract_contracts_from_graph(
                 });
 
             match node.node_type {
-                graph::cg::NodeType::Constructor => {
+                traverse_graph::cg::NodeType::Constructor => {
                     contract_info.has_constructor = true;
                     contract_info.constructor_params = graph.nodes[node.id].parameters.clone();
                 }
-                graph::cg::NodeType::Function => {
+                traverse_graph::cg::NodeType::Function => {
                     if !is_interface_scope {
                         let params = graph.nodes[node.id].parameters.clone();
                         contract_info.functions.push(FunctionInfo {
@@ -536,7 +536,7 @@ pub fn generate_tests_with_foundry(
         if graph
             .nodes
             .iter()
-            .any(|n| n.node_type == graph::cg::NodeType::Interface && n.name == contract_info.name)
+            .any(|n| n.node_type == traverse_graph::cg::NodeType::Interface && n.name == contract_info.name)
         {
             if verbose {
                 debug!("  ⏭️  Skipping interface: {}", contract_info.name);

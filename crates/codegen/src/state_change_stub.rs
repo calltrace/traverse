@@ -10,13 +10,13 @@ use crate::teststubs::{
     SolidityTestContractBuilder,
 };
 use anyhow::Result;
-use graph::cg::{CallGraph, EdgeType, NodeType, ParameterInfo};
-use solidity::ast::*;
-use solidity::builder::*;
+use traverse_graph::cg::{CallGraph, EdgeType, NodeType, ParameterInfo};
+use traverse_solidity::ast::*;
+use traverse_solidity::builder::*;
 
 pub fn generate_state_change_tests_from_cfg(
     graph: &CallGraph,
-    ctx: &graph::cg::CallGraphGeneratorContext,
+    ctx: &traverse_graph::cg::CallGraphGeneratorContext,
     contract_name: &str,
     function_name: &str,
     function_params: &[ParameterInfo],
@@ -56,8 +56,8 @@ fn create_state_change_test_contract(
     contract_name: &str,
     function_name: &str,
     function_params: &[ParameterInfo],
-    var_node: &graph::cg::Node,
-    ctx: &graph::cg::CallGraphGeneratorContext,
+    var_node: &traverse_graph::cg::Node,
+    ctx: &traverse_graph::cg::CallGraphGeneratorContext,
     graph: &CallGraph,
 ) -> Result<SolidityTestContract> {
     let var_name = &var_node.name;
@@ -88,7 +88,7 @@ fn create_state_change_test_contract(
         });
 
     // Determine getter function name
-    let getter_name = if var_node.visibility == graph::cg::Visibility::Public {
+    let getter_name = if var_node.visibility == traverse_graph::cg::Visibility::Public {
         var_name.clone()
     } else {
         format!("get{}", capitalize_first_letter(var_name))
@@ -101,12 +101,12 @@ fn create_state_change_test_contract(
             contract.state_variable(
                 user_type(contract_name),
                 "contractInstance",
-                Some(solidity::ast::Visibility::Private),
+                Some(traverse_solidity::ast::Visibility::Private),
                 None,
             );
 
             contract.function("setUp", |func| {
-                func.visibility(solidity::ast::Visibility::Public)
+                func.visibility(traverse_solidity::ast::Visibility::Public)
                     .body(|body| {
                         // Deploy contract instance - use constructor parameters from context
                         let constructor_args = if let Some(constructor_node) =
@@ -132,7 +132,7 @@ fn create_state_change_test_contract(
             });
 
             contract.function(&test_function_name, |func| {
-                func.visibility(solidity::ast::Visibility::Public)
+                func.visibility(traverse_solidity::ast::Visibility::Public)
                     .body(|body| {
                         // Get initial value
                         let type_name = get_type_name_for_variable(&actual_var_type);
@@ -145,9 +145,9 @@ fn create_state_change_test_contract(
                         });
 
                         // Use variable_declaration_with_location for types that require data location
-                        if solidity::builder::requires_data_location(&type_name) {
+                        if traverse_solidity::builder::requires_data_location(&type_name) {
                             let data_location =
-                                solidity::builder::get_default_data_location(&type_name);
+                                traverse_solidity::builder::get_default_data_location(&type_name);
                             body.variable_declaration_with_location(
                                 type_name,
                                 "initialValue",
@@ -339,7 +339,7 @@ pub fn create_comprehensive_state_change_test_contract(
     contract_info: &ContractInfo,
     function_info: &FunctionInfo,
     graph: &CallGraph,
-    ctx: &graph::cg::CallGraphGeneratorContext,
+    ctx: &traverse_graph::cg::CallGraphGeneratorContext,
 ) -> Result<SolidityTestContract> {
     let test_contracts = generate_state_change_tests_from_cfg(
         graph,

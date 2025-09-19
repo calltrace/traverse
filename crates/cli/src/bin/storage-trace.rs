@@ -1,16 +1,16 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use tracing::warn;
-use graph::cg::{
+use traverse_graph::cg::{
     CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline, Node,
 };
-use graph::interface_resolver::BindingRegistry;
-use graph::manifest::{find_solidity_files_for_manifest, Manifest, ManifestEntry};
-use graph::natspec::extract::extract_source_comments;
-use graph::parser::parse_solidity;
-use graph::reachability::NodeId; 
-use graph::steps::{CallsHandling, ContractHandling};
-use graph::parser::get_solidity_language;
+use traverse_graph::interface_resolver::BindingRegistry;
+use traverse_graph::manifest::{find_solidity_files_for_manifest, Manifest, ManifestEntry};
+use traverse_graph::natspec::extract::extract_source_comments;
+use traverse_graph::parser::parse_solidity;
+use traverse_graph::reachability::NodeId; 
+use traverse_graph::steps::{CallsHandling, ContractHandling};
+use traverse_graph::parser::get_solidity_language;
 use tree_sitter::Node as TsNode; 
 use std::collections::HashMap;
 use std::fs;
@@ -41,7 +41,7 @@ struct Cli {
 
 #[derive(Debug, Clone)]
 struct OrderedStorageAccessInfo {
-    access_type: graph::cg::EdgeType, 
+    access_type: traverse_graph::cg::EdgeType, 
     variable_node_id: NodeId,
     operation_text: String, 
     _operation_span: (usize, usize), 
@@ -82,7 +82,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Initialize logging
-    logging::init_subscriber(false);
+    traverse_logging::init_subscriber(false);
 
     let sol_files = find_sol_files(&cli.input_paths)?;
     if sol_files.is_empty() {
@@ -233,7 +233,7 @@ fn setup_manifest_and_bindings(
             "[storage-trace] Attempting to load manifest from: {}",
             absolute_manifest_path.display()
         );
-        match graph::manifest::load_manifest(&absolute_manifest_path) {
+        match traverse_graph::manifest::load_manifest(&absolute_manifest_path) {
             Ok(loaded_manifest) => {
                 warn!(
                     "[storage-trace] Manifest loaded successfully from file with {} entries.",
@@ -359,7 +359,7 @@ fn find_function_node_id(graph: &CallGraph, full_name: &str) -> Result<NodeId> {
         .find(|node| {
             node.name == function_name
                 && node.contract_name.as_deref() == Some(contract_name)
-                && node.node_type == graph::cg::NodeType::Function
+                && node.node_type == traverse_graph::cg::NodeType::Function
         })
         .map(|node| node.id)
         .ok_or_else(|| anyhow::anyhow!("Function '{}' not found in the call graph.", full_name))
@@ -371,14 +371,14 @@ fn analyze_ordered_storage_access_for_entry_point(
     _ctx: &CallGraphGeneratorContext,
     _input: &CallGraphGeneratorInput,
 ) -> Result<Vec<OrderedStorageAccessInfo>> {
-    let analyzer = graph::reachability::ReachabilityAnalyzer::new();
+    let analyzer = traverse_graph::reachability::ReachabilityAnalyzer::new();
 
     let is_function_like_node = |node: &Node| -> bool {
         matches!(
             node.node_type,
-            graph::cg::NodeType::Function
-                | graph::cg::NodeType::Modifier
-                | graph::cg::NodeType::Constructor
+            traverse_graph::cg::NodeType::Function
+                | traverse_graph::cg::NodeType::Modifier
+                | traverse_graph::cg::NodeType::Constructor
         )
     };
 
@@ -388,9 +388,9 @@ fn analyze_ordered_storage_access_for_entry_point(
             for edge in &current_graph.edges {
                 if edge.source_node_id == func_node.id {
                     if let Some(target_node) = current_graph.nodes.get(edge.target_node_id) {
-                        if target_node.node_type == graph::cg::NodeType::StorageVariable {
+                        if target_node.node_type == traverse_graph::cg::NodeType::StorageVariable {
                             match edge.edge_type {
-                                graph::cg::EdgeType::StorageWrite => {
+                                traverse_graph::cg::EdgeType::StorageWrite => {
                                     let operation_text = _input.source
                                         [edge.call_site_span.0..edge.call_site_span.1]
                                         .to_string();
@@ -401,7 +401,7 @@ fn analyze_ordered_storage_access_for_entry_point(
                                         _operation_span: edge.call_site_span,
                                     });
                                 }
-                                graph::cg::EdgeType::StorageRead => {
+                                traverse_graph::cg::EdgeType::StorageRead => {
                                     let var_node = _input.tree.root_node()
                                         .descendant_for_byte_range(edge.call_site_span.0, edge.call_site_span.1)
                                         .ok_or_else(|| anyhow::anyhow!("Failed to find AST node for variable read at span {:?}", edge.call_site_span)).unwrap();
@@ -664,7 +664,7 @@ fn format_comparison_table_to_markdown(
                 if !func1_ops_str.is_empty() {
                     func1_ops_str.push_str(", ");
                 }
-                let op_char = if acc.access_type == graph::cg::EdgeType::StorageRead {
+                let op_char = if acc.access_type == traverse_graph::cg::EdgeType::StorageRead {
                     "R"
                 } else {
                     "W"
@@ -683,7 +683,7 @@ fn format_comparison_table_to_markdown(
                 if !func2_ops_str.is_empty() {
                     func2_ops_str.push_str(", ");
                 }
-                let op_char = if acc.access_type == graph::cg::EdgeType::StorageRead {
+                let op_char = if acc.access_type == traverse_graph::cg::EdgeType::StorageRead {
                     "R"
                 } else {
                     "W"

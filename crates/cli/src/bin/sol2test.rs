@@ -9,19 +9,19 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use tracing::{info, debug, warn};
-use codegen::generate_tests_with_foundry;
-use graph::cg::{
+use traverse_codegen::generate_tests_with_foundry;
+use traverse_graph::cg::{
     CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline,
 };
-use graph::interface_resolver::BindingRegistry;
-use graph::manifest::{
+use traverse_graph::interface_resolver::BindingRegistry;
+use traverse_graph::manifest::{
     find_solidity_files_for_manifest, Manifest,
     ManifestEntry,
 };
-use graph::natspec::extract::extract_source_comments;
-use graph::parser::parse_solidity;
-use graph::steps::{CallsHandling, ContractHandling};
-use graph::parser::get_solidity_language;
+use traverse_graph::natspec::extract::extract_source_comments;
+use traverse_graph::parser::parse_solidity;
+use traverse_graph::steps::{CallsHandling, ContractHandling};
+use traverse_graph::parser::get_solidity_language;
 use std::collections::HashMap;
 use std::fmt;
 use std::fs;
@@ -70,7 +70,7 @@ enum Sol2TestError {
     NoSolidityFiles,
     IoError(PathBuf, std::io::Error),
     WalkDirError(walkdir::Error),
-    CodeGenError(codegen::CodeGenError),
+    CodeGenError(traverse_codegen::CodeGenError),
     ForgeError(String),
     ConfigError(String),
 }
@@ -129,7 +129,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     
     // Initialize logging
-    logging::init_subscriber(cli.verbose);
+    traverse_logging::init_subscriber(cli.verbose);
 
     debug!(
         mode = if cli.use_foundry { "Native Foundry" } else { "Template-based" },
@@ -216,7 +216,7 @@ fn main() -> Result<()> {
     // First, try to populate from manifest
     if let Some(manifest) = &ctx.manifest {
         for entry in &manifest.entries {
-            if entry.item_kind == graph::natspec::extract::SourceItemKind::Contract {
+            if entry.item_kind == traverse_graph::natspec::extract::SourceItemKind::Contract {
                 if let Some(contract_name) = &entry.item_name {
                     let absolute_path = project_root_for_paths.join(&entry.file_path);
                     original_contract_paths.insert(contract_name.clone(), absolute_path);
@@ -325,7 +325,7 @@ fn setup_manifest_and_bindings(ctx: &mut CallGraphGeneratorContext, cli: &Cli) -
             absolute_manifest_path.display()
         );
 
-        match graph::manifest::load_manifest(&absolute_manifest_path) {
+        match traverse_graph::manifest::load_manifest(&absolute_manifest_path) {
             Ok(loaded_manifest) => {
                 info!(
                     " Manifest loaded successfully with {} entries.",

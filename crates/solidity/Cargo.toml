@@ -1,11 +1,19 @@
 [package]
-name = "solidity"
-version = "0.1.0"
+name = "traverse-solidity"
+version = "0.1.1"
 edition = "2021"
 resolver = "2"
+authors = ["Traverse Contributors"]
+license = "MIT OR Apache-2.0"
+description = "Solidity language parser and AST for code analysis"
+repository = "https://github.com/calltrace/traverse"
+homepage = "https://github.com/calltrace/traverse"
+documentation = "https://docs.rs/traverse-solidity"
+keywords = ["solidity", "ethereum", "parser", "ast"]
+categories = ["development-tools", "parser-implementations"]
 
 [lib]
-name = "solidity"
+name = "traverse_solidity"
 path = "src/lib.rs"
 
 [dependencies]

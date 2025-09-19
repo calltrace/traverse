@@ -1,7 +1,7 @@
 use crate::teststubs::ContractInfo;
 use anyhow::Result;
-use solidity::ast::*;
-use solidity::builder::*;
+use traverse_solidity::ast::*;
+use traverse_solidity::builder::*;
 
 pub fn generate_foundry_deployer_test_contract(contract_info: &ContractInfo) -> Result<SourceUnit> {
     let mut builder = SolidityBuilder::new();
@@ -24,9 +24,9 @@ pub fn generate_foundry_deployer_test_contract(contract_info: &ContractInfo) -> 
                             let default_value = generate_default_value(&param.param_type);
 
                             // Use variable_declaration_with_location for types that require data location
-                            if solidity::builder::requires_data_location(&type_name) {
+                            if traverse_solidity::builder::requires_data_location(&type_name) {
                                 let data_location =
-                                    solidity::builder::get_default_data_location(&type_name);
+                                    traverse_solidity::builder::get_default_data_location(&type_name);
                                 body.variable_declaration_with_location(
                                     type_name,
                                     var_name,

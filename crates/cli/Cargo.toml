@@ -1,8 +1,16 @@
 [package]
-name = "cli"
-version = "0.1.0"
+name = "traverse-cli"
+version = "0.1.1"
 edition = "2021"
 resolver = "2"
+authors = ["Traverse Contributors"]
+license = "MIT OR Apache-2.0"
+description = "Command-line tools for Solidity code analysis, visualization, and test generation"
+repository = "https://github.com/calltrace/traverse"
+homepage = "https://github.com/calltrace/traverse"
+documentation = "https://github.com/calltrace/traverse#readme"
+keywords = ["solidity", "ethereum", "analysis", "testing", "cli"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "sol-storage-analyzer"
@@ -27,10 +35,10 @@ path = "src/bin/sol2test.rs"
 [dependencies]
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-logging = { path = "../logging" }
-mermaid = { path = "../mermaid" }
-graph = { path = "../graph" }
-codegen = { path = "../codegen" }
+traverse-logging = { version = "0.1.1", path = "../logging" }
+traverse-mermaid = { version = "0.1.1", path = "../mermaid" }
+traverse-graph = { version = "0.1.1", path = "../graph" }
+traverse-codegen = { version = "0.1.1", path = "../codegen" }
 proc-macro2 = "1.0.92"
 quote = "1.0.37"
 syn = { version = "2.0.90", features = ["full"] }

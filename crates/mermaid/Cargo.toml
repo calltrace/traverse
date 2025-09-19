@@ -1,10 +1,16 @@
 [package]
-name = "mermaid"
-version = "0.1.0"
+name = "traverse-mermaid"
+version = "0.1.1"
 edition = "2021"
 resolver = "2"
-
-# add lib target with source code in src/lib.rs
+authors = ["Traverse Contributors"]
+license = "MIT OR Apache-2.0"
+description = "Mermaid diagram generation for Solidity code visualization"
+repository = "https://github.com/calltrace/traverse"
+homepage = "https://github.com/calltrace/traverse"
+documentation = "https://docs.rs/traverse-mermaid"
+keywords = ["mermaid", "visualization", "diagram", "solidity"]
+categories = ["development-tools", "visualization"]
 
 [lib]
 path = "src/lib.rs"

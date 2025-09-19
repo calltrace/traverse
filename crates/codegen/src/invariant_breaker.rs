@@ -32,8 +32,8 @@ use tracing::debug;
 
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use solidity::ast::*;
-use solidity::{
+use traverse_solidity::ast::*;
+use traverse_solidity::{
     format_value_for_expression, parse_expression, write_expression_to_string, SolidityInterpreter,
     Value,
 };
