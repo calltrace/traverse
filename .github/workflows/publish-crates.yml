@@ -1,0 +1,93 @@
+# .github/workflows/publish-crates.yml
+name: Publish to Crates.io
+
+on:
+  # Only manual trigger for now (remove this comment when enabling automatic)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (check only, no publish)'
+        type: boolean
+        default: true
+  
+  # Uncomment below to enable automatic triggering on tags
+  # push:
+  #   tags:
+  #     - 'v[0-9]+.*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Get version to publish
+        run: |
+          # For manual trigger, use version from CLI Cargo.toml
+          VERSION=$(grep "^version" crates/cli/Cargo.toml | head -1 | cut -d'"' -f2)
+          echo "Publishing version $VERSION"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+      
+      - name: Dry run check
+        if: github.event.inputs.dry_run == 'true'
+        run: |
+          echo "🔍 DRY RUN MODE - No packages will be published"
+          echo "Would publish version $VERSION"
+          cargo publish -p traverse-logging --dry-run
+          
+      - name: Publish crates
+        if: github.event.inputs.dry_run != 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: |
+          set -e
+          
+          echo "📦 Publishing version $VERSION to crates.io"
+          
+          # Publish in dependency order with retries
+          publish_with_retry() {
+            local crate=$1
+            echo "Publishing $crate..."
+            
+            for i in {1..3}; do
+              if cargo publish -p "$crate" --no-verify 2>&1 | tee /tmp/publish.log; then
+                echo "✓ Published $crate"
+                return 0
+              elif grep -q "already uploaded" /tmp/publish.log; then
+                echo "✓ $crate already published"
+                return 0
+              elif grep -q "rate limit" /tmp/publish.log; then
+                echo "Rate limited, waiting 5 minutes..."
+                sleep 300
+              else
+                echo "Attempt $i failed, retrying in 30s..."
+                sleep 30
+              fi
+            done
+            
+            echo "Failed to publish $crate after 3 attempts"
+            return 1
+          }
+          
+          # Publish each crate
+          publish_with_retry "traverse-logging"
+          sleep 30
+          
+          publish_with_retry "traverse-solidity"
+          sleep 30
+          
+          publish_with_retry "traverse-mermaid"
+          sleep 30
+          
+          publish_with_retry "traverse-graph"
+          sleep 30
+          
+          publish_with_retry "traverse-codegen"
+          sleep 30
+          
+          publish_with_retry "traverse-cli"
+          
+          echo "✅ All crates published successfully!"
