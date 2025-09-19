@@ -98,11 +98,11 @@ jobs:
           fi
           
           # Build all binaries
-          cargo build --verbose --release --target ${{ matrix.target }} --package cli --bin sol-storage-analyzer
-          cargo build --verbose --release --target ${{ matrix.target }} --package cli --bin storage-trace
-          cargo build --verbose --release --target ${{ matrix.target }} --package cli --bin sol2cg
-          cargo build --verbose --release --target ${{ matrix.target }} --package cli --bin sol2bnd
-          cargo build --verbose --release --target ${{ matrix.target }} --package cli --bin sol2test
+          cargo build --verbose --release --target ${{ matrix.target }} --package traverse-cli --bin sol-storage-analyzer
+          cargo build --verbose --release --target ${{ matrix.target }} --package traverse-cli --bin storage-trace
+          cargo build --verbose --release --target ${{ matrix.target }} --package traverse-cli --bin sol2cg
+          cargo build --verbose --release --target ${{ matrix.target }} --package traverse-cli --bin sol2bnd
+          cargo build --verbose --release --target ${{ matrix.target }} --package traverse-cli --bin sol2test
 
       - name: Check dynamic dependencies (macOS only)
         if: matrix.os == 'macos-latest' || matrix.os == 'macos-14'

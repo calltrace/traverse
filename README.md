@@ -1000,11 +1000,11 @@ The following crates are available on crates.io:
 
 ```toml
 [dependencies]
-traverse-graph = "0.1.1"      # Call graph generation and analysis
-traverse-codegen = "0.1.1"    # Test generation and code synthesis
-traverse-solidity = "0.1.1"   # Solidity parser and AST
-traverse-mermaid = "0.1.1"    # Mermaid diagram generation
-traverse-logging = "0.1.1"    # Logging utilities
+traverse-graph = "0.1.2"      # Call graph generation and analysis
+traverse-codegen = "0.1.2"    # Test generation and code synthesis
+traverse-solidity = "0.1.2"   # Solidity parser and AST
+traverse-mermaid = "0.1.2"    # Mermaid diagram generation
+traverse-logging = "0.1.2"    # Logging utilities
 ```
 
 ### Example: Building a Custom Analysis Tool
