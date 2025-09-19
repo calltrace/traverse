@@ -1,6 +1,6 @@
 [package]
 name = "traverse-cli"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 resolver = "2"
 authors = ["Traverse Contributors"]
@@ -35,10 +35,10 @@ path = "src/bin/sol2test.rs"
 [dependencies]
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-traverse-logging = { version = "0.1.1", path = "../logging" }
-traverse-mermaid = { version = "0.1.1", path = "../mermaid" }
-traverse-graph = { version = "0.1.1", path = "../graph" }
-traverse-codegen = { version = "0.1.1", path = "../codegen" }
+traverse-logging = { version = "0.1.2", path = "../logging" }
+traverse-mermaid = { version = "0.1.2", path = "../mermaid" }
+traverse-graph = { version = "0.1.2", path = "../graph" }
+traverse-codegen = { version = "0.1.2", path = "../codegen" }
 proc-macro2 = "1.0.92"
 quote = "1.0.37"
 syn = { version = "2.0.90", features = ["full"] }
