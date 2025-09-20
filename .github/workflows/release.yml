@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*' # Trigger on version tags like v0.1.0
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.1.2)'
+        required: true
+        type: string
 
 permissions:
   contents: write # Needed to create releases
@@ -20,12 +26,12 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+          name: Release ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
           draft: false
           prerelease: false
           body: |
-            ## Traverse Tools ${{ github.ref_name }}
+            ## Traverse Tools ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
             
             This release includes the following tools:
             - `sol-storage-analyzer` - Analyze Solidity storage layouts
@@ -380,7 +386,9 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=ref,event=tag
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.event_name != 'workflow_dispatch' }}
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Build and push all-in-one Docker image
         uses: docker/build-push-action@v5
@@ -403,7 +411,7 @@ jobs:
           push: true
           target: sol2cg
           tags: |
-            ghcr.io/${{ github.repository }}/sol2cg:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}/sol2cg:${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
             ghcr.io/${{ github.repository }}/sol2cg:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -416,7 +424,7 @@ jobs:
           push: true
           target: sol2test
           tags: |
-            ghcr.io/${{ github.repository }}/sol2test:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}/sol2test:${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
             ghcr.io/${{ github.repository }}/sol2test:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -429,7 +437,7 @@ jobs:
           push: true
           target: sol2bnd
           tags: |
-            ghcr.io/${{ github.repository }}/sol2bnd:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}/sol2bnd:${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
             ghcr.io/${{ github.repository }}/sol2bnd:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -442,7 +450,7 @@ jobs:
           push: true
           target: storage-trace
           tags: |
-            ghcr.io/${{ github.repository }}/storage-trace:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}/storage-trace:${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
             ghcr.io/${{ github.repository }}/storage-trace:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -455,7 +463,7 @@ jobs:
           push: true
           target: sol-storage-analyzer
           tags: |
-            ghcr.io/${{ github.repository }}/sol-storage-analyzer:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}/sol-storage-analyzer:${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
             ghcr.io/${{ github.repository }}/sol-storage-analyzer:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
