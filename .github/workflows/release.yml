@@ -249,12 +249,24 @@ jobs:
             7z a traverse-tools-${{ matrix.asset_name_suffix }}.zip *
             cd ..
           else
+            # Copy individual binaries with suffix for individual downloads
             for binary in sol-storage-analyzer storage-trace sol2cg sol2bnd sol2test; do
               cp ./target/${{ matrix.target }}/release/$binary dist/${binary}-${{ matrix.asset_name_suffix }}
             done
-            # Create a tar.gz archive for Unix systems
+            
+            # Also create Homebrew tarball with just the binary names (no suffix)
+            mkdir -p dist/homebrew-temp
+            for binary in sol-storage-analyzer storage-trace sol2cg sol2bnd sol2test; do
+              cp ./target/${{ matrix.target }}/release/$binary dist/homebrew-temp/$binary
+            done
+            cd dist/homebrew-temp
+            tar czf ../traverse-${{ matrix.asset_name_suffix }}.tar.gz *
+            cd ../..
+            rm -rf dist/homebrew-temp
+            
+            # Create a tar.gz archive for all tools (backward compatibility)
             cd dist
-            tar czf traverse-tools-${{ matrix.asset_name_suffix }}.tar.gz *
+            tar czf traverse-tools-${{ matrix.asset_name_suffix }}.tar.gz *${matrix.asset_name_suffix}
             cd ..
           fi
 
@@ -307,6 +319,17 @@ jobs:
           asset_path: ./dist/sol2test-${{ matrix.asset_name_suffix }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
           asset_name: sol2test-${{ matrix.asset_name_suffix }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
           asset_content_type: application/octet-stream
+
+      - name: Upload Homebrew tarball (Unix)
+        if: matrix.os != 'windows-latest'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          asset_path: ./dist/traverse-${{ matrix.asset_name_suffix }}.tar.gz
+          asset_name: traverse-${{ matrix.asset_name_suffix }}.tar.gz
+          asset_content_type: application/gzip
 
       - name: Upload archive (Unix)
         if: matrix.os != 'windows-latest'
