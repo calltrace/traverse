@@ -1,6 +1,6 @@
 [package]
 name = "traverse-graph"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 resolver = "2"
 authors = ["Traverse Contributors"]
@@ -14,7 +14,7 @@ keywords = ["solidity", "call-graph", "ethereum", "analysis"]
 categories = ["development-tools", "visualization"]
 
 [dependencies]
-traverse-mermaid = { version = "0.1.2", path = "../mermaid" }
+traverse-mermaid = { version = "0.1.3", path = "../mermaid" }
 tracing = { workspace = true }
 anyhow = "1.0.97"
 clap = "4.5.35"
