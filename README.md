@@ -52,7 +52,18 @@ dot -Tpng callgraph.dot -o callgraph.png
 
 ## Installation
 
-Download pre-built binaries for your platform:
+### Install via Homebrew (macOS/Linux)
+
+```bash
+brew tap calltrace/tap
+brew install traverse
+```
+
+This installs all traverse tools: `sol2cg`, `sol2test`, `sol-storage-analyzer`, `storage-trace`, and `sol2bnd`.
+
+### Download Individual Binaries
+
+You can also download pre-built binaries for your platform:
 
 #### sol2cg - Call Graph Generator
 
