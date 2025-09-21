@@ -8,6 +8,7 @@ description = "Logging utilities for Traverse Solidity analysis tools"
 repository = "https://github.com/calltrace/traverse"
 homepage = "https://github.com/calltrace/traverse"
 documentation = "https://docs.rs/traverse-logging"
+readme = "README.md"
 keywords = ["logging", "tracing", "solidity"]
 categories = ["development-tools"]
 

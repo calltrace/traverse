@@ -9,6 +9,7 @@ description = "Mermaid diagram generation for Solidity code visualization"
 repository = "https://github.com/calltrace/traverse"
 homepage = "https://github.com/calltrace/traverse"
 documentation = "https://docs.rs/traverse-mermaid"
+readme = "README.md"
 keywords = ["mermaid", "visualization", "diagram", "solidity"]
 categories = ["development-tools", "visualization"]
 

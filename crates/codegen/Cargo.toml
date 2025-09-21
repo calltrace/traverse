@@ -9,6 +9,7 @@ description = "Code generation utilities for Solidity test generation and analys
 repository = "https://github.com/calltrace/traverse"
 homepage = "https://github.com/calltrace/traverse"
 documentation = "https://docs.rs/traverse-codegen"
+readme = "README.md"
 keywords = ["solidity", "codegen", "testing", "ethereum"]
 categories = ["development-tools"]
 

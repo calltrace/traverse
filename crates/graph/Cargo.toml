@@ -9,6 +9,7 @@ description = "Call graph analysis and visualization for Solidity smart contract
 repository = "https://github.com/calltrace/traverse"
 homepage = "https://github.com/calltrace/traverse"
 documentation = "https://docs.rs/traverse-graph"
+readme = "README.md"
 keywords = ["solidity", "call-graph", "ethereum", "analysis"]
 categories = ["development-tools", "visualization"]
 

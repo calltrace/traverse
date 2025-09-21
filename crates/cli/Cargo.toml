@@ -9,6 +9,7 @@ description = "Command-line tools for Solidity code analysis, visualization, and
 repository = "https://github.com/calltrace/traverse"
 homepage = "https://github.com/calltrace/traverse"
 documentation = "https://github.com/calltrace/traverse#readme"
+readme = "README.md"
 keywords = ["solidity", "ethereum", "analysis", "testing", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 
