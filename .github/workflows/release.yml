@@ -467,3 +467,41 @@ jobs:
             ghcr.io/${{ github.repository }}/sol-storage-analyzer:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  trigger-homebrew-update:
+    name: Trigger Homebrew Formula Update
+    needs: [build_binaries]
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: Wait for release assets to be available
+        run: |
+          echo "Waiting 30 seconds for release assets to be fully available..."
+          sleep 30
+          
+      - name: Trigger homebrew-tap formula update
+        run: |
+          VERSION="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}"
+          echo "Triggering formula update for version $VERSION"
+          
+          # Make the repository dispatch request
+          response=$(curl -s -w "\n%{http_code}" -X POST \
+            -H "Authorization: token ${{ secrets.TAP_UPDATE_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json" \
+            https://api.github.com/repos/calltrace/homebrew-tap/dispatches \
+            -d "{\"event_type\":\"traverse-release\",\"client_payload\":{\"version\":\"${VERSION}\"}}")
+          
+          # Extract status code
+          status_code=$(echo "$response" | tail -n 1)
+          body=$(echo "$response" | head -n -1)
+          
+          if [ "$status_code" = "204" ]; then
+            echo "✓ Formula update triggered successfully"
+          else
+            echo "Failed to trigger formula update"
+            echo "Status code: $status_code"
+            echo "Response: $body"
+            echo "Note: This won't fail the release. You can manually trigger the update at:"
+            echo "https://github.com/calltrace/homebrew-tap/actions/workflows/update-formula.yml"
+          fi
