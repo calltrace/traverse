@@ -272,7 +272,7 @@ jobs:
             
             # Create a tar.gz archive for all tools (backward compatibility)
             cd dist
-            tar czf traverse-tools-${{ matrix.asset_name_suffix }}.tar.gz *${matrix.asset_name_suffix}
+            tar czf traverse-tools-${{ matrix.asset_name_suffix }}.tar.gz *-${{ matrix.asset_name_suffix }}
             cd ..
           fi
 
