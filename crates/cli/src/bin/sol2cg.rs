@@ -5,6 +5,7 @@ use traverse_graph::cg::{
     CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline,
 };
 use traverse_graph::cg_dot::CgToDot;
+use traverse_graph::cg_json::CgToJson;
 use traverse_graph::cg_mermaid::{MermaidGenerator, ToSequenceDiagram};
 use traverse_graph::interface_resolver::BindingRegistry;
 use traverse_graph::manifest::{
@@ -52,9 +53,17 @@ struct Cli {
     #[arg(long)]
     config: Option<String>,
 
-    /// [DOT format only] Exclude nodes that have no incoming or outgoing edges.
-    #[arg(long, requires_if("dot", "format"))] // Only relevant for DOT format
+    /// [DOT/JSON format only] Exclude nodes that have no incoming or outgoing edges.
+    #[arg(long)] // Relevant for DOT and JSON formats
     exclude_isolated_nodes: bool,
+
+    /// [JSON format only] Pretty print the JSON output with indentation.
+    #[arg(long, action = clap::ArgAction::Set, default_value_t = true)]
+    pretty: bool,
+
+    /// [JSON format only] Include metadata in the JSON output.
+    #[arg(long, action = clap::ArgAction::Set, default_value_t = true)]
+    include_metadata: bool,
 
     /// Optional path to the binding.yaml file for interface resolution.
     #[arg(long)]
@@ -74,6 +83,7 @@ fn _format_dot() -> OutputFormat {
 enum OutputFormat {
     Dot,
     Mermaid,
+    Json,
 }
 
 impl std::fmt::Display for OutputFormat {
@@ -81,6 +91,7 @@ impl std::fmt::Display for OutputFormat {
         match self {
             OutputFormat::Dot => write!(f, "dot"),
             OutputFormat::Mermaid => write!(f, "mermaid"),
+            OutputFormat::Json => write!(f, "json"),
         }
     }
 }
@@ -446,6 +457,15 @@ fn main() -> Result<()> {
             let sequence_diagram = generator.to_sequence_diagram(&graph);
             // Use the write_diagram function directly
             sequence_diagram_writer::write_diagram(&sequence_diagram)
+        }
+        OutputFormat::Json => {
+            // Create JsonExportConfig based on CLI flags
+            let json_config = traverse_graph::cg_json::JsonExportConfig {
+                exclude_isolated_nodes: cli.exclude_isolated_nodes,
+                pretty_print: cli.pretty,
+                include_metadata: cli.include_metadata,
+            };
+            graph.to_json("Solidity Call Graph", &json_config)
         }
     };
 

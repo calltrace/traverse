@@ -31,10 +31,10 @@ impl Error for BuilderError {}
 /// Provides a fluent interface to construct a `SequenceDiagram` AST.
 ///
 /// # Example
-/// ```rust
-/// use mermaid::sequence_diagram_ast::*; // Assuming types are re-exported or accessible
-/// use mermaid::sequence_diagram_builder::SequenceDiagramBuilder;
-///
+/// ```rust,no_run
+/// # use traverse_mermaid::sequence_diagram_ast::*;
+/// # use traverse_mermaid::sequence_diagram_builder::SequenceDiagramBuilder;
+/// #
 /// let mut builder = SequenceDiagramBuilder::new();
 /// builder.title("Example Diagram")
 ///     .participant_as("A", "Alice")

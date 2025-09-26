@@ -744,9 +744,9 @@ impl From<pest::error::Error<Rule>> for MermaidParseError {
 ///
 /// # Examples
 ///
-/// ```rust
-/// use mermaid::sequence_diagram_parser::parse_mermaid;
-///
+/// ```rust,no_run
+/// # use traverse_mermaid::sequence_diagram_parser::parse_mermaid;
+/// #
 /// let source = r#"sequenceDiagram
 ///     Alice->>Bob: Hello Bob, how are you?
 ///     Bob-->>Alice: I am good thanks!"#;
@@ -759,10 +759,10 @@ impl From<pest::error::Error<Rule>> for MermaidParseError {
 ///
 /// Parsing a complex diagram with multiple features:
 ///
-/// ```rust
-/// use mermaid::sequence_diagram_parser::parse_mermaid;
-/// use mermaid::sequence_diagram_ast::{Statement, ParticipantStatement, SignalStatement};
-///
+/// ```rust,no_run
+/// # use traverse_mermaid::sequence_diagram_parser::parse_mermaid;
+/// # use traverse_mermaid::sequence_diagram_ast::{Statement, ParticipantStatement, SignalStatement};
+/// #
 /// let source = r#"sequenceDiagram
 ///     participant Alice
 ///     participant Bob

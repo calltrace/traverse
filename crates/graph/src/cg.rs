@@ -20,7 +20,7 @@ pub(crate) const WHILE_BLOCK_NODE_NAME: &str = "WhileBlock"; // Added for while 
 pub(crate) const FOR_CONDITION_NODE_NAME: &str = "ForCondition"; // Added for for statements
 pub(crate) const FOR_BLOCK_NODE_NAME: &str = "ForBlock"; // Added for for blocks
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub enum EdgeType {
     Call,
     Return,
@@ -36,7 +36,7 @@ pub enum EdgeType {
     ForBodyBranch, // Represents the edge from a for-condition to its body
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub enum NodeType {
     Function,
     Interface,
@@ -56,7 +56,7 @@ pub enum NodeType {
     ForBlock,     // Synthetic node for a for block
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub enum Visibility {
     Public,
     Private,
@@ -65,7 +65,7 @@ pub enum Visibility {
     Default,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Node {
     pub id: usize,
     pub name: String,
@@ -114,7 +114,7 @@ impl crate::cg_dot::ToDotLabel for Node {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Edge {
     pub source_node_id: usize,
     pub target_node_id: usize,
