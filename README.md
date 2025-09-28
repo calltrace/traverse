@@ -1,6 +1,6 @@
-# Traverse: A Suite of Solidity Analysis Tools
+# Traverse: Solidity Analysis Tools
 
-Traverse is a comprehensive collection of command-line tools for analyzing, visualizing, and testing Solidity smart contracts. Built with Rust and powered by tree-sitter parsing, these tools help developers understand complex contract interactions, generate test suites, analyze storage patterns, and more.
+Analyze, visualize, and test Solidity smart contracts. Built with Rust and tree-sitter parsing.
 
 > 📖 **For architectural details and design principles, see [DESIGN.md](DESIGN.md)**
 
@@ -26,8 +26,6 @@ Traverse is a comprehensive collection of command-line tools for analyzing, visu
 - [License](#license)
 
 ## Quick Start
-
-Get started quickly with the most common use case - generating a call graph from your Solidity contracts:
 
 ```bash
 # Download sol2cg (choose your platform)
@@ -61,104 +59,22 @@ brew install traverse
 
 This installs all traverse tools: `sol2cg`, `sol2test`, `sol-storage-analyzer`, `storage-trace`, and `sol2bnd`.
 
-### Download Individual Binaries
+### Download Binaries
 
-You can also download pre-built binaries for your platform:
-
-#### sol2cg - Call Graph Generator
+Get pre-built binaries from the [releases page](https://github.com/calltrace/traverse/releases/latest) or use curl:
 
 ```bash
-# macOS Intel
-curl -sSfL -o /usr/local/bin/sol2cg https://github.com/calltrace/traverse/releases/latest/download/sol2cg-macos-amd64
+# Example: Download sol2cg on macOS Apple Silicon
+curl -sSfL -o /usr/local/bin/sol2cg \
+  https://github.com/calltrace/traverse/releases/latest/download/sol2cg-macos-arm64
 chmod +x /usr/local/bin/sol2cg
-
-# macOS Apple Silicon
-curl -sSfL -o /usr/local/bin/sol2cg https://github.com/calltrace/traverse/releases/latest/download/sol2cg-macos-arm64
-chmod +x /usr/local/bin/sol2cg
-
-# Linux x86_64
-curl -sSfL -o /usr/local/bin/sol2cg https://github.com/calltrace/traverse/releases/latest/download/sol2cg-linux-amd64
-chmod +x /usr/local/bin/sol2cg
-
-# Windows PowerShell
-Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol2cg-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\Microsoft\WindowsApps\sol2cg.exe"
 ```
 
-#### sol2test - Test Generator
-
-```bash
-# macOS Intel
-curl -sSfL -o /usr/local/bin/sol2test https://github.com/calltrace/traverse/releases/latest/download/sol2test-macos-amd64
-chmod +x /usr/local/bin/sol2test
-
-# macOS Apple Silicon
-curl -sSfL -o /usr/local/bin/sol2test https://github.com/calltrace/traverse/releases/latest/download/sol2test-macos-arm64
-chmod +x /usr/local/bin/sol2test
-
-# Linux x86_64
-curl -sSfL -o /usr/local/bin/sol2test https://github.com/calltrace/traverse/releases/latest/download/sol2test-linux-amd64
-chmod +x /usr/local/bin/sol2test
-
-# Windows PowerShell
-Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol2test-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\Microsoft\WindowsApps\sol2test.exe"
-```
-
-#### sol-storage-analyzer - Storage Analyzer
-
-```bash
-# macOS Intel
-curl -sSfL -o /usr/local/bin/sol-storage-analyzer https://github.com/calltrace/traverse/releases/latest/download/sol-storage-analyzer-macos-amd64
-chmod +x /usr/local/bin/sol-storage-analyzer
-
-# macOS Apple Silicon
-curl -sSfL -o /usr/local/bin/sol-storage-analyzer https://github.com/calltrace/traverse/releases/latest/download/sol-storage-analyzer-macos-arm64
-chmod +x /usr/local/bin/sol-storage-analyzer
-
-# Linux x86_64
-curl -sSfL -o /usr/local/bin/sol-storage-analyzer https://github.com/calltrace/traverse/releases/latest/download/sol-storage-analyzer-linux-amd64
-chmod +x /usr/local/bin/sol-storage-analyzer
-
-# Windows PowerShell
-Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol-storage-analyzer-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\Microsoft\WindowsApps\sol-storage-analyzer.exe"
-```
-
-#### storage-trace - Storage Trace Comparator
-
-```bash
-# macOS Intel
-curl -sSfL -o /usr/local/bin/storage-trace https://github.com/calltrace/traverse/releases/latest/download/storage-trace-macos-amd64
-chmod +x /usr/local/bin/storage-trace
-
-# macOS Apple Silicon
-curl -sSfL -o /usr/local/bin/storage-trace https://github.com/calltrace/traverse/releases/latest/download/storage-trace-macos-arm64
-chmod +x /usr/local/bin/storage-trace
-
-# Linux x86_64
-curl -sSfL -o /usr/local/bin/storage-trace https://github.com/calltrace/traverse/releases/latest/download/storage-trace-linux-amd64
-chmod +x /usr/local/bin/storage-trace
-
-# Windows PowerShell
-Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/storage-trace-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\Microsoft\WindowsApps\storage-trace.exe"
-```
-
-#### sol2bnd - Binding Generator
-
-```bash
-# macOS Intel
-curl -sSfL -o /usr/local/bin/sol2bnd https://github.com/calltrace/traverse/releases/latest/download/sol2bnd-macos-amd64
-chmod +x /usr/local/bin/sol2bnd
-
-# macOS Apple Silicon
-curl -sSfL -o /usr/local/bin/sol2bnd https://github.com/calltrace/traverse/releases/latest/download/sol2bnd-macos-arm64
-chmod +x /usr/local/bin/sol2bnd
-
-# Linux x86_64
-curl -sSfL -o /usr/local/bin/sol2bnd https://github.com/calltrace/traverse/releases/latest/download/sol2bnd-linux-amd64
-chmod +x /usr/local/bin/sol2bnd
-
-# Windows PowerShell
-Invoke-WebRequest -Uri "https://github.com/calltrace/traverse/releases/latest/download/sol2bnd-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\Microsoft\WindowsApps\sol2bnd.exe"
-```
+Replace `sol2cg` with any tool name and choose your platform:
+- `macos-amd64` (Intel Mac)
+- `macos-arm64` (Apple Silicon)
+- `linux-amd64` (Linux x86_64)
+- `windows-amd64.exe` (Windows)
 
 ### Docker
 
@@ -193,7 +109,7 @@ cargo install traverse-cli
 # - storage-trace: Storage operation tracer
 ```
 
-> **Note**: The `traverse-cli` package will be available after the crates.io rate limit expires (Sept 19, 2025). In the meantime, you can build from source below.
+The `traverse-cli` package will be available after Sept 19, 2025 (crates.io rate limit). Build from source meanwhile.
 
 ### Build from Source
 
@@ -229,29 +145,9 @@ cargo install --path crates/cli
 | `storage-trace` | Compare storage traces between functions | Finding storage access differences |
 | `sol2bnd` | Generate binding configuration files | Creating interface bindings from Natspec |
 
-## Tool: sol2cg - Call Graph & Sequence Diagram Generator
+## sol2cg - Call Graph Generator
 
-`sol2cg` is a command-line tool that analyzes Solidity source code files or projects and generates visual representations of their internal call structures. It can produce:
-
-1. **Call Graphs:** In the standard DOT format, suitable for visualization with Graphviz.
-2. **Sequence Diagrams:** In MermaidJS syntax, illustrating the interaction flow between contracts and functions based on public/external entry points.
-
-### Purpose
-
-The primary goal of `sol2cg` is to help developers understand the control flow within Solidity contracts and across multiple contracts in a project. By visualizing function calls and returns, it aids in:
-
-* Debugging complex interactions
-* Auditing code for potential issues like reentrancy or unexpected call patterns
-* Documenting the architecture of a smart contract system
-* Onboarding new developers to an existing codebase
-
-### Features
-
-* **Tree-sitter Powered:** Leverages the robust `tree-sitter` parsing library and its query language for accurate and efficient analysis of Solidity code structure
-* **Strongly-Typed Approach:** Operates on a structured representation of the code (Abstract Syntax Tree and derived Call Graph), ensuring more reliable analysis compared to simple text-based methods
-* **Configurable Pipeline Architecture:** Uses a modular pipeline with individually configurable and toggleable steps for flexible analysis
-* **Multiple Output Formats:** Supports both DOT (for detailed graph visualization) and MermaidJS (for clear sequence diagrams)
-* **Handles Files and Directories:** Can process individual `.sol` files or entire directories containing Solidity code
+Visualize function calls and contract interactions as graphs (DOT) or sequence diagrams (Mermaid). Analyzes complete projects in ~500ms.
 
 ### Usage
 
@@ -259,24 +155,23 @@ The primary goal of `sol2cg` is to help developers understand the control flow w
 sol2cg [OPTIONS] <INPUT_PATHS>...
 ```
 
-### Arguments & Options
-
-**Arguments:**
-* `<INPUT_PATHS>...`: One or more paths to input Solidity files (`.sol`) or directories containing them
-
-**Options:**
+### Options
 * `-o, --output-file <OUTPUT_FILE>`: Output file path. If not specified, output goes to stdout
 * `-f, --format <FORMAT>`: Output format [default: dot] [possible values: dot, mermaid]
 * `--disable-steps <DISABLE_STEPS>`: Disable specific pipeline steps (comma-separated list). Available steps: Contract-Handling, Calls-Handling
 * `--enable-steps <ENABLE_STEPS>`: Enable specific pipeline steps (comma-separated list)
 * `--config <CONFIG>`: Configuration parameters for pipeline steps (format: key=value,key2=value2)
 * `--exclude-isolated-nodes`: [DOT format only] Exclude nodes that have no incoming or outgoing edges
+* `--no-chunk`: [Mermaid format only] Disable automatic chunking of large diagrams
+* `--chunk-dir <CHUNK_DIR>`: [Mermaid format only] Directory for chunked output (default: ./mermaid-chunks/)
 * `--bindings <BINDINGS>`: Optional path to the binding.yaml file for interface resolution
 * `--manifest-file <MANIFEST_FILE>`: Optional path to a pre-generated manifest.yaml file
 * `-h, --help`: Print help information
 * `-V, --version`: Print version information
 
 ### Examples
+
+See the [Smart Invoice Example](examples/smart-invoice/) for a complete real-world analysis of a production DeFi application.
 
 ```bash
 # Generate DOT graph from a single file to stdout
@@ -300,25 +195,14 @@ sol2cg --exclude-isolated-nodes -o clean_graph.dot ./contracts/
 
 ### Output Formats
 
-* **DOT (.gv, .dot):** A text-based graph description language. Use tools like Graphviz (`dot` command-line tool) or online viewers (e.g., viz-js.com, Edotor) to render the `.dot` file into an image (SVG, PNG, etc.)
-* **Mermaid (.mmd):** A Markdown-inspired syntax for generating diagrams. Paste the content into tools that support Mermaid (e.g., GitHub Markdown, GitLab, mermaid.live)
+* **DOT**: For Graphviz visualization (`dot -Tsvg graph.dot -o graph.svg`)
+* **Mermaid**: Works in GitHub/GitLab markdown, automatically chunks large diagrams
 
-## Tool: sol2test - Foundry Test Generator
+## sol2test - Foundry Test Generator
 
-`sol2test` automatically generates comprehensive test suites for Solidity smart contracts with native Foundry integration.
+Generates Foundry test suites from your contracts. Creates deployment scripts, setup functions, and test stubs for all public/external functions.
 
-### Purpose
-
-`sol2test` analyzes your Solidity contracts and automatically generates test stubs compatible with Foundry's testing framework. It helps developers:
-
-* Quickly bootstrap comprehensive test coverage
-* Generate deployment and setup functions
-* Create test templates for all public/external functions
-* Integrate with existing Foundry projects
-
-### Prerequisites
-
-* **Foundry**: Required for test generation and compilation validation. sol2test generates Foundry-compatible tests only.
+**Requires**: Foundry installed
 
 ### Usage
 
@@ -326,12 +210,7 @@ sol2cg --exclude-isolated-nodes -o clean_graph.dot ./contracts/
 sol2test [OPTIONS] [INPUT_PATHS]...
 ```
 
-### Arguments & Options
-
-**Arguments:**
-* `[INPUT_PATHS]...`: Solidity files or directories to process
-
-**Options:**
+### Options
 * `--project <PROJECT>`: Process a Foundry project directory instead of individual files
 * `-o, --output-dir <OUTPUT_DIR>`: Output directory for generated tests [default: foundry-tests/test]
 * `-t, --template-dir <TEMPLATE_DIR>`: Template directory [default: templates]
@@ -399,18 +278,9 @@ contract TokenTest is Test {
 }
 ```
 
-## Tool: sol-storage-analyzer - Storage Access Analyzer
+## sol-storage-analyzer
 
-`sol-storage-analyzer` analyzes Solidity contracts and generates detailed reports of storage variable reads and writes for all public and external functions.
-
-### Purpose
-
-This tool helps developers and auditors:
-* Understand state variable access patterns
-* Identify functions that modify critical state
-* Analyze storage slot usage
-* Detect potential optimization opportunities
-* Review access control implications
+Maps storage reads and writes for all public/external functions. Identifies state modification patterns and optimization opportunities.
 
 ### Usage
 
@@ -418,12 +288,7 @@ This tool helps developers and auditors:
 sol-storage-analyzer [OPTIONS] <INPUT_PATHS>...
 ```
 
-### Arguments & Options
-
-**Arguments:**
-* `<INPUT_PATHS>...`: Solidity files or directories to analyze
-
-**Options:**
+### Options
 * `-o, --output-file <OUTPUT_FILE>`: Output file for the analysis report
 * `--bindings <BINDINGS>`: Path to binding.yaml file
 * `--manifest-file <MANIFEST_FILE>`: Path to pre-generated manifest.yaml
@@ -462,18 +327,9 @@ Example output:
 | Token.balanceOf | balances | |
 ```
 
-## Tool: storage-trace - Storage Trace Comparator
+## storage-trace
 
-`storage-trace` analyzes and compares storage access traces between two Solidity functions, helping identify differences in state variable usage.
-
-### Purpose
-
-This tool is valuable for:
-* Comparing function implementations
-* Detecting unintended storage modifications
-* Analyzing upgrade compatibility
-* Reviewing refactoring changes
-* Ensuring consistent storage access patterns
+Compares storage access between two functions. Useful for upgrade compatibility and refactoring validation.
 
 ### Usage
 
@@ -481,16 +337,10 @@ This tool is valuable for:
 storage-trace [OPTIONS] --func1 <FUNC1> --func2 <FUNC2> <INPUT_PATHS>...
 ```
 
-### Arguments & Options
-
-**Arguments:**
-* `<INPUT_PATHS>...`: Solidity files or directories containing the functions
-
-**Required Options:**
+### Options
 * `--func1 <FUNC1>`: First function to compare (format: functionName or Contract.functionName)
 * `--func2 <FUNC2>`: Second function to compare
 
-**Optional:**
 * `-o, --output-file <OUTPUT_FILE>`: Output file for comparison report
 * `--bindings <BINDINGS>`: Path to binding.yaml file
 * `--manifest-file <MANIFEST_FILE>`: Path to pre-generated manifest.yaml
@@ -538,18 +388,9 @@ Differences:
 - Only in depositFor writes: [allowance]
 ```
 
-## Tool: sol2bnd - Binding File Generator
+## sol2bnd
 
-`sol2bnd` generates skeleton binding configuration files from Solidity contracts using Natspec annotations.
-
-### Purpose
-
-This tool automates the creation of binding files that:
-* Map interface definitions to implementations
-* Configure contract interactions
-* Define deployment parameters
-* Set up testing environments
-* Support multi-contract systems
+Generates binding configurations from Natspec annotations. Maps interfaces to implementations.
 
 ### Usage
 
@@ -580,30 +421,7 @@ sol2bnd .
 sol2bnd my-project/
 ```
 
-### Output
-
-Generates a YAML binding file with:
-* Contract interfaces
-* Implementation mappings
-* Constructor parameters
-* Function selectors
-* Event definitions
-
-Example binding.yaml structure:
-```yaml
-contracts:
-  - name: Token
-    interface: IToken
-    implementation: Token
-    constructor:
-      - name: name
-        type: string
-      - name: symbol
-        type: string
-    functions:
-      - transfer(address,uint256)
-      - approve(address,uint256)
-```
+Creates YAML file with interface mappings and contract metadata.
 
 ## Development Workflow Integration
 
@@ -894,82 +712,36 @@ sol2cg --config "max_depth=5,include_modifiers=true,skip_internals=false"
 
 ## Troubleshooting
 
-### Common Issues
+**Tree-sitter grammar not found**: Run `git submodule update --init --recursive`
 
-#### Issue: "tree-sitter grammar not found"
+**Foundry not found**: Install with `curl -L https://foundry.paradigm.xyz | bash && foundryup`
 
-**Solution**: Ensure you cloned with `--recursive`:
-```bash
-git submodule update --init --recursive
-```
+**Large outputs**: Use `--exclude-isolated-nodes` or `--config "max_depth=3"`
 
-#### Issue: "Foundry not found" (sol2test)
+**Debug mode**: `RUST_LOG=debug sol2cg contracts/*.sol`
 
-**Solution**: Install Foundry:
-```bash
-curl -L https://foundry.paradigm.xyz | bash
-foundryup
-```
-
-#### Issue: Large output files
-
-**Solution**: Use pipeline steps configuration to limit scope:
-```bash
-sol2cg --disable-steps "Calls-Handling" contracts/
-sol2cg --config "max_depth=3" contracts/
-```
-
-#### Issue: Memory issues with large projects
-
-**Solution**: Process files in batches or increase system memory:
-```bash
-# Process in smaller batches
-for dir in contracts/*/; do
-  sol2cg "$dir" -o "$(basename $dir).dot"
-done
-```
-
-### Debug Mode
-
-Enable verbose logging for troubleshooting:
-```bash
-# Maximum verbosity
-RUST_LOG=trace sol2cg contracts/*.sol
-
-# Module-specific debugging
-RUST_LOG=sol2cg=debug,parser=trace sol2cg contracts/*.sol
-```
-
-### Getting Help
-
-* Check tool-specific help: `sol2cg --help`
-* Review examples in this README
-* Open an issue on [GitHub](https://github.com/calltrace/traverse/issues)
-* Check existing issues for similar problems
+For help, run `sol2cg --help` or check [GitHub issues](https://github.com/calltrace/traverse/issues).
 
 ## Performance & Limitations
 
 ### Performance Characteristics
 
-* **Parsing Speed**: ~10,000 lines/second on modern hardware
-* **Memory Usage**: Approximately 10MB per 1,000 lines of code
-* **Maximum File Size**: Tested up to 50,000 lines per file
+Based on real-world benchmarks analyzing the [Smart Invoice](examples/smart-invoice/) project (17 contracts, 580 functions, 790 edges) on Apple M3:
+
+* **Processing Speed**: Complete project analysis in ~500ms
+* **Call Graph Generation**: DOT format in ~520ms, Mermaid with chunking in ~430ms
+* **Output Efficiency**: 206KB DOT file represents 580 nodes and 790 edges
+* **Scalability**: Automatic chunking for large diagrams (splits at ~400-600 lines per chunk)
 * **Concurrent Processing**: Tools process files sequentially (parallelization planned)
 
-### Known Limitations
+### Limitations
 
-1. **Solidity Version**: Best support for Solidity 0.8.x, limited support for older versions
-2. **Dynamic Calls**: Cannot trace calls through dynamic dispatch (e.g., `address.call()`)
-3. **Assembly Blocks**: Limited analysis of inline assembly
-4. **External Calls**: Cannot analyze external contract code without source
-5. **Circular Dependencies**: May timeout on deeply circular call patterns
+- Best support for Solidity 0.8.x
+- Cannot trace dynamic calls (`address.call()`)
+- No inline assembly support
+- Requires source code for all contracts
 
-### Optimization Tips
-
-* Use `--exclude-isolated-nodes` to reduce graph complexity
-* Limit analysis depth with `--config "max_depth=N"`
-* Process large projects in smaller batches
-* Use release builds for better performance
+For large projects, use `--exclude-isolated-nodes` or process in batches.
 
 ## Compatibility
 
@@ -991,7 +763,7 @@ RUST_LOG=sol2cg=debug,parser=trace sol2cg contracts/*.sol
 | Truffle | Not supported | Planned for future release |
 | Brownie | Not supported | Planned for future release |
 
-**Note**: Currently, only Foundry is supported. The tools can analyze individual Solidity files from any framework, but project-level integration and test generation features are only available for Foundry projects.
+Currently supports Foundry. Can analyze individual Solidity files from any framework.
 
 ### Operating System Support
 
