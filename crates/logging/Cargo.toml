@@ -1,6 +1,6 @@
 [package]
 name = "traverse-logging"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 authors = ["Traverse Contributors"]
 license = "MIT OR Apache-2.0"
