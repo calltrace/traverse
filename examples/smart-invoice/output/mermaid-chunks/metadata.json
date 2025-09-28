@@ -1,0 +1,170 @@
+{
+  "generated": "2025-09-28T01:36:16.152829+00:00",
+  "generator": "traverse sol2cg",
+  "total_lines": 1429,
+  "chunk_count": 7,
+  "chunks": [
+    {
+      "id": 1,
+      "file": "chunk_001.mmd",
+      "lines": [
+        0,
+        201
+      ],
+      "description": "chunk_1",
+      "participants": [
+        "User",
+        "IArbitrable",
+        "IArbitrator",
+        "ISafeProxyFactory",
+        "ISafeSplitsEscrowZap",
+        "SafeSplitsEscrowZap",
+        "ISmartInvoice",
+        "ISmartInvoiceEscrow",
+        "SmartInvoiceEscrow",
+        "ISmartInvoiceFactory",
+        "SmartInvoiceFactory",
+        "ISmartInvoiceInstant",
+        "SmartInvoiceInstant",
+        "ISplitMain",
+        "ISpoilsManager",
+        "SpoilsManager",
+        "IWRAPPED",
+        "SafeSplitsDaoEscrowZap",
+        "SafeSplitsEscrowZapFactory",
+        "SmartInvoiceFactoryBundler",
+        "SmartInvoiceSplitEscrow",
+        "SmartInvoiceUpdatable",
+        "SmartInvoiceUpdatableV2",
+        "SpoilsManagerFactory",
+        "MockArbitrator",
+        "MockToken",
+        "MockWETH"
+      ],
+      "boundary_quality": "\"InteractionEnd\""
+    },
+    {
+      "id": 2,
+      "file": "chunk_002.mmd",
+      "lines": [
+        201,
+        418
+      ],
+      "description": "chunk_2",
+      "participants": [
+        "SafeSplitsDaoEscrowZap",
+        "SafeSplitsEscrowZap",
+        "ISafeProxyFactory",
+        "SpoilsManager",
+        "ISpoilsManager",
+        "SmartInvoiceFactory",
+        "ISmartInvoice",
+        "User",
+        "ISplitMain"
+      ],
+      "boundary_quality": "\"InteractionEnd\""
+    },
+    {
+      "id": 3,
+      "file": "chunk_003.mmd",
+      "lines": [
+        418,
+        667
+      ],
+      "description": "chunk_3",
+      "participants": [
+        "SafeSplitsEscrowZap",
+        "User",
+        "SafeSplitsEscrowZapFactory",
+        "SpoilsManager",
+        "SpoilsManagerFactory",
+        "SmartInvoiceFactory",
+        "SmartInvoiceFactoryBundler",
+        "ISmartInvoice",
+        "SmartInvoiceEscrow",
+        "MockWETH",
+        "SmartInvoiceInstant",
+        "MockArbitrator"
+      ],
+      "boundary_quality": "\"InteractionEnd\""
+    },
+    {
+      "id": 4,
+      "file": "chunk_004.mmd",
+      "lines": [
+        667,
+        915
+      ],
+      "description": "chunk_4",
+      "participants": [
+        "MockArbitrator",
+        "User",
+        "SmartInvoiceEscrow",
+        "SmartInvoiceFactory",
+        "SpoilsManager",
+        "SmartInvoiceInstant",
+        "SafeSplitsEscrowZap",
+        "MockToken"
+      ],
+      "boundary_quality": "\"InteractionEnd\""
+    },
+    {
+      "id": 5,
+      "file": "chunk_005.mmd",
+      "lines": [
+        915,
+        1118
+      ],
+      "description": "chunk_5",
+      "participants": [
+        "User",
+        "SmartInvoiceEscrow",
+        "SmartInvoiceFactory"
+      ],
+      "boundary_quality": "\"InteractionEnd\""
+    },
+    {
+      "id": 6,
+      "file": "chunk_006.mmd",
+      "lines": [
+        1118,
+        1336
+      ],
+      "description": "chunk_6",
+      "participants": [
+        "SmartInvoiceEscrow",
+        "User",
+        "MockToken",
+        "SpoilsManager",
+        "SmartInvoiceInstant",
+        "MockWETH",
+        "SafeSplitsEscrowZap",
+        "SmartInvoiceUpdatable",
+        "SmartInvoiceUpdatableV2",
+        "SmartInvoiceFactory"
+      ],
+      "boundary_quality": "\"InteractionEnd\""
+    },
+    {
+      "id": 7,
+      "file": "chunk_007.mmd",
+      "lines": [
+        1336,
+        1429
+      ],
+      "description": "chunk_7",
+      "participants": [
+        "User",
+        "SmartInvoiceEscrow",
+        "SmartInvoiceInstant",
+        "MockWETH"
+      ],
+      "boundary_quality": "\"InteractionEnd\""
+    }
+  ],
+  "statistics": {
+    "total_participants": 27,
+    "total_interactions": 249,
+    "average_chunk_size": 204
+  }
+}

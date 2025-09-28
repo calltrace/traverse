@@ -1,0 +1,268 @@
+sequenceDiagram
+    %% Chunk 4 of 7 - Lines 668-915
+    title Call Graph - Chunk 4
+
+    participant MockArbitrator
+    participant User
+    participant SmartInvoiceEscrow
+    participant SmartInvoiceFactory
+    participant SpoilsManager
+    participant SmartInvoiceInstant
+    participant SafeSplitsEscrowZap
+    participant MockToken
+
+    Note over MockArbitrator: Continued from Chunk 3
+
+MockArbitrator-->>User: ret from executeRulingWithDisputeId()
+User->>SmartInvoiceEscrow: call getAmounts()
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+SmartInvoiceEscrow-->>User: ret: uint256[] from getAmounts()
+User->>SmartInvoiceFactory: call getImplementation()
+Note over SmartInvoiceFactory: Read SmartInvoiceFactory.implementations
+SmartInvoiceFactory-->>User: ret: address from getImplementation()
+User->>SmartInvoiceFactory: call getInvoiceAddress()
+Note over SmartInvoiceFactory: Read SmartInvoiceFactory._invoices
+SmartInvoiceFactory-->>User: ret: address from getInvoiceAddress()
+User->>SpoilsManager: call getSpoils()
+Note over SpoilsManager: Read SpoilsManager.spoils
+Note over SpoilsManager: Read SpoilsManager.SPLIT_PERCENTAGE_SCALE
+SpoilsManager-->>User: ret: uint32 from getSpoils()
+User->>SmartInvoiceInstant: call getTotalDue()
+alt block.timestamp > deadline && deadline > 0
+  alt fulfilled && fulfillTime > 0
+    alt fulfillTime >= deadline
+      Note over SmartInvoiceInstant: Read SmartInvoiceInstant.fulfillTime
+      Note over SmartInvoiceInstant: Read SmartInvoiceInstant.deadline
+    end
+    Note over SmartInvoiceInstant: Read SmartInvoiceInstant.fulfillTime
+    Note over SmartInvoiceInstant: Read SmartInvoiceInstant.deadline
+  else else
+    Note over SmartInvoiceInstant: Read SmartInvoiceInstant.deadline
+  end
+  Note over SmartInvoiceInstant: Read SmartInvoiceInstant.fulfilled
+  Note over SmartInvoiceInstant: Read SmartInvoiceInstant.fulfillTime
+  alt timeAfterDeadline >= lateFeeTimeInterval && lateFeeTimeInterval != 0
+    Note over SmartInvoiceInstant: Read SmartInvoiceInstant.lateFee
+    Note over SmartInvoiceInstant: Read SmartInvoiceInstant.lateFeeTimeInterval
+  else else
+    Note over SmartInvoiceInstant: No operations in 'else' branch
+  end
+  Note over SmartInvoiceInstant: Read SmartInvoiceInstant.lateFeeTimeInterval
+  Note over SmartInvoiceInstant: Read SmartInvoiceInstant.lateFeeTimeInterval
+end
+Note over SmartInvoiceInstant: Read SmartInvoiceInstant.deadline
+Note over SmartInvoiceInstant: Read SmartInvoiceInstant.deadline
+Note over SmartInvoiceInstant: Read SmartInvoiceInstant.total
+SmartInvoiceInstant-->>User: ret: uint256 from getTotalDue()
+User->>SafeSplitsEscrowZap: call init()
+opt Internal: SafeSplitsEscrowZap._handleData
+  activate SafeSplitsEscrowZap
+  SafeSplitsEscrowZap->>SafeSplitsEscrowZap: SafeSplitsEscrowZap._handleData(_data)
+  Note over SafeSplitsEscrowZap: Write SafeSplitsEscrowZap.safeSingleton
+  Note over SafeSplitsEscrowZap: Write SafeSplitsEscrowZap.fallbackHandler
+  Note over SafeSplitsEscrowZap: Write SafeSplitsEscrowZap.safeFactory
+  Note over SafeSplitsEscrowZap: Write SafeSplitsEscrowZap.splitMain
+  Note over SafeSplitsEscrowZap: Write SafeSplitsEscrowZap.escrowFactory
+  Note over SafeSplitsEscrowZap: Write SafeSplitsEscrowZap.wrappedNativeToken
+  deactivate SafeSplitsEscrowZap
+end
+SafeSplitsEscrowZap-->>User: ret from init()
+User->>SmartInvoiceEscrow: call init()
+alt _provider == address(0)
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+opt Internal: SmartInvoiceEscrow._handleData
+  activate SmartInvoiceEscrow
+  SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._handleData(_data)
+  opt External: SmartInvoiceFactory.resolutionRateOf
+    activate SmartInvoiceFactory
+    SmartInvoiceEscrow->>SmartInvoiceFactory: SmartInvoiceFactory.resolutionRateOf(_resolver)
+    Note over SmartInvoiceFactory: Read SmartInvoiceFactory.resolutionRates
+    SmartInvoiceFactory-->>SmartInvoiceEscrow: ret resolutionRates[_resolver]: uint256 from resolutionRateOf
+    deactivate SmartInvoiceFactory
+  end
+  alt _resolutionRate == 0
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  alt _client == address(0)
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  alt _resolverType > uint8(ADR.ARBITRATOR)
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  alt _resolver == address(0)
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  alt _token == address(0)
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  alt _terminationTime <= block.timestamp
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  alt _terminationTime > block.timestamp + MAX_TERMINATION_TIME
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.MAX_TERMINATION_TIME
+  alt _resolutionRate == 0
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  alt _wrappedNativeToken == address(0)
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.client
+  Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.resolverType
+  Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.resolver
+  Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.token
+  Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.terminationTime
+  Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.resolutionRate
+  Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.details
+  Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.wrappedNativeToken
+  alt !_requireVerification
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.client
+    SmartInvoiceEscrow->>SmartInvoiceEscrow: emit Verified(client, address(this))
+  end
+  deactivate SmartInvoiceEscrow
+end
+Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.provider
+Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.amounts
+loop i < amounts.length;
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.total
+SmartInvoiceEscrow-->>User: ret from init()
+User->>SmartInvoiceInstant: call init()
+alt _provider == address(0)
+  Note over SmartInvoiceInstant: No operations in 'then' branch
+end
+opt Internal: SmartInvoiceInstant._handleData
+  activate SmartInvoiceInstant
+  SmartInvoiceInstant->>SmartInvoiceInstant: SmartInvoiceInstant._handleData(_data)
+  alt _client == address(0)
+    Note over SmartInvoiceInstant: No operations in 'then' branch
+  end
+  alt _token == address(0)
+    Note over SmartInvoiceInstant: No operations in 'then' branch
+  end
+  alt _deadline <= block.timestamp && _deadline != 0
+    Note over SmartInvoiceInstant: No operations in 'then' branch
+  end
+  alt _deadline > block.timestamp + MAX_DEADLINE
+    Note over SmartInvoiceInstant: No operations in 'then' branch
+  end
+  Note over SmartInvoiceInstant: Read SmartInvoiceInstant.MAX_DEADLINE
+  alt _wrappedNativeToken == address(0)
+    Note over SmartInvoiceInstant: No operations in 'then' branch
+  end
+  Note over SmartInvoiceInstant: Write SmartInvoiceInstant.client
+  Note over SmartInvoiceInstant: Write SmartInvoiceInstant.token
+  Note over SmartInvoiceInstant: Write SmartInvoiceInstant.deadline
+  Note over SmartInvoiceInstant: Write SmartInvoiceInstant.details
+  Note over SmartInvoiceInstant: Write SmartInvoiceInstant.wrappedNativeToken
+  Note over SmartInvoiceInstant: Write SmartInvoiceInstant.lateFee
+  Note over SmartInvoiceInstant: Write SmartInvoiceInstant.lateFeeTimeInterval
+  deactivate SmartInvoiceInstant
+end
+Note over SmartInvoiceInstant: Write SmartInvoiceInstant.provider
+loop i < _amounts.length;
+  Note over SmartInvoiceInstant: Loop body has no operations
+end
+Note over SmartInvoiceInstant: Write SmartInvoiceInstant.total
+SmartInvoiceInstant-->>User: ret from init()
+User->>SpoilsManager: call init()
+Note over SpoilsManager: Write SpoilsManager.spoils
+Note over SpoilsManager: Write SpoilsManager.receiver
+Note over SpoilsManager: Write SpoilsManager.SPLIT_PERCENTAGE_SCALE
+SpoilsManager-->>User: ret from init()
+User->>SmartInvoiceEscrow: call lock()
+alt locked
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.locked
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+alt balance == 0
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+alt block.timestamp >= terminationTime
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.terminationTime
+alt _msgSender() != client && _msgSender() != provider
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.client
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.provider
+alt resolverType == ADR.ARBITRATOR
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.resolver
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.NUM_RULING_OPTIONS
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.details
+  Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.disputeId
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.resolverType
+Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.locked
+SmartInvoiceEscrow->>SmartInvoiceEscrow: emit Lock(_msgSender(), _details)
+SmartInvoiceEscrow-->>User: ret from lock()
+User->>MockToken: call mint()
+MockToken-->>User: ret from mint()
+User->>SmartInvoiceFactory: call predictDeterministicAddress()
+Note over SmartInvoiceFactory: Read SmartInvoiceFactory.currentVersions
+Note over SmartInvoiceFactory: Read SmartInvoiceFactory.implementations
+SmartInvoiceFactory-->>User: ret: address from predictDeterministicAddress()
+User->>SmartInvoiceEscrow: call release()
+opt Internal: SmartInvoiceEscrow._release
+  activate SmartInvoiceEscrow
+  SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._release()
+  alt locked
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.locked
+  alt _msgSender() != client
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.client
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.milestone
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+  alt currentMilestone < amounts.length
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+    alt currentMilestone == amounts.length - 1 && amount < balance
+      Note over SmartInvoiceEscrow: No operations in 'then' branch
+    end
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+    alt balance < amount
+      Note over SmartInvoiceEscrow: No operations in 'then' branch
+    end
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.milestone
+    Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.milestone
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+    opt Internal: SmartInvoiceEscrow._transferPayment
+      activate SmartInvoiceEscrow
+      SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._transferPayment(token, amount)
+      Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.provider
+      deactivate SmartInvoiceEscrow
+    end
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.released
+    Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.released
+    SmartInvoiceEscrow->>SmartInvoiceEscrow: emit Release(currentMilestone, amount)
+  else else
+    alt balance == 0
+      Note over SmartInvoiceEscrow: No operations in 'then' branch
+    end
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+    opt Internal: SmartInvoiceEscrow._transferPayment
+      activate SmartInvoiceEscrow
+      SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._transferPayment(token, balance)
+      Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.provider
+      deactivate SmartInvoiceEscrow
+    end
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.released
+    Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.released
+    SmartInvoiceEscrow->>SmartInvoiceEscrow: emit Release(currentMilestone, balance)
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+  deactivate SmartInvoiceEscrow
+end
+
+    Note over MockArbitrator: Continues in Chunk 5
+
+    %% Lines: 668-915
+    %% Participants: 8

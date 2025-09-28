@@ -1,0 +1,240 @@
+sequenceDiagram
+    %% Chunk 6 of 7 - Lines 1119-1336
+    title Call Graph - Chunk 6
+
+    participant SmartInvoiceEscrow
+    participant User
+    participant MockToken
+    participant SpoilsManager
+    participant SmartInvoiceInstant
+    participant MockWETH
+    participant SafeSplitsEscrowZap
+    participant SmartInvoiceUpdatable
+    participant SmartInvoiceUpdatableV2
+    participant SmartInvoiceFactory
+
+    Note over SmartInvoiceEscrow: Continued from Chunk 5
+
+alt clientAward > 0
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+  opt Internal: SmartInvoiceEscrow._withdrawDeposit
+    activate SmartInvoiceEscrow
+    SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._withdrawDeposit(token, clientAward)
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.client
+    deactivate SmartInvoiceEscrow
+  end
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.milestone
+Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.locked
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.resolver
+SmartInvoiceEscrow->>SmartInvoiceEscrow: emit Rule(resolver, clientAward, providerAward, _ruling)
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.resolver
+SmartInvoiceEscrow->>SmartInvoiceEscrow: emit Ruling(resolver, _disputeId, _ruling)
+SmartInvoiceEscrow-->>User: ret from rule()
+User->>MockToken: call setBalanceOf()
+alt _amount > currentBalance
+  Note over MockToken: No operations in 'then' branch
+else else
+  Note over MockToken: No operations in 'else' branch
+end
+MockToken-->>User: ret from setBalanceOf()
+User->>SpoilsManager: call setReceiver()
+Note over SpoilsManager: Write SpoilsManager.receiver
+SpoilsManager-->>User: ret from setReceiver()
+User->>SpoilsManager: call setSpoils()
+Note over SpoilsManager: Write SpoilsManager.spoils
+SpoilsManager-->>User: ret from setSpoils()
+User->>SmartInvoiceInstant: call tip()
+alt !fulfilled
+  Note over SmartInvoiceInstant: No operations in 'then' branch
+end
+Note over SmartInvoiceInstant: Read SmartInvoiceInstant.fulfilled
+alt _token != token
+  Note over SmartInvoiceInstant: No operations in 'then' branch
+end
+Note over SmartInvoiceInstant: Read SmartInvoiceInstant.token
+Note over SmartInvoiceInstant: Read SmartInvoiceInstant.totalFulfilled
+Note over SmartInvoiceInstant: Read SmartInvoiceInstant.totalFulfilled
+Note over SmartInvoiceInstant: Write SmartInvoiceInstant.totalFulfilled
+SmartInvoiceInstant->>SmartInvoiceInstant: emit Tip(_msgSender(), _amount)
+SmartInvoiceInstant-->>User: ret from tip()
+User->>MockWETH: call totalSupply()
+MockWETH-->>User: ret: uint256 from totalSupply()
+User->>MockWETH: call transfer()
+opt Internal: MockWETH.transferFrom
+  activate MockWETH
+  MockWETH->>MockWETH: MockWETH.transferFrom(msg.sender, dst, wad)
+  alt balanceOf[src] < wad
+    Note over MockWETH: No operations in 'then' branch
+  end
+  Note over MockWETH: Read MockWETH.balanceOf
+  alt src != msg.sender && allowance[src][msg.sender] != type(uint256).max
+    alt allowance[src][msg.sender] < wad
+      Note over MockWETH: No operations in 'then' branch
+    end
+    Note over MockWETH: Read MockWETH.allowance
+    Note over MockWETH: Read MockWETH.allowance
+    Note over MockWETH: Read MockWETH.allowance
+    Note over MockWETH: Write MockWETH.allowance
+  end
+  Note over MockWETH: Read MockWETH.allowance
+  Note over MockWETH: Read MockWETH.balanceOf
+  Note over MockWETH: Read MockWETH.balanceOf
+  Note over MockWETH: Write MockWETH.balanceOf
+  Note over MockWETH: Read MockWETH.balanceOf
+  Note over MockWETH: Read MockWETH.balanceOf
+  Note over MockWETH: Write MockWETH.balanceOf
+  MockWETH->>MockWETH: emit Transfer(src, dst, wad)
+  MockWETH-->>MockWETH: ret true: bool from transferFrom
+  deactivate MockWETH
+end
+MockWETH-->>User: ret: bool from transfer()
+User->>MockWETH: call transferFrom()
+alt balanceOf[src] < wad
+  Note over MockWETH: No operations in 'then' branch
+end
+Note over MockWETH: Read MockWETH.balanceOf
+alt src != msg.sender && allowance[src][msg.sender] != type(uint256).max
+  alt allowance[src][msg.sender] < wad
+    Note over MockWETH: No operations in 'then' branch
+  end
+  Note over MockWETH: Read MockWETH.allowance
+  Note over MockWETH: Read MockWETH.allowance
+  Note over MockWETH: Read MockWETH.allowance
+  Note over MockWETH: Write MockWETH.allowance
+end
+Note over MockWETH: Read MockWETH.allowance
+Note over MockWETH: Read MockWETH.balanceOf
+Note over MockWETH: Read MockWETH.balanceOf
+Note over MockWETH: Write MockWETH.balanceOf
+Note over MockWETH: Read MockWETH.balanceOf
+Note over MockWETH: Read MockWETH.balanceOf
+Note over MockWETH: Write MockWETH.balanceOf
+MockWETH->>MockWETH: emit Transfer(src, dst, wad)
+MockWETH-->>User: ret: bool from transferFrom()
+User->>SafeSplitsEscrowZap: call updateAddresses()
+alt !hasRole(ADMIN, _msgSender())
+  Note over SafeSplitsEscrowZap: No operations in 'then' branch
+end
+Note over SafeSplitsEscrowZap: Read SafeSplitsEscrowZap.ADMIN
+opt Internal: SafeSplitsEscrowZap._updateAddresses
+  activate SafeSplitsEscrowZap
+  SafeSplitsEscrowZap->>SafeSplitsEscrowZap: SafeSplitsEscrowZap._updateAddresses(_data)
+  alt _safeSingleton != address(0)
+    Note over SafeSplitsEscrowZap: Write SafeSplitsEscrowZap.safeSingleton
+  end
+  alt _safeFactory != address(0)
+    Note over SafeSplitsEscrowZap: Write SafeSplitsEscrowZap.safeFactory
+  end
+  alt _splitMain != address(0)
+    Note over SafeSplitsEscrowZap: Write SafeSplitsEscrowZap.splitMain
+  end
+  alt _escrowFactory != address(0)
+    Note over SafeSplitsEscrowZap: Write SafeSplitsEscrowZap.escrowFactory
+  end
+  SafeSplitsEscrowZap->>SafeSplitsEscrowZap: emit UpdatedAddresses(_safeSingleton, _safeFactory, _splitMain, _escrowFactory)
+  deactivate SafeSplitsEscrowZap
+end
+SafeSplitsEscrowZap-->>User: ret from updateAddresses()
+User->>SmartInvoiceUpdatable: call updateClient()
+alt _client == address(0)
+  Note over SmartInvoiceUpdatable: No operations in 'then' branch
+end
+opt Internal: SmartInvoiceUpdatable._updateClient
+  activate SmartInvoiceUpdatable
+  SmartInvoiceUpdatable->>SmartInvoiceUpdatable: SmartInvoiceUpdatable._updateClient(_client)
+  Note over SmartInvoiceUpdatable: Write SmartInvoiceEscrow.client
+  SmartInvoiceUpdatable->>SmartInvoiceUpdatable: emit UpdatedClient(_client)
+  deactivate SmartInvoiceUpdatable
+end
+SmartInvoiceUpdatable-->>User: ret from updateClient()
+User->>SmartInvoiceUpdatableV2: call updateClientReceiver()
+alt _clientReceiver == address(0)
+  Note over SmartInvoiceUpdatableV2: No operations in 'then' branch
+end
+opt Internal: SmartInvoiceUpdatableV2._updateClientReceiver
+  activate SmartInvoiceUpdatableV2
+  SmartInvoiceUpdatableV2->>SmartInvoiceUpdatableV2: SmartInvoiceUpdatableV2._updateClientReceiver(_clientReceiver)
+  Note over SmartInvoiceUpdatableV2: Write SmartInvoiceUpdatableV2.clientReceiver
+  SmartInvoiceUpdatableV2->>SmartInvoiceUpdatableV2: emit UpdatedClientReceiver(_clientReceiver)
+  deactivate SmartInvoiceUpdatableV2
+end
+SmartInvoiceUpdatableV2-->>User: ret from updateClientReceiver()
+User->>SafeSplitsEscrowZap: call updateDistributorFee()
+alt !hasRole(ADMIN, _msgSender())
+  Note over SafeSplitsEscrowZap: No operations in 'then' branch
+end
+Note over SafeSplitsEscrowZap: Read SafeSplitsEscrowZap.ADMIN
+Note over SafeSplitsEscrowZap: Write SafeSplitsEscrowZap.distributorFee
+SafeSplitsEscrowZap->>SafeSplitsEscrowZap: emit UpdatedDistributorFee(_distributorFee)
+SafeSplitsEscrowZap-->>User: ret from updateDistributorFee()
+User->>SmartInvoiceUpdatable: call updateProvider()
+alt _provider == address(0)
+  Note over SmartInvoiceUpdatable: No operations in 'then' branch
+end
+opt Internal: SmartInvoiceUpdatable._updateProvider
+  activate SmartInvoiceUpdatable
+  SmartInvoiceUpdatable->>SmartInvoiceUpdatable: SmartInvoiceUpdatable._updateProvider(_provider)
+  Note over SmartInvoiceUpdatable: Write SmartInvoiceEscrow.provider
+  SmartInvoiceUpdatable->>SmartInvoiceUpdatable: emit UpdatedProvider(_provider)
+  deactivate SmartInvoiceUpdatable
+end
+SmartInvoiceUpdatable-->>User: ret from updateProvider()
+User->>SmartInvoiceUpdatable: call updateProviderReceiver()
+alt _providerReceiver == address(0)
+  Note over SmartInvoiceUpdatable: No operations in 'then' branch
+end
+opt Internal: SmartInvoiceUpdatable._updateProviderReceiver
+  activate SmartInvoiceUpdatable
+  SmartInvoiceUpdatable->>SmartInvoiceUpdatable: SmartInvoiceUpdatable._updateProviderReceiver(_providerReceiver)
+  Note over SmartInvoiceUpdatable: Write SmartInvoiceUpdatable.providerReceiver
+  SmartInvoiceUpdatable->>SmartInvoiceUpdatable: emit UpdatedProviderReceiver(_providerReceiver)
+  deactivate SmartInvoiceUpdatable
+end
+SmartInvoiceUpdatable-->>User: ret from updateProviderReceiver()
+User->>SmartInvoiceFactory: call updateResolutionRate()
+Note over SmartInvoiceFactory: Write SmartInvoiceFactory.resolutionRates
+SmartInvoiceFactory->>SmartInvoiceFactory: emit UpdateResolutionRate(msg.sender, _resolutionRate, _details)
+SmartInvoiceFactory-->>User: ret from updateResolutionRate()
+User->>SmartInvoiceEscrow: call verify()
+alt msg.sender != client
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.client
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.client
+SmartInvoiceEscrow->>SmartInvoiceEscrow: emit Verified(client, address(this))
+SmartInvoiceEscrow-->>User: ret from verify()
+User->>SmartInvoiceEscrow: call withdraw()
+opt Internal: SmartInvoiceEscrow._withdraw
+  activate SmartInvoiceEscrow
+  SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._withdraw()
+  alt locked
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.locked
+  alt block.timestamp <= terminationTime
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.terminationTime
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+  alt balance == 0
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+  opt Internal: SmartInvoiceEscrow._withdrawDeposit
+    activate SmartInvoiceEscrow
+    SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._withdrawDeposit(token, balance)
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.client
+    deactivate SmartInvoiceEscrow
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+  Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.milestone
+  SmartInvoiceEscrow->>SmartInvoiceEscrow: emit Withdraw(balance)
+  deactivate SmartInvoiceEscrow
+end
+
+    Note over SmartInvoiceEscrow: Continues in Chunk 7
+
+    %% Lines: 1119-1336
+    %% Participants: 10

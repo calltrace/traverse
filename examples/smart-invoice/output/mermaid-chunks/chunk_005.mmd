@@ -1,0 +1,218 @@
+sequenceDiagram
+    %% Chunk 5 of 7 - Lines 916-1118
+    title Call Graph - Chunk 5
+
+    participant User
+    participant SmartInvoiceEscrow
+    participant SmartInvoiceFactory
+
+    Note over User: Continued from Chunk 4
+
+SmartInvoiceEscrow-->>User: ret from release()
+User->>SmartInvoiceEscrow: call release()
+alt locked
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.locked
+alt _msgSender() != client
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.client
+alt _milestone < milestone
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.milestone
+alt _milestone >= amounts.length
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+loop j <= _milestone;
+  alt j == amounts.length - 1 && amount + amounts[j] < balance
+    SmartInvoiceEscrow->>SmartInvoiceEscrow: emit Release(j, balance - amount)
+  else else
+    SmartInvoiceEscrow->>SmartInvoiceEscrow: emit Release(j, amounts[j])
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.milestone
+alt balance < amount
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+opt Internal: SmartInvoiceEscrow._transferPayment
+  activate SmartInvoiceEscrow
+  SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._transferPayment(token, amount)
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.provider
+  deactivate SmartInvoiceEscrow
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.released
+Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.released
+Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.milestone
+SmartInvoiceEscrow-->>User: ret from release()
+User->>SmartInvoiceEscrow: call releaseTokens()
+alt _token == token
+  opt Internal: SmartInvoiceEscrow._release
+    activate SmartInvoiceEscrow
+    SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._release()
+    alt locked
+      Note over SmartInvoiceEscrow: No operations in 'then' branch
+    end
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.locked
+    alt _msgSender() != client
+      Note over SmartInvoiceEscrow: No operations in 'then' branch
+    end
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.client
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.milestone
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+    alt currentMilestone < amounts.length
+      Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+      alt currentMilestone == amounts.length - 1 && amount < balance
+        Note over SmartInvoiceEscrow: No operations in 'then' branch
+      end
+      Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+      alt balance < amount
+        Note over SmartInvoiceEscrow: No operations in 'then' branch
+      end
+      Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.milestone
+      Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.milestone
+      Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+      opt Internal: SmartInvoiceEscrow._transferPayment
+        activate SmartInvoiceEscrow
+        SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._transferPayment(token, amount)
+        Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.provider
+        deactivate SmartInvoiceEscrow
+      end
+      Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.released
+      Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.released
+      SmartInvoiceEscrow->>SmartInvoiceEscrow: emit Release(currentMilestone, amount)
+    else else
+      alt balance == 0
+        Note over SmartInvoiceEscrow: No operations in 'then' branch
+      end
+      Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+      opt Internal: SmartInvoiceEscrow._transferPayment
+        activate SmartInvoiceEscrow
+        SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._transferPayment(token, balance)
+        Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.provider
+        deactivate SmartInvoiceEscrow
+      end
+      Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.released
+      Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.released
+      SmartInvoiceEscrow->>SmartInvoiceEscrow: emit Release(currentMilestone, balance)
+    end
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+    deactivate SmartInvoiceEscrow
+  end
+else else
+  alt _msgSender() != client
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.client
+  opt Internal: SmartInvoiceEscrow._transferPayment
+    activate SmartInvoiceEscrow
+    SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._transferPayment(_token, balance)
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.provider
+    deactivate SmartInvoiceEscrow
+  end
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+SmartInvoiceEscrow-->>User: ret from releaseTokens()
+User->>SmartInvoiceFactory: call resolutionRateOf()
+Note over SmartInvoiceFactory: Read SmartInvoiceFactory.resolutionRates
+SmartInvoiceFactory-->>User: ret: uint256 from resolutionRateOf()
+User->>SmartInvoiceEscrow: call resolve()
+alt resolverType != ADR.INDIVIDUAL
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.resolverType
+alt !locked
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.locked
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+alt balance == 0
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+alt _msgSender() != resolver
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.resolver
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.resolutionRate
+alt _clientAward + _providerAward != balance - resolutionFee
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+alt _providerAward > 0
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+  opt Internal: SmartInvoiceEscrow._transferPayment
+    activate SmartInvoiceEscrow
+    SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._transferPayment(token, _providerAward)
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.provider
+    deactivate SmartInvoiceEscrow
+  end
+end
+alt _clientAward > 0
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+  opt Internal: SmartInvoiceEscrow._withdrawDeposit
+    activate SmartInvoiceEscrow
+    SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._withdrawDeposit(token, _clientAward)
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.client
+    deactivate SmartInvoiceEscrow
+  end
+end
+alt resolutionFee > 0
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.resolver
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.milestone
+Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.locked
+SmartInvoiceEscrow->>SmartInvoiceEscrow: emit Resolve(_msgSender(), _clientAward, _providerAward, resolutionFee, _details)
+SmartInvoiceEscrow-->>User: ret from resolve()
+User->>SmartInvoiceEscrow: call rule()
+alt resolverType != ADR.ARBITRATOR
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.resolverType
+alt !locked
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.locked
+alt _msgSender() != resolver
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.resolver
+alt _disputeId != disputeId
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.disputeId
+alt _ruling > NUM_RULING_OPTIONS
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.NUM_RULING_OPTIONS
+Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+alt balance == 0
+  Note over SmartInvoiceEscrow: No operations in 'then' branch
+end
+opt Internal: SmartInvoiceEscrow._getRuling
+  activate SmartInvoiceEscrow
+  SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._getRuling(_ruling)
+  deactivate SmartInvoiceEscrow
+end
+alt providerAward > 0
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.token
+  opt Internal: SmartInvoiceEscrow._transferPayment
+    activate SmartInvoiceEscrow
+    SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._transferPayment(token, providerAward)
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.provider
+    deactivate SmartInvoiceEscrow
+  end
+end
+
+    Note over User: Continues in Chunk 6
+
+    %% Lines: 916-1118
+    %% Participants: 3

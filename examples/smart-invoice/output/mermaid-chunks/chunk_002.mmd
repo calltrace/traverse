@@ -1,0 +1,238 @@
+sequenceDiagram
+    %% Chunk 2 of 7 - Lines 202-418
+    title Call Graph - Chunk 2
+
+    participant SafeSplitsDaoEscrowZap
+    participant SafeSplitsEscrowZap
+    participant ISafeProxyFactory
+    participant SpoilsManager
+    participant ISpoilsManager
+    participant SmartInvoiceFactory
+    participant ISmartInvoice
+    participant User
+    participant ISplitMain
+
+    Note over SafeSplitsDaoEscrowZap: Continued from Chunk 1
+
+opt Internal: SafeSplitsDaoEscrowZap._createSafeSplitEscrow
+  activate SafeSplitsDaoEscrowZap
+  SafeSplitsDaoEscrowZap->>SafeSplitsDaoEscrowZap: SafeSplitsDaoEscrowZap._createSafeSplitEscrow(_owners, _percentAllocations, _milestoneAmounts, _safeData, _safeAddress, _splitsData, _escrowData)
+  alt daoZapData.zapData.safe == address(0)
+    opt External: SafeSplitsEscrowZap._deploySafe
+      activate SafeSplitsEscrowZap
+      SafeSplitsDaoEscrowZap->>SafeSplitsEscrowZap: SafeSplitsEscrowZap._deploySafe(_owners, _safeData, daoZapData.zapData)
+      Note over SafeSplitsEscrowZap: Read SafeSplitsEscrowZap.fallbackHandler
+      Note over SafeSplitsEscrowZap: Read SafeSplitsEscrowZap.safeFactory
+      Note over SafeSplitsEscrowZap: Read SafeSplitsEscrowZap.safeSingleton
+      opt External: ISafeProxyFactory.createProxyWithNonce
+        activate ISafeProxyFactory
+        SafeSplitsEscrowZap->>ISafeProxyFactory: ISafeProxyFactory.createProxyWithNonce(safeSingleton, safeInitializer, _saltNonce)
+        deactivate ISafeProxyFactory
+      end
+      alt _zapData.safe == address(0)
+        Note over SafeSplitsEscrowZap: No operations in 'then' branch
+      end
+      SafeSplitsEscrowZap-->>SafeSplitsDaoEscrowZap: ret _zapData: ZapData from _deploySafe
+      deactivate SafeSplitsEscrowZap
+    end
+  end
+  opt Internal: SafeSplitsDaoEscrowZap._createSplit
+    activate SafeSplitsDaoEscrowZap
+    SafeSplitsDaoEscrowZap->>SafeSplitsDaoEscrowZap: SafeSplitsDaoEscrowZap._createSplit(_owners, _percentAllocations, _splitsData, daoZapData)
+    alt projectSplit
+      Note over SafeSplitsDaoEscrowZap: Read SafeSplitsEscrowZap.splitMain
+      Note over SafeSplitsDaoEscrowZap: Read SafeSplitsEscrowZap.distributorFee
+    end
+    alt _daoZapData.zapData.projectTeamSplit == address(0)
+      alt _daoZapData.zapData.safe != address(0)
+        Note over SafeSplitsDaoEscrowZap: No operations in 'then' branch
+      else else
+        Note over SafeSplitsDaoEscrowZap: No operations in 'else' branch
+      end
+    end
+    alt !daoSplit
+      Note over SafeSplitsDaoEscrowZap: No operations in 'then' branch
+    end
+    Note over SafeSplitsDaoEscrowZap: Read SafeSplitsDaoEscrowZap.spoilsManager
+    opt External: ISpoilsManager.receiver
+      activate ISpoilsManager
+      SafeSplitsDaoEscrowZap->>ISpoilsManager: ISpoilsManager.receiver()
+      deactivate ISpoilsManager
+    end
+    Note over SafeSplitsDaoEscrowZap: Read SafeSplitsDaoEscrowZap.spoilsManager
+    opt External: ISpoilsManager.getSpoils
+      activate ISpoilsManager
+      SafeSplitsDaoEscrowZap->>ISpoilsManager: ISpoilsManager.getSpoils()
+      deactivate ISpoilsManager
+    end
+    Note over SafeSplitsDaoEscrowZap: Read SafeSplitsDaoEscrowZap.spoilsManager
+    alt uint160(daoReceiver) < uint160(_daoZapData.zapData.projectTeamSplit)
+      Note over SafeSplitsDaoEscrowZap: No operations in 'then' branch
+    else else
+      Note over SafeSplitsDaoEscrowZap: No operations in 'else' branch
+    end
+    Note over SafeSplitsDaoEscrowZap: Read SafeSplitsEscrowZap.splitMain
+    Note over SafeSplitsDaoEscrowZap: Read SafeSplitsEscrowZap.distributorFee
+    Note over SafeSplitsDaoEscrowZap: Read SafeSplitsDaoEscrowZap.dao
+    alt _daoZapData.daoSplit == address(0)
+      Note over SafeSplitsDaoEscrowZap: No operations in 'then' branch
+    end
+    SafeSplitsDaoEscrowZap-->>SafeSplitsDaoEscrowZap: ret _daoZapData: DaoZapData from _createSplit
+    deactivate SafeSplitsDaoEscrowZap
+  end
+  opt Internal: SafeSplitsDaoEscrowZap._handleEscrowParams
+    activate SafeSplitsDaoEscrowZap
+    SafeSplitsDaoEscrowZap->>SafeSplitsDaoEscrowZap: SafeSplitsDaoEscrowZap._handleEscrowParams(daoZapData)
+    alt _daoZapData.daoSplit != address(0)
+      Note over SafeSplitsDaoEscrowZap: Read SafeSplitsDaoEscrowZap.dao
+    end
+    SafeSplitsDaoEscrowZap-->>SafeSplitsDaoEscrowZap: ret escrowParams: address[] from _handleEscrowParams
+    deactivate SafeSplitsDaoEscrowZap
+  end
+  opt External: SafeSplitsEscrowZap._deployEscrow
+    activate SafeSplitsEscrowZap
+    SafeSplitsDaoEscrowZap->>SafeSplitsEscrowZap: SafeSplitsEscrowZap._deployEscrow(_milestoneAmounts, _escrowData, escrowParams, daoZapData.zapData)
+    opt Internal: SafeSplitsEscrowZap._handleEscrowData
+      activate SafeSplitsEscrowZap
+      SafeSplitsEscrowZap->>SafeSplitsEscrowZap: SafeSplitsEscrowZap._handleEscrowData(_escrowData)
+      SafeSplitsEscrowZap-->>SafeSplitsEscrowZap: ret EscrowData({ client: client, arbitration: uint8(arbitration), resolver: resolver, token: token, terminationTime: terminationTime, saltNonce: bytes32(_saltNonce), details: details, providerReceiver: address(0) }): EscrowData from _handleEscrowData
+      deactivate SafeSplitsEscrowZap
+    end
+    Note over SafeSplitsEscrowZap: Read SafeSplitsEscrowZap.wrappedNativeToken
+    Note over SafeSplitsEscrowZap: Read SafeSplitsEscrowZap.escrowFactory
+    Note over SafeSplitsEscrowZap: Read SafeSplitsEscrowZap.escrowFactory
+    opt External: SmartInvoiceFactory.createDeterministic
+      activate SmartInvoiceFactory
+      SafeSplitsEscrowZap->>SmartInvoiceFactory: SmartInvoiceFactory.createDeterministic(_escrowParams[0], _milestoneAmounts, escrowDetails, bytes32("updatable"), escrowData.saltNonce)
+      Note over SmartInvoiceFactory: Read SmartInvoiceFactory.currentVersions
+      Note over SmartInvoiceFactory: Read SmartInvoiceFactory.implementations
+      alt _implementation == address(0)
+        Note over SmartInvoiceFactory: No operations in 'then' branch
+      end
+      opt Internal: SmartInvoiceFactory._init
+        activate SmartInvoiceFactory
+        SmartInvoiceFactory->>SmartInvoiceFactory: SmartInvoiceFactory._init(invoiceAddress, _recipient, _amounts, _data, _type, _version)
+        opt External: ISmartInvoice.init
+          activate ISmartInvoice
+          SmartInvoiceFactory->>ISmartInvoice: ISmartInvoice.init(_recipient, _amounts, _data)
+          deactivate ISmartInvoice
+        end
+        Note over SmartInvoiceFactory: Read SmartInvoiceFactory.invoiceCount
+        Note over SmartInvoiceFactory: Write SmartInvoiceFactory._invoices
+        Note over SmartInvoiceFactory: Read SmartInvoiceFactory.invoiceCount
+        SmartInvoiceFactory->>SmartInvoiceFactory: emit LogNewInvoice(invoiceId, _invoiceAddress, _amounts, _type, _version)
+        deactivate SmartInvoiceFactory
+      end
+      SmartInvoiceFactory-->>SafeSplitsEscrowZap: ret invoiceAddress: address from createDeterministic
+      deactivate SmartInvoiceFactory
+    end
+    alt _zapData.escrow == address(0)
+      Note over SafeSplitsEscrowZap: No operations in 'then' branch
+    end
+    SafeSplitsEscrowZap-->>SafeSplitsDaoEscrowZap: ret _zapData: ZapData from _deployEscrow
+    deactivate SafeSplitsEscrowZap
+  end
+  SafeSplitsDaoEscrowZap->>SafeSplitsDaoEscrowZap: emit SafeSplitsDaoEscrowCreated(daoZapData.zapData.safe, daoZapData.zapData.projectTeamSplit, daoZapData.daoSplit, daoZapData.zapData.escrow)
+  deactivate SafeSplitsDaoEscrowZap
+end
+SafeSplitsDaoEscrowZap-->>User: ret from createSafeSplitEscrow()
+User->>SafeSplitsEscrowZap: call createSafeSplitEscrow()
+alt _percentAllocations.length != _owners.length
+  Note over SafeSplitsEscrowZap: No operations in 'then' branch
+end
+opt Internal: SafeSplitsEscrowZap._createSafeSplitEscrow
+  activate SafeSplitsEscrowZap
+  SafeSplitsEscrowZap->>SafeSplitsEscrowZap: SafeSplitsEscrowZap._createSafeSplitEscrow(_owners, _percentAllocations, _milestoneAmounts, _safeData, _safeAddress, _splitData, _escrowData)
+  alt zapData.safe == address(0)
+    opt Internal: SafeSplitsEscrowZap._deploySafe
+      activate SafeSplitsEscrowZap
+      SafeSplitsEscrowZap->>SafeSplitsEscrowZap: SafeSplitsEscrowZap._deploySafe(_owners, _safeData, zapData)
+      Note over SafeSplitsEscrowZap: Read SafeSplitsEscrowZap.fallbackHandler
+      Note over SafeSplitsEscrowZap: Read SafeSplitsEscrowZap.safeFactory
+      Note over SafeSplitsEscrowZap: Read SafeSplitsEscrowZap.safeSingleton
+      opt External: ISafeProxyFactory.createProxyWithNonce
+        activate ISafeProxyFactory
+        SafeSplitsEscrowZap->>ISafeProxyFactory: ISafeProxyFactory.createProxyWithNonce(safeSingleton, safeInitializer, _saltNonce)
+        deactivate ISafeProxyFactory
+      end
+      alt _zapData.safe == address(0)
+        Note over SafeSplitsEscrowZap: No operations in 'then' branch
+      end
+      SafeSplitsEscrowZap-->>SafeSplitsEscrowZap: ret _zapData: ZapData from _deploySafe
+      deactivate SafeSplitsEscrowZap
+    end
+  end
+  opt Internal: SafeSplitsEscrowZap._createSplit
+    activate SafeSplitsEscrowZap
+    SafeSplitsEscrowZap->>SafeSplitsEscrowZap: SafeSplitsEscrowZap._createSplit(_owners, _percentAllocations, _splitData, zapData)
+    alt !projectSplit
+      Note over SafeSplitsEscrowZap: No operations in 'then' branch
+    end
+    Note over SafeSplitsEscrowZap: Read SafeSplitsEscrowZap.splitMain
+    Note over SafeSplitsEscrowZap: Read SafeSplitsEscrowZap.distributorFee
+    opt External: ISplitMain.createSplit
+      activate ISplitMain
+      SafeSplitsEscrowZap->>ISplitMain: ISplitMain.createSplit(_owners, _percentAllocations, distributorFee, _zapData.safe)
+      deactivate ISplitMain
+    end
+    alt _zapData.projectTeamSplit == address(0)
+      Note over SafeSplitsEscrowZap: No operations in 'then' branch
+    end
+    SafeSplitsEscrowZap-->>SafeSplitsEscrowZap: ret _zapData: ZapData from _createSplit
+    deactivate SafeSplitsEscrowZap
+  end
+  opt Internal: SafeSplitsEscrowZap._handleEscrowParams
+    activate SafeSplitsEscrowZap
+    SafeSplitsEscrowZap->>SafeSplitsEscrowZap: SafeSplitsEscrowZap._handleEscrowParams(zapData)
+    SafeSplitsEscrowZap-->>SafeSplitsEscrowZap: ret escrowParams: address[] from _handleEscrowParams
+    deactivate SafeSplitsEscrowZap
+  end
+  opt Internal: SafeSplitsEscrowZap._deployEscrow
+    activate SafeSplitsEscrowZap
+    SafeSplitsEscrowZap->>SafeSplitsEscrowZap: SafeSplitsEscrowZap._deployEscrow(_milestoneAmounts, _escrowData, escrowParams, zapData)
+    opt Internal: SafeSplitsEscrowZap._handleEscrowData
+      activate SafeSplitsEscrowZap
+      SafeSplitsEscrowZap->>SafeSplitsEscrowZap: SafeSplitsEscrowZap._handleEscrowData(_escrowData)
+      deactivate SafeSplitsEscrowZap
+    end
+    Note over SafeSplitsEscrowZap: Read SafeSplitsEscrowZap.wrappedNativeToken
+    Note over SafeSplitsEscrowZap: Read SafeSplitsEscrowZap.escrowFactory
+    Note over SafeSplitsEscrowZap: Read SafeSplitsEscrowZap.escrowFactory
+    opt External: SmartInvoiceFactory.createDeterministic
+      activate SmartInvoiceFactory
+      SafeSplitsEscrowZap->>SmartInvoiceFactory: SmartInvoiceFactory.createDeterministic(_escrowParams[0], _milestoneAmounts, escrowDetails, bytes32("updatable"), escrowData.saltNonce)
+      Note over SmartInvoiceFactory: Read SmartInvoiceFactory.currentVersions
+      Note over SmartInvoiceFactory: Read SmartInvoiceFactory.implementations
+      alt _implementation == address(0)
+        Note over SmartInvoiceFactory: No operations in 'then' branch
+      end
+      opt Internal: SmartInvoiceFactory._init
+        activate SmartInvoiceFactory
+        SmartInvoiceFactory->>SmartInvoiceFactory: SmartInvoiceFactory._init(invoiceAddress, _recipient, _amounts, _data, _type, _version)
+        opt External: ISmartInvoice.init
+          activate ISmartInvoice
+          SmartInvoiceFactory->>ISmartInvoice: ISmartInvoice.init(_recipient, _amounts, _data)
+          deactivate ISmartInvoice
+        end
+        Note over SmartInvoiceFactory: Read SmartInvoiceFactory.invoiceCount
+        Note over SmartInvoiceFactory: Write SmartInvoiceFactory._invoices
+        Note over SmartInvoiceFactory: Read SmartInvoiceFactory.invoiceCount
+        SmartInvoiceFactory->>SmartInvoiceFactory: emit LogNewInvoice(invoiceId, _invoiceAddress, _amounts, _type, _version)
+        deactivate SmartInvoiceFactory
+      end
+      deactivate SmartInvoiceFactory
+    end
+    alt _zapData.escrow == address(0)
+      Note over SafeSplitsEscrowZap: No operations in 'then' branch
+    end
+    SafeSplitsEscrowZap-->>SafeSplitsEscrowZap: ret _zapData: ZapData from _deployEscrow
+    deactivate SafeSplitsEscrowZap
+  end
+  SafeSplitsEscrowZap->>SafeSplitsEscrowZap: emit SafeSplitsEscrowCreated(zapData.safe, zapData.projectTeamSplit, zapData.escrow)
+  deactivate SafeSplitsEscrowZap
+end
+
+    Note over SafeSplitsDaoEscrowZap: Continues in Chunk 3
+
+    %% Lines: 202-418
+    %% Participants: 9

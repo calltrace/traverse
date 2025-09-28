@@ -1,0 +1,209 @@
+sequenceDiagram
+    %% Chunk 1 of 7 - Lines 1-201
+    title Call Graph - Chunk 1
+
+    participant User
+    participant IArbitrable
+    participant IArbitrator
+    participant ISafeProxyFactory
+    participant ISafeSplitsEscrowZap
+    participant SafeSplitsEscrowZap
+    participant ISmartInvoice
+    participant ISmartInvoiceEscrow
+    participant SmartInvoiceEscrow
+    participant ISmartInvoiceFactory
+    participant SmartInvoiceFactory
+    participant ISmartInvoiceInstant
+    participant SmartInvoiceInstant
+    participant ISplitMain
+    participant ISpoilsManager
+    participant SpoilsManager
+    participant IWRAPPED
+    participant SafeSplitsDaoEscrowZap
+    participant SafeSplitsEscrowZapFactory
+    participant SmartInvoiceFactoryBundler
+    participant SmartInvoiceSplitEscrow
+    participant SmartInvoiceUpdatable
+    participant SmartInvoiceUpdatableV2
+    participant SpoilsManagerFactory
+    participant MockArbitrator
+    participant MockToken
+    participant MockWETH
+
+User->>SmartInvoiceFactory: call addImplementation()
+Note over SmartInvoiceFactory: Read SmartInvoiceFactory.ADMIN
+alt _implementation == address(0)
+  Note over SmartInvoiceFactory: No operations in 'then' branch
+end
+Note over SmartInvoiceFactory: Read SmartInvoiceFactory.currentVersions
+Note over SmartInvoiceFactory: Read SmartInvoiceFactory.implementations
+alt currentImplementation == address(0)
+  Note over SmartInvoiceFactory: Read SmartInvoiceFactory.implementations
+  Note over SmartInvoiceFactory: Write SmartInvoiceFactory.implementations
+else else
+  Note over SmartInvoiceFactory: Read SmartInvoiceFactory.implementations
+  Note over SmartInvoiceFactory: Write SmartInvoiceFactory.implementations
+  Note over SmartInvoiceFactory: Write SmartInvoiceFactory.currentVersions
+end
+SmartInvoiceFactory->>SmartInvoiceFactory: emit AddImplementation(_type, _version, _implementation)
+SmartInvoiceFactory-->>User: ret from addImplementation()
+User->>SmartInvoiceEscrow: call addMilestones()
+opt Internal: SmartInvoiceEscrow._addMilestones
+  activate SmartInvoiceEscrow
+  SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._addMilestones(_milestones, bytes32(0))
+  alt locked
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.locked
+  alt block.timestamp >= terminationTime
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.terminationTime
+  alt _msgSender() != client && _msgSender() != provider
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.client
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.provider
+  alt _milestones.length == 0
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  alt _milestones.length > 10
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.total
+  loop i < amounts.length;
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+  loop i < newLength;
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+  Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.total
+  Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.amounts
+  alt _details != bytes32(0)
+    Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.details
+    SmartInvoiceEscrow->>SmartInvoiceEscrow: emit DetailsUpdated(msg.sender, _details)
+  end
+  SmartInvoiceEscrow->>SmartInvoiceEscrow: emit MilestonesAdded(msg.sender, address(this), _milestones)
+  deactivate SmartInvoiceEscrow
+end
+SmartInvoiceEscrow-->>User: ret from addMilestones()
+User->>SmartInvoiceEscrow: call addMilestones()
+opt Internal: SmartInvoiceEscrow._addMilestones
+  activate SmartInvoiceEscrow
+  SmartInvoiceEscrow->>SmartInvoiceEscrow: SmartInvoiceEscrow._addMilestones(_milestones, _details)
+  alt locked
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.locked
+  alt block.timestamp >= terminationTime
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.terminationTime
+  alt _msgSender() != client && _msgSender() != provider
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.client
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.provider
+  alt _milestones.length == 0
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  alt _milestones.length > 10
+    Note over SmartInvoiceEscrow: No operations in 'then' branch
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.total
+  loop i < amounts.length;
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+  loop i < newLength;
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+    Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+  end
+  Note over SmartInvoiceEscrow: Read SmartInvoiceEscrow.amounts
+  Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.total
+  Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.amounts
+  alt _details != bytes32(0)
+    Note over SmartInvoiceEscrow: Write SmartInvoiceEscrow.details
+    SmartInvoiceEscrow->>SmartInvoiceEscrow: emit DetailsUpdated(msg.sender, _details)
+  end
+  SmartInvoiceEscrow->>SmartInvoiceEscrow: emit MilestonesAdded(msg.sender, address(this), _milestones)
+  deactivate SmartInvoiceEscrow
+end
+SmartInvoiceEscrow-->>User: ret from addMilestones()
+User->>MockWETH: call approve()
+Note over MockWETH: Read MockWETH.allowance
+Note over MockWETH: Write MockWETH.allowance
+MockWETH->>MockWETH: emit Approval(msg.sender, guy, wad)
+MockWETH-->>User: ret: bool from approve()
+User->>MockArbitrator: call arbitrationCost()
+Note over MockArbitrator: Read MockArbitrator.cost
+MockArbitrator-->>User: ret: uint256 from arbitrationCost()
+User->>SmartInvoiceFactory: call create()
+Note over SmartInvoiceFactory: Read SmartInvoiceFactory.currentVersions
+Note over SmartInvoiceFactory: Read SmartInvoiceFactory.implementations
+alt _implementation == address(0)
+  Note over SmartInvoiceFactory: No operations in 'then' branch
+end
+opt Internal: SmartInvoiceFactory._init
+  activate SmartInvoiceFactory
+  SmartInvoiceFactory->>SmartInvoiceFactory: SmartInvoiceFactory._init(invoiceAddress, _recipient, _amounts, _data, _type, _version)
+  opt External: ISmartInvoice.init
+    activate ISmartInvoice
+    SmartInvoiceFactory->>ISmartInvoice: ISmartInvoice.init(_recipient, _amounts, _data)
+    deactivate ISmartInvoice
+  end
+  Note over SmartInvoiceFactory: Read SmartInvoiceFactory.invoiceCount
+  Note over SmartInvoiceFactory: Write SmartInvoiceFactory._invoices
+  Note over SmartInvoiceFactory: Read SmartInvoiceFactory.invoiceCount
+  SmartInvoiceFactory->>SmartInvoiceFactory: emit LogNewInvoice(invoiceId, _invoiceAddress, _amounts, _type, _version)
+  deactivate SmartInvoiceFactory
+end
+SmartInvoiceFactory-->>User: ret: address from create()
+User->>SmartInvoiceFactory: call createDeterministic()
+Note over SmartInvoiceFactory: Read SmartInvoiceFactory.currentVersions
+Note over SmartInvoiceFactory: Read SmartInvoiceFactory.implementations
+alt _implementation == address(0)
+  Note over SmartInvoiceFactory: No operations in 'then' branch
+end
+opt Internal: SmartInvoiceFactory._init
+  activate SmartInvoiceFactory
+  SmartInvoiceFactory->>SmartInvoiceFactory: SmartInvoiceFactory._init(invoiceAddress, _recipient, _amounts, _data, _type, _version)
+  opt External: ISmartInvoice.init
+    activate ISmartInvoice
+    SmartInvoiceFactory->>ISmartInvoice: ISmartInvoice.init(_recipient, _amounts, _data)
+    deactivate ISmartInvoice
+  end
+  Note over SmartInvoiceFactory: Read SmartInvoiceFactory.invoiceCount
+  Note over SmartInvoiceFactory: Write SmartInvoiceFactory._invoices
+  Note over SmartInvoiceFactory: Read SmartInvoiceFactory.invoiceCount
+  SmartInvoiceFactory->>SmartInvoiceFactory: emit LogNewInvoice(invoiceId, _invoiceAddress, _amounts, _type, _version)
+  deactivate SmartInvoiceFactory
+end
+SmartInvoiceFactory-->>User: ret: address from createDeterministic()
+User->>MockArbitrator: call createDispute()
+alt msg.value != cost
+  Note over MockArbitrator: No operations in 'then' branch
+end
+Note over MockArbitrator: Read MockArbitrator.cost
+Note over MockArbitrator: Read MockArbitrator.currentDisputeId
+Note over MockArbitrator: Read MockArbitrator.currentDisputeId
+Note over MockArbitrator: Write MockArbitrator.disputes
+Note over MockArbitrator: Write MockArbitrator.choices
+Note over MockArbitrator: Read MockArbitrator.currentDisputeId
+MockArbitrator->>MockArbitrator: emit DisputeCreation(currentDisputeId, msg.sender)
+Note over MockArbitrator: Read MockArbitrator.currentDisputeId
+MockArbitrator-->>User: ret: uint256 from createDispute()
+User->>SafeSplitsDaoEscrowZap: call createSafeSplitEscrow()
+alt _percentAllocations.length != _owners.length
+  Note over SafeSplitsDaoEscrowZap: No operations in 'then' branch
+end
+
+    Note over User: Continues in Chunk 2
+
+    %% Lines: 1-201
+    %% Participants: 27
