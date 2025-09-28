@@ -1579,8 +1579,12 @@ dependencies = [
 name = "traverse-mermaid"
 version = "0.1.3"
 dependencies = [
+ "anyhow",
+ "chrono",
  "pest",
  "pest_derive",
+ "serde",
+ "serde_json",
  "tracing",
 ]
 

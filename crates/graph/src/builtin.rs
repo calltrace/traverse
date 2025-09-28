@@ -21,7 +21,6 @@ pub struct BuiltinFunction {
 static BUILTIN_FUNCTIONS: Lazy<HashMap<&'static str, Vec<BuiltinFunction>>> = Lazy::new(|| {
     let mut m = HashMap::new();
 
-    // Helper to add a built-in to the map
     let mut add = |builtin: BuiltinFunction| {
         m.entry(builtin.name)
             .or_insert_with(Vec::new)

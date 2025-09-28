@@ -195,7 +195,6 @@ impl SequenceDiagramBuilder {
         }
 
         let msg = message.map(|m| Message {
-            // TODO: Potentially add builder method to control wrap indicator
             wrap_indicator: None,
             content: m.into(),
         });
@@ -376,13 +375,6 @@ impl SequenceDiagramBuilder {
     }
 
 
-    // TODO: Implement builder methods for more complex blocks:
-    // - AltStatement (needs handling for multiple 'else' sections)
-    // - ParStatement (needs handling for multiple 'and' sections)
-    // - CriticalStatement
-    // - BreakStatement
-    // - BoxStatement (needs nested participants)
-    // - Links, Link, Properties, Details statements
 }
 
 // --- Unit Tests ---

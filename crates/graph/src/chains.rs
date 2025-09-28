@@ -2570,7 +2570,7 @@ mod tests {
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
         // Find the first function definition node (testFunc)
         let _func_def_node = find_nth_node_of_kind(&tree, "function_definition", 0)
-            .expect("Could not find function definition node for testFunc");
+            .expect("missing function definition");
         let caller_node_id = graph
             .node_lookup
             .get(&(Some("Test".to_string()), "testFunc".to_string()))
@@ -2629,10 +2629,10 @@ mod tests {
         "#;
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
         let _func_node = find_nth_node_of_kind(&tree, "function_definition", 0)
-            .expect("Could not find function definition node for getX");
+            .expect("missing function definition");
         // Find the member_expression node for c_instance.x
         let _member_expr_node = find_nth_node_of_kind(&tree, "member_expression", 0)
-            .expect("Could not find the first member_expression node (c_instance.x)"); // Add expect
+            .expect("missing member expression"); // Add expect
         let caller_node_id = graph
             .node_lookup
             .get(&(Some("Test".to_string()), "getX".to_string()))
@@ -2641,7 +2641,7 @@ mod tests {
 
         // Find the member_expression node for c_instance.x
         let member_expr_node = find_nth_node_of_kind(&tree, "member_expression", 0)
-            .expect("Could not find the first member_expression node (c_instance.x)"); // Add expect
+            .expect("missing member expression"); // Add expect
 
         let resolved_type = resolve_expression_type_v2(
             member_expr_node,
@@ -2673,7 +2673,7 @@ mod tests {
         // Use the new helper function to find the function definition node
         let _caller_def_node =
             find_function_definition_node_by_name(&tree, source, &lang, "caller")
-                .expect("Could not find function definition node for caller");
+                .expect("missing function definition");
         let caller_node_id = graph
             .node_lookup
             .get(&(Some("Test".to_string()), "caller".to_string()))
@@ -2682,7 +2682,7 @@ mod tests {
 
         // Find the call_expression node for target()
         let call_expr_node = find_nth_node_of_kind(&tree, "call_expression", 0)
-            .expect("Could not find the call_expression node for target()"); // Add expect
+            .expect("missing call expression"); // Add expect
 
         let steps = analyze_chained_call(
             call_expr_node,
@@ -2735,7 +2735,7 @@ mod tests {
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
         // Use the correct helper to find the function definition node by its name
         let caller_def_node = find_function_definition_node_by_name(&tree, source, &lang, "caller")
-            .expect("Could not find function definition node for caller");
+            .expect("missing function definition");
         let caller_node_id = graph
             .node_lookup
             .get(&(Some("Test".to_string()), "caller".to_string()))
@@ -2812,7 +2812,7 @@ mod tests {
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
         let _caller_def_node =
             find_function_definition_node_by_name(&tree, source, &lang, "caller")
-                .expect("Could not find function definition node for caller");
+                .expect("missing function definition");
         let caller_node_id = graph
             .node_lookup
             .get(&(Some("Test".to_string()), "caller".to_string()))
@@ -2875,7 +2875,7 @@ mod tests {
         "#;
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
         let _caller_def_node = find_function_definition_node_by_name(&tree, source, &lang, "caller")
-            .expect("Could not find function definition node for caller");
+            .expect("missing function definition");
         let caller_node_id = graph
             .node_lookup
             .get(&(Some("Test".to_string()), "caller".to_string()))
@@ -2958,7 +2958,7 @@ mod tests {
 
         let _caller_def_node =
             find_function_definition_node_by_name(&tree, source, &lang, "caller")
-                .expect("Could not find function definition node for caller");
+                .expect("missing function definition");
         let caller_node_id = graph
             .node_lookup
             .get(&(Some("Test".to_string()), "caller".to_string()))
@@ -2969,7 +2969,7 @@ mod tests {
         // Re-fetch caller_def_node as it was prefixed with _
         let caller_def_node_for_search =
             find_function_definition_node_by_name(&tree, source, &lang, "caller")
-                .expect("Could not find function definition node for caller (for search)");
+                .expect("missing function definition");
         let assignment_node = find_nth_descendant_node_of_kind(
             &caller_def_node_for_search, // Search within the caller function
             source,
@@ -3070,7 +3070,7 @@ mod tests {
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
 
         let _caller_def_node = find_function_definition_node_by_name(&tree, source, &lang, "caller")
-            .expect("Could not find function definition node for caller");
+            .expect("missing function definition");
         let caller_node_id = graph
             .node_lookup
             .get(&(Some("Test".to_string()), "caller".to_string()))
@@ -3183,7 +3183,7 @@ mod tests {
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
 
         let _caller_def_node = find_function_definition_node_by_name(&tree, source, &lang, "caller")
-            .expect("Could not find function definition node for caller");
+            .expect("missing function definition");
         let caller_node_id = graph
             .node_lookup
             .get(&(Some("Test".to_string()), "caller".to_string()))
@@ -3513,7 +3513,7 @@ mod tests {
          "#;
         let (ctx, graph, tree, lang, input) = setup_test_environment(source)?;
         let _caller_def_node = find_function_definition_node_by_name(&tree, source, &lang, "caller")
-            .expect("Could not find function definition node for caller");
+            .expect("missing function definition");
         let caller_node_id = graph
             .node_lookup
             .get(&(Some("Test".to_string()), "caller".to_string()))

@@ -59,12 +59,12 @@ fn test_simple_contract_call() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Create empty config
+    let config = HashMap::new();
 
-    let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
-    pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
-    pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
-    pipeline.run(input, &mut ctx, &mut graph, &config)?; // Pass config to run
+    let mut pipeline = CallGraphGeneratorPipeline::new();
+    pipeline.add_step(Box::new(ContractHandling::default()));
+    pipeline.add_step(Box::new(CallsHandling::default()));
+    pipeline.run(input, &mut ctx, &mut graph, &config)?;
 
     // Nodes: foo, bar, constructor (explicit)
     assert_eq!(graph.nodes.len(), 3, "Should find 3 nodes");
@@ -129,7 +129,7 @@ fn test_delete_keyword() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();
@@ -216,7 +216,7 @@ fn test_interface_call_no_implementation() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();
@@ -334,7 +334,7 @@ fn test_contract_inheritance() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();
@@ -459,12 +459,12 @@ fn test_modifier_call() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Create empty config
+    let config = HashMap::new();
 
-    let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
-    pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
-    pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
-    pipeline.run(input, &mut ctx, &mut graph, &config)?; // Pass config to run
+    let mut pipeline = CallGraphGeneratorPipeline::new();
+    pipeline.add_step(Box::new(ContractHandling::default()));
+    pipeline.add_step(Box::new(CallsHandling::default()));
+    pipeline.run(input, &mut ctx, &mut graph, &config)?;
 
     // Nodes: onlyAdmin, checkAdmin, restricted, + default constructor
     assert_eq!(graph.nodes.len(), 4, "Should find 4 nodes");
@@ -519,12 +519,12 @@ fn test_free_function_call() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Create empty config
+    let config = HashMap::new();
 
-    let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
-    pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
-    pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
-    pipeline.run(input, &mut ctx, &mut graph, &config)?; // Pass config to run
+    let mut pipeline = CallGraphGeneratorPipeline::new();
+    pipeline.add_step(Box::new(ContractHandling::default()));
+    pipeline.add_step(Box::new(CallsHandling::default()));
+    pipeline.run(input, &mut ctx, &mut graph, &config)?;
 
     // Nodes: helper, callHelper, + default constructor for Caller
     assert_eq!(graph.nodes.len(), 3, "Should find 3 nodes");
@@ -570,12 +570,12 @@ fn test_no_calls() -> Result<()> {
 
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Create empty config
+    let config = HashMap::new();
 
-    let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
-    pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
-    pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
-    pipeline.run(input, &mut ctx, &mut graph, &config)?; // Pass config to run
+    let mut pipeline = CallGraphGeneratorPipeline::new();
+    pipeline.add_step(Box::new(ContractHandling::default()));
+    pipeline.add_step(Box::new(CallsHandling::default()));
+    pipeline.run(input, &mut ctx, &mut graph, &config)?;
 
     assert_eq!(graph.nodes.len(), 3, "Should find 3 nodes");
     assert_eq!(graph.edges.len(), 0, "Should find 0 edges");
@@ -605,12 +605,12 @@ fn test_call_order_within_function() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Create empty config
+    let config = HashMap::new();
 
-    let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
-    pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
-    pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
-    pipeline.run(input, &mut ctx, &mut graph, &config)?; // Pass config to run
+    let mut pipeline = CallGraphGeneratorPipeline::new();
+    pipeline.add_step(Box::new(ContractHandling::default()));
+    pipeline.add_step(Box::new(CallsHandling::default()));
+    pipeline.run(input, &mut ctx, &mut graph, &config)?;
 
     // Nodes: callee1, callee2, caller, + default constructor for CallOrder
     assert_eq!(graph.nodes.len(), 4, "Should find 4 nodes");
@@ -660,12 +660,12 @@ fn test_empty_source() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Create empty config
+    let config = HashMap::new();
 
-    let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
-    pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
-    pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
-    pipeline.run(input, &mut ctx, &mut graph, &config)?; // Pass config to run
+    let mut pipeline = CallGraphGeneratorPipeline::new();
+    pipeline.add_step(Box::new(ContractHandling::default()));
+    pipeline.add_step(Box::new(CallsHandling::default()));
+    pipeline.run(input, &mut ctx, &mut graph, &config)?;
 
     assert_eq!(graph.nodes.len(), 0, "Should find 0 nodes");
     assert_eq!(graph.edges.len(), 0, "Should find 0 edges");
@@ -692,12 +692,12 @@ fn test_unresolved_call() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Create empty config
+    let config = HashMap::new();
 
-    let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
-    pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
-    pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
-    pipeline.run(input, &mut ctx, &mut graph, &config)?; // Pass config to run
+    let mut pipeline = CallGraphGeneratorPipeline::new();
+    pipeline.add_step(Box::new(ContractHandling::default()));
+    pipeline.add_step(Box::new(CallsHandling::default()));
+    pipeline.run(input, &mut ctx, &mut graph, &config)?;
 
     assert_eq!(
         graph.nodes.len(),
@@ -746,13 +746,13 @@ fn test_inter_contract_call() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Create empty config
+    let config = HashMap::new();
 
-    let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
+    let mut pipeline = CallGraphGeneratorPipeline::new();
     // Add ContractHandling first to ensure nodes exist before CallsHandling tries to connect them
     pipeline.add_step(Box::new(ContractHandling::default()));
-    pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
-    pipeline.run(input, &mut ctx, &mut graph, &config)?; // Pass config to run
+    pipeline.add_step(Box::new(CallsHandling::default()));
+    pipeline.run(input, &mut ctx, &mut graph, &config)?;
 
     // Nodes: Counter.count(0), Counter.increment(1), CounterCaller.myCounter(2), CounterCaller.constructor(3), CounterCaller.callIncrement(4), Counter.constructor(5)
     assert_eq!(graph.nodes.len(), 6, "Should find 6 nodes (2 vars, 2 funcs, 2 ctors)");
@@ -860,11 +860,11 @@ fn test_return_boolean_literal() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Create empty config
+    let config = HashMap::new();
 
-    let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
-    pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
-    pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
+    let mut pipeline = CallGraphGeneratorPipeline::new();
+    pipeline.add_step(Box::new(ContractHandling::default()));
+    pipeline.add_step(Box::new(CallsHandling::default()));
     pipeline.run(input.clone(), &mut ctx, &mut graph, &config)?; // Pass config to run
 
     // Explicitly add return edges AFTER the pipeline run
@@ -929,12 +929,12 @@ fn test_pipeline_execution() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Create empty config
+    let config = HashMap::new();
 
-    let mut pipeline = CallGraphGeneratorPipeline::new(); // Pipeline needs to be mutable
-    pipeline.add_step(Box::new(ContractHandling::default())); // Use default constructor
-    pipeline.add_step(Box::new(CallsHandling::default())); // Use default constructor
-    pipeline.run(input, &mut ctx, &mut graph, &config)?; // Pass config to run
+    let mut pipeline = CallGraphGeneratorPipeline::new();
+    pipeline.add_step(Box::new(ContractHandling::default()));
+    pipeline.add_step(Box::new(CallsHandling::default()));
+    pipeline.run(input, &mut ctx, &mut graph, &config)?;
 
     assert_eq!(graph.nodes.len(), 3, "Pipeline: Should find 3 nodes");
     assert_eq!(graph.edges.len(), 1, "Pipeline: Should find 1 edge");
@@ -991,7 +991,7 @@ fn test_pipeline_step_enable_disable() -> Result<()> {
         tree: ast.tree,
         solidity_lang,
     };
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // --- Test with CallsHandling disabled ---
     let mut ctx_disabled = CallGraphGeneratorContext::default();
@@ -1155,7 +1155,7 @@ fn test_library_definition_and_usage() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     let mut pipeline = CallGraphGeneratorPipeline::new();
     pipeline.add_step(Box::new(ContractHandling::default()));
@@ -1264,7 +1264,7 @@ fn test_using_for_call_resolution() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();
@@ -1389,7 +1389,7 @@ fn test_interface_definition() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();
@@ -1528,7 +1528,7 @@ fn test_interface_inheritance() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();
@@ -1709,7 +1709,7 @@ fn test_interface_invocation_single_implementation() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // --- Run the pipeline ---
     let mut pipeline = CallGraphGeneratorPipeline::new();
@@ -1844,7 +1844,7 @@ fn test_chained_call_resolution() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();
@@ -2106,7 +2106,7 @@ fn test_direct_library_call() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();
@@ -2187,7 +2187,7 @@ fn test_chained_library_call_resolution() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();
@@ -2325,7 +2325,7 @@ fn test_interface_call_resolution_factory_pattern() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();
@@ -2533,7 +2533,7 @@ fn test_argument_capturing() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();
@@ -2637,7 +2637,7 @@ fn test_simple_emit_statement() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();
@@ -2786,7 +2786,7 @@ fn test_interface_call_resolution_factory_pattern_no_return() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();
@@ -2925,7 +2925,7 @@ fn test_storage_read_write() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline (including StorageHandling step if it exists,
     // otherwise ContractHandling should create the variable node and
@@ -3048,7 +3048,7 @@ fn test_library_call_on_return_value() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();
@@ -3185,7 +3185,7 @@ fn test_inherited_storage_access() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();
@@ -3277,7 +3277,7 @@ fn test_require_statement() -> Result<()> {
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
-    let config: HashMap<String, String> = HashMap::new(); // Empty config
+    let config = HashMap::new();
 
     // Run the full pipeline
     let mut pipeline = CallGraphGeneratorPipeline::new();

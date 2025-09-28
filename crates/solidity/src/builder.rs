@@ -878,7 +878,6 @@ pub fn bytes() -> TypeName {
     TypeName::Elementary(ElementaryTypeName::Bytes)
 }
 
-/// Helper function to determine if a type requires a data location specifier
 pub fn requires_data_location(type_name: &TypeName) -> bool {
     match type_name {
         TypeName::Elementary(elem) => match elem {
@@ -892,7 +891,6 @@ pub fn requires_data_location(type_name: &TypeName) -> bool {
     }
 }
 
-/// Helper function to get the appropriate data location for a type in local variable context
 pub fn get_default_data_location(type_name: &TypeName) -> Option<DataLocation> {
     if requires_data_location(type_name) {
         Some(DataLocation::Memory)

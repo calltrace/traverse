@@ -16,7 +16,7 @@ use traverse_graph::natspec::extract::extract_source_comments; // Added
 use traverse_graph::parser::parse_solidity;
 use traverse_graph::steps::{CallsHandling, ContractHandling};
 use traverse_graph::parser::get_solidity_language;
-use traverse_mermaid::sequence_diagram_writer;
+use traverse_mermaid::{sequence_diagram_writer, mermaid_chunker};
 use std::collections::HashMap;
 use std::fmt;
 use std::fs;
@@ -72,9 +72,16 @@ struct Cli {
     /// Optional path to a pre-generated manifest.yaml file.
     #[arg(long)]
     manifest_file: Option<PathBuf>,
+
+    /// [Mermaid format only] Disable chunking of large diagrams.
+    #[arg(long)]
+    no_chunk: bool,
+
+    /// [Mermaid format only] Directory for chunked output (default: ./mermaid-chunks/).
+    #[arg(long)]
+    chunk_dir: Option<PathBuf>,
 }
 
-// Helper function to get the value "dot" for the requires condition
 fn _format_dot() -> OutputFormat {
     OutputFormat::Dot
 }
@@ -440,6 +447,20 @@ fn main() -> Result<()> {
     );
     // --- END DEBUG ---
 
+    // Handle mermaid chunking separately (enabled by default, disabled with --no-chunk)
+    if cli.format == OutputFormat::Mermaid && !cli.no_chunk {
+        let generator = MermaidGenerator::new();
+        let sequence_diagram = generator.to_sequence_diagram(&graph);
+        let diagram_str = sequence_diagram_writer::write_diagram(&sequence_diagram);
+        
+        // Perform chunking
+        let chunk_dir = cli.chunk_dir.as_deref();
+        let _result = mermaid_chunker::chunk_mermaid_diagram(&diagram_str, chunk_dir)
+            .context("Failed to chunk mermaid diagram")?;
+        
+        return Ok(());
+    }
+    
     let output_string = match cli.format {
         OutputFormat::Dot => {
             // Create DotExportConfig based on CLI flag

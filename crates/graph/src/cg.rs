@@ -418,11 +418,10 @@ impl CallGraph {
                                     (return_node.start_byte(), return_node.end_byte());
                                 let return_kind = return_node.kind();
 
-                                eprint!(
-                                    "  Found return statement within definition: Kind='{}', Span={:?}. ",
+                                debug!(
+                                    "  Found return statement within definition: Kind='{}', Span={:?}. => ACCEPTED (within definition node)",
                                     return_kind, return_span
                                 );
-                                debug!(" => ACCEPTED (within definition node)");
 
                                 let returned_value_text = return_value_node_opt
                                     .map(|n| get_node_text(&n, &input.source).to_string());
@@ -592,7 +591,6 @@ pub trait CallGraphGeneratorStep {
     ) -> Result<()>;
 }
 
-// --- Helper Function Implementations ---
 
 pub(crate) fn extract_function_parameters(
     fn_like_ts_node: TsNode, // This is function_definition or constructor_definition
@@ -656,7 +654,6 @@ pub(crate) fn extract_function_parameters(
     parameters
 }
 
-/// Helper function to extract argument texts from a call expression node.
 pub(crate) fn extract_arguments<'a>(
     call_expr_node: TsNode<'a>,
     input: &CallGraphGeneratorInput,
@@ -699,7 +696,6 @@ pub(crate) fn extract_arguments<'a>(
     argument_texts
 }
 
-/// Helper function to extract argument TsNode objects from a call expression node.
 pub(crate) fn extract_argument_nodes<'a>(call_expr_node: TsNode<'a>) -> Vec<TsNode<'a>> {
     let mut argument_nodes_ts: Vec<TsNode<'a>> = Vec::new();
     debug!(

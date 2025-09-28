@@ -31,7 +31,6 @@ pub fn parse_solidity(source: &str) -> Result<SolidityAST> {
     })
 }
 
-/// Helper function to get the source text for a node
 pub fn get_node_text<'a>(node: &tree_sitter::Node, source: &'a str) -> &'a str {
     let start = node.start_byte();
     let end = node.end_byte();

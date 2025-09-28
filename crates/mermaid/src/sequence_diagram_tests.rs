@@ -5,7 +5,6 @@ use crate::sequence_diagram_builder::SequenceDiagramBuilder; // Import builder f
 use crate::sequence_diagram_parser::{Rule, SequenceDiagramParser};
 use pest::Parser;
 
-// Helper function to test if a diagram parses successfully
 fn test_parse(input: &str) -> bool {
     match SequenceDiagramParser::parse(Rule::sequence_diagram, input) {
         Ok(_) => true,
@@ -841,7 +840,6 @@ fn test_complex_diagram() {
 
 // --- Serialization Tests ---
 
-// Helper to parse and then serialize
 fn parse_and_serialize(input: &str) -> Result<String, String> {
     // Trim leading and trailing whitespace to avoid parser issues
     let input = input.trim();
@@ -858,7 +856,6 @@ fn parse_and_serialize(input: &str) -> Result<String, String> {
     Ok(diagram.to_mermaid_string())
 }
 
-// Helper to normalize Mermaid strings for comparison (basic version)
 fn normalize_mermaid(s: &str) -> String {
     s.lines()
         .map(|line| line.trim()) // Trim whitespace from each line

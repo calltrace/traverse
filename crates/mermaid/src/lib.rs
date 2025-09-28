@@ -2,6 +2,7 @@ pub mod sequence_diagram_ast;
 pub mod sequence_diagram_parser;
 pub mod sequence_diagram_builder;
 pub mod sequence_diagram_writer;
+pub mod mermaid_chunker;
 
 #[cfg(test)]
 pub mod sequence_diagram_tests;

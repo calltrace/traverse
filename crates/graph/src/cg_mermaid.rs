@@ -742,7 +742,6 @@ mod tests {
     use crate::cg::{CallGraph, EdgeType, NodeType, Visibility};
     use traverse_mermaid::sequence_diagram_ast::*; // Import AST elements for assertions
 
-    // Helper to create a simple graph for testing
     fn create_test_graph() -> CallGraph {
         let mut graph = CallGraph::new();
         // ContractA.funcA

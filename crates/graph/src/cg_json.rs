@@ -119,7 +119,6 @@ impl CgToJson for CallGraph {
         NF: Fn(&Node) -> Value,
         EF: Fn(&Edge) -> Value,
     {
-        // Node filtering logic (same as DOT export)
         let connected_node_ids: Option<HashSet<usize>> = if config.exclude_isolated_nodes {
             let mut ids = HashSet::new();
             for edge in self.iter_edges() {
@@ -131,7 +130,6 @@ impl CgToJson for CallGraph {
             None
         };
 
-        // Filter and format nodes
         let nodes: Vec<Value> = self
             .iter_nodes()
             .filter(|node| {
@@ -144,22 +142,18 @@ impl CgToJson for CallGraph {
             .map(&node_formatter)
             .collect();
 
-        // Format edges
         let edges: Vec<Value> = self.iter_edges().map(&edge_formatter).collect();
 
-        // Build the JSON structure
         let mut graph = serde_json::json!({
             "name": name,
             "nodes": nodes,
             "edges": edges,
         });
 
-        // Add metadata if requested
         if config.include_metadata {
             let isolated_count = if config.exclude_isolated_nodes {
-                0 // We excluded them, so count is 0 in output
+                0
             } else {
-                // Count isolated nodes
                 let connected_ids = {
                     let mut ids = HashSet::new();
                     for edge in self.iter_edges() {
@@ -230,7 +224,6 @@ mod tests {
         let config = JsonExportConfig::default();
         let json_str = graph.to_json("Test Graph", &config);
         
-        // Parse the JSON to verify structure
         let json: Value = serde_json::from_str(&json_str).expect("Failed to parse JSON");
         
         assert_eq!(json["name"], "Test Graph");
@@ -273,7 +266,6 @@ mod tests {
             n0, n1, EdgeType::Call, (15, 18), None, 1, None, None, None, None,
         );
 
-        // Test with isolated nodes excluded
         let config_exclude = JsonExportConfig {
             exclude_isolated_nodes: true,
             pretty_print: false,
@@ -282,11 +274,10 @@ mod tests {
         let json_str = graph.to_json("Test", &config_exclude);
         let json: Value = serde_json::from_str(&json_str).expect("Failed to parse JSON");
         
-        assert_eq!(json["nodes"].as_array().unwrap().len(), 2); // Only connected nodes
+        assert_eq!(json["nodes"].as_array().unwrap().len(), 2);
         assert_eq!(json["metadata"]["node_count"], 2);
         assert_eq!(json["metadata"]["isolated_node_count"], 0);
 
-        // Test with isolated nodes included
         let config_include = JsonExportConfig {
             exclude_isolated_nodes: false,
             pretty_print: false,
@@ -295,7 +286,7 @@ mod tests {
         let json_str = graph.to_json("Test", &config_include);
         let json: Value = serde_json::from_str(&json_str).expect("Failed to parse JSON");
         
-        assert_eq!(json["nodes"].as_array().unwrap().len(), 3); // All nodes
+        assert_eq!(json["nodes"].as_array().unwrap().len(), 3);
         assert_eq!(json["metadata"]["node_count"], 3);
         assert_eq!(json["metadata"]["isolated_node_count"], 1);
     }
@@ -332,7 +323,7 @@ mod tests {
         );
         
         assert_eq!(json_value["name"], "Custom Test");
-        assert!(json_value["metadata"].is_null()); // Metadata disabled
+        assert!(json_value["metadata"].is_null());
         
         let nodes = json_value["nodes"].as_array().unwrap();
         assert_eq!(nodes.len(), 2);

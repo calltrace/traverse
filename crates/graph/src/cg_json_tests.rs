@@ -7,7 +7,7 @@ mod tests {
     use serde_json::{json, Value};
     use std::collections::HashSet;
 
-    /// Helper function to create a simple test graph
+    /// Create a simple test graph
     fn create_simple_graph() -> CallGraph {
         let mut graph = CallGraph::new();
         
@@ -35,7 +35,6 @@ mod tests {
             (130, 180),
         );
         
-        // Add some edges
         graph.add_edge(
             n0, n1, EdgeType::Call, (45, 48), None, 1, None, 
             Some(vec!["42".to_string()]), None, None
@@ -49,11 +48,10 @@ mod tests {
         graph
     }
 
-    /// Helper function to create a complex graph with various node and edge types
+    /// Create a complex graph with various node and edge types
     fn create_complex_graph() -> CallGraph {
         let mut graph = CallGraph::new();
         
-        // Add various node types
         let storage = graph.add_node(
             "balance".to_string(),
             NodeType::StorageVariable,
@@ -110,7 +108,6 @@ mod tests {
             (290, 320),
         );
         
-        // Add various edge types
         graph.add_edge(
             func, storage, EdgeType::StorageRead, (40, 45), None, 1, None,
             None, None, None
@@ -149,7 +146,6 @@ mod tests {
             Some("true".to_string()), None, None, Some("bool".to_string())
         );
         
-        // Note: isolated node has no edges
         
         graph
     }
@@ -202,7 +198,6 @@ mod tests {
         let nodes = json["nodes"].as_array().unwrap();
         let first_node = &nodes[0];
         
-        // Verify all expected fields are present
         assert!(first_node["id"].is_number());
         assert!(first_node["name"].is_string());
         assert!(first_node["node_type"].is_string());
@@ -212,7 +207,6 @@ mod tests {
         assert!(first_node["has_explicit_return"].is_boolean());
         assert!(first_node["parameters"].is_array());
         
-        // Verify specific values
         assert_eq!(first_node["name"], "constructor");
         assert_eq!(first_node["node_type"], "Constructor");
         assert_eq!(first_node["contract_name"], "SimpleContract");
@@ -234,14 +228,12 @@ mod tests {
         let edges = json["edges"].as_array().unwrap();
         let first_edge = &edges[0];
         
-        // Verify all expected fields are present
         assert!(first_edge["source_node_id"].is_number());
         assert!(first_edge["target_node_id"].is_number());
         assert!(first_edge["edge_type"].is_string());
         assert!(first_edge["call_site_span"].is_array());
         assert!(first_edge["sequence_number"].is_number());
         
-        // Verify specific values
         assert_eq!(first_edge["edge_type"], "Call");
         assert_eq!(first_edge["source_node_id"], 0);
         assert_eq!(first_edge["target_node_id"], 1);
@@ -256,7 +248,6 @@ mod tests {
     fn test_isolated_nodes_exclusion() {
         let graph = create_complex_graph();
         
-        // Test with isolated nodes included
         let config_include = JsonExportConfig {
             exclude_isolated_nodes: false,
             pretty_print: false,
@@ -269,7 +260,6 @@ mod tests {
         assert_eq!(json_include["nodes"].as_array().unwrap().len(), 7); // All nodes
         assert_eq!(json_include["metadata"]["isolated_node_count"], 1);
         
-        // Test with isolated nodes excluded
         let config_exclude = JsonExportConfig {
             exclude_isolated_nodes: true,
             pretty_print: false,
@@ -282,7 +272,6 @@ mod tests {
         assert_eq!(json_exclude["nodes"].as_array().unwrap().len(), 6); // Without isolated
         assert_eq!(json_exclude["metadata"]["isolated_node_count"], 0);
         
-        // Verify the isolated node is not present
         let node_names: Vec<String> = json_exclude["nodes"]
             .as_array()
             .unwrap()
@@ -306,7 +295,6 @@ mod tests {
             .map(|n| n["node_type"].as_str().unwrap().to_string())
             .collect();
         
-        // Verify all node types are present
         assert!(node_types.contains("StorageVariable"));
         assert!(node_types.contains("Function"));
         assert!(node_types.contains("Modifier"));
@@ -329,7 +317,6 @@ mod tests {
             .map(|e| e["edge_type"].as_str().unwrap().to_string())
             .collect();
         
-        // Verify edge types are present
         assert!(edge_types.contains("Call"));
         assert!(edge_types.contains("Return"));
         assert!(edge_types.contains("StorageRead"));
@@ -440,7 +427,6 @@ mod tests {
     fn test_pretty_print_option() {
         let graph = create_simple_graph();
         
-        // Test compact output
         let config_compact = JsonExportConfig {
             exclude_isolated_nodes: false,
             pretty_print: false,
@@ -450,7 +436,6 @@ mod tests {
         let compact = graph.to_json("Test", &config_compact);
         assert!(!compact.contains("\n  ")); // No indentation
         
-        // Test pretty output
         let config_pretty = JsonExportConfig {
             exclude_isolated_nodes: false,
             pretty_print: true,
@@ -464,7 +449,6 @@ mod tests {
 
     #[test]
     fn test_round_trip_node_serialization() {
-        // Create a node with all fields populated
         let node = Node {
             id: 42,
             name: "testFunction".to_string(),
@@ -485,13 +469,10 @@ mod tests {
             condition_expression: Some("balance >= amount".to_string()),
         };
         
-        // Serialize to JSON
         let json_value = serde_json::to_value(&node).expect("Failed to serialize node");
         
-        // Deserialize back
         let deserialized: Node = serde_json::from_value(json_value).expect("Failed to deserialize node");
         
-        // Verify all fields match
         assert_eq!(deserialized.id, node.id);
         assert_eq!(deserialized.name, node.name);
         assert_eq!(deserialized.node_type, node.node_type);
@@ -507,7 +488,6 @@ mod tests {
 
     #[test]
     fn test_round_trip_edge_serialization() {
-        // Create an edge with all fields populated
         let edge = Edge {
             source_node_id: 10,
             target_node_id: 20,
@@ -521,13 +501,10 @@ mod tests {
             declared_return_type: Some("bool".to_string()),
         };
         
-        // Serialize to JSON
         let json_value = serde_json::to_value(&edge).expect("Failed to serialize edge");
         
-        // Deserialize back
         let deserialized: Edge = serde_json::from_value(json_value).expect("Failed to deserialize edge");
         
-        // Verify all fields match
         assert_eq!(deserialized.source_node_id, edge.source_node_id);
         assert_eq!(deserialized.target_node_id, edge.target_node_id);
         assert_eq!(deserialized.edge_type, edge.edge_type);
@@ -542,7 +519,6 @@ mod tests {
 
     #[test]
     fn test_enum_serialization() {
-        // Test NodeType serialization
         let node_types = vec![
             NodeType::Function,
             NodeType::Interface,
@@ -568,7 +544,6 @@ mod tests {
             assert_eq!(deserialized, node_type);
         }
         
-        // Test EdgeType serialization
         let edge_types = vec![
             EdgeType::Call,
             EdgeType::Return,
@@ -590,7 +565,6 @@ mod tests {
             assert_eq!(deserialized, edge_type);
         }
         
-        // Test Visibility serialization
         let visibilities = vec![
             Visibility::Public,
             Visibility::Private,
@@ -610,7 +584,6 @@ mod tests {
     fn test_large_graph_performance() {
         let mut graph = CallGraph::new();
         
-        // Create a larger graph
         let node_count = 100;
         let mut node_ids = Vec::new();
         
@@ -625,7 +598,6 @@ mod tests {
             node_ids.push(node_id);
         }
         
-        // Add edges in a pattern
         for i in 0..node_count-1 {
             graph.add_edge(
                 node_ids[i],
@@ -653,7 +625,6 @@ mod tests {
     fn test_special_characters_in_names() {
         let mut graph = CallGraph::new();
         
-        // Test with special characters
         let n0 = graph.add_node(
             "test\"quotes\"".to_string(),
             NodeType::Function,
@@ -681,10 +652,8 @@ mod tests {
         let config = JsonExportConfig::default();
         let json_str = graph.to_json("Special Chars", &config);
         
-        // Should parse without errors
         let json: Value = serde_json::from_str(&json_str).expect("Failed to parse JSON with special chars");
         
-        // Verify special characters are preserved
         let nodes = json["nodes"].as_array().unwrap();
         assert_eq!(nodes[0]["name"], "test\"quotes\"");
         assert_eq!(nodes[0]["contract_name"], "Contract\\With\\Backslash");
@@ -699,7 +668,6 @@ mod tests {
     fn test_null_optional_fields() {
         let mut graph = CallGraph::new();
         
-        // Add a minimal node
         let n0 = graph.add_node(
             "minimal".to_string(),
             NodeType::Function,
@@ -716,7 +684,6 @@ mod tests {
             (20, 30),
         );
         
-        // Add a minimal edge
         graph.add_edge(
             n0, n1, EdgeType::Call, (5, 8), 
             None, // No return site
@@ -731,7 +698,6 @@ mod tests {
         let json_str = graph.to_json("Minimal", &config);
         let json: Value = serde_json::from_str(&json_str).expect("Failed to parse JSON");
         
-        // Verify null fields
         let nodes = json["nodes"].as_array().unwrap();
         assert!(nodes[0]["contract_name"].is_null());
         assert!(nodes[0]["declared_return_type"].is_null());
