@@ -1,5 +1,10 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
+use std::collections::HashMap;
+use std::fmt;
+use std::fs;
+use std::io::{stdout, Write};
+use std::path::{Path, PathBuf};
 use tracing::warn;
 use traverse_graph::cg::{
     CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline,
@@ -8,20 +13,12 @@ use traverse_graph::cg_dot::CgToDot;
 use traverse_graph::cg_json::CgToJson;
 use traverse_graph::cg_mermaid::{MermaidGenerator, ToSequenceDiagram};
 use traverse_graph::interface_resolver::BindingRegistry;
-use traverse_graph::manifest::{
-    find_solidity_files_for_manifest, Manifest,
-    ManifestEntry,
-}; // Added ManifestEntry
+use traverse_graph::manifest::{find_solidity_files_for_manifest, Manifest, ManifestEntry}; // Added ManifestEntry
 use traverse_graph::natspec::extract::extract_source_comments; // Added
+use traverse_graph::parser::get_solidity_language;
 use traverse_graph::parser::parse_solidity;
 use traverse_graph::steps::{CallsHandling, ContractHandling};
-use traverse_graph::parser::get_solidity_language;
-use traverse_mermaid::{sequence_diagram_writer, mermaid_chunker};
-use std::collections::HashMap;
-use std::fmt;
-use std::fs;
-use std::io::{stdout, Write};
-use std::path::{Path, PathBuf};
+use traverse_mermaid;
 use walkdir::WalkDir;
 
 #[derive(Parser, Debug)]
@@ -357,13 +354,21 @@ fn main() -> Result<()> {
         if let Some(ref manifest_content) = ctx.manifest {
             warn!("[sol2cg] Populating BindingRegistry from manifest Natspec (processing @custom:binds-to on concrete contracts)...");
             let initial_keys_count = registry.bindings.len();
-            let initial_concrete_bindings = registry.bindings.values().filter(|bc| bc.contract_name.is_some()).count();
-            
+            let initial_concrete_bindings = registry
+                .bindings
+                .values()
+                .filter(|bc| bc.contract_name.is_some())
+                .count();
+
             registry.populate_from_manifest(manifest_content);
-            
+
             let final_keys_count = registry.bindings.len();
-            let final_concrete_bindings = registry.bindings.values().filter(|bc| bc.contract_name.is_some()).count();
-            
+            let final_concrete_bindings = registry
+                .bindings
+                .values()
+                .filter(|bc| bc.contract_name.is_some())
+                .count();
+
             warn!(
                 "[sol2cg] BindingRegistry population from manifest complete. Keys: {} -> {}. Concrete contract bindings: {} -> {}.",
                 initial_keys_count, final_keys_count, initial_concrete_bindings, final_concrete_bindings
@@ -372,7 +377,7 @@ fn main() -> Result<()> {
             warn!("[sol2cg] Manifest not available, skipping Natspec-based population for BindingRegistry.");
         }
     }
-    
+
     ctx.binding_registry = binding_registry_option;
     // --- End Binding Registry Handling ---
 
@@ -447,20 +452,40 @@ fn main() -> Result<()> {
     );
     // --- END DEBUG ---
 
-    // Handle mermaid chunking separately (enabled by default, disabled with --no-chunk)
-    if cli.format == OutputFormat::Mermaid && !cli.no_chunk {
+    // Handle mermaid output with integrated chunking
+    if cli.format == OutputFormat::Mermaid {
         let generator = MermaidGenerator::new();
         let sequence_diagram = generator.to_sequence_diagram(&graph);
-        let diagram_str = sequence_diagram_writer::write_diagram(&sequence_diagram);
-        
-        // Perform chunking
+
+        // Use integrated auto-chunking
         let chunk_dir = cli.chunk_dir.as_deref();
-        let _result = mermaid_chunker::chunk_mermaid_diagram(&diagram_str, chunk_dir)
-            .context("Failed to chunk mermaid diagram")?;
-        
+        let enable_chunking = !cli.no_chunk;
+        let output = traverse_mermaid::write_diagram_auto_chunk(
+            &sequence_diagram,
+            chunk_dir,
+            enable_chunking,
+        )
+        .context("Failed to generate mermaid diagram")?;
+
+        match output {
+            traverse_mermaid::DiagramOutput::Single(diagram_str) => {
+                // Write single file output
+                if let Some(output_file) = &cli.output_file {
+                    std::fs::write(output_file, &diagram_str)
+                        .context("Failed to write output file")?;
+                } else {
+                    println!("{}", diagram_str);
+                }
+            }
+            traverse_mermaid::DiagramOutput::Chunked(_result) => {
+                // Chunking already handled, files written to chunk_dir
+                // Nothing more to do
+            }
+        }
+
         return Ok(());
     }
-    
+
     let output_string = match cli.format {
         OutputFormat::Dot => {
             // Create DotExportConfig based on CLI flag
@@ -470,14 +495,8 @@ fn main() -> Result<()> {
             graph.to_dot("Solidity Call Graph", &dot_config) // Pass config
         }
         OutputFormat::Mermaid => {
-            let generator = MermaidGenerator::new();
-            warn!(
-                "[Address Debug sol2cg] Before to_sequence_diagram: {:p}",
-                &graph
-            ); // Added address log
-            let sequence_diagram = generator.to_sequence_diagram(&graph);
-            // Use the write_diagram function directly
-            sequence_diagram_writer::write_diagram(&sequence_diagram)
+            // Mermaid is handled above with auto-chunking
+            unreachable!("Mermaid format should have been handled above")
         }
         OutputFormat::Json => {
             // Create JsonExportConfig based on CLI flags

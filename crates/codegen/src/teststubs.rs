@@ -5,25 +5,27 @@
 use tracing::debug;
 
 use anyhow::{Context, Result};
-use traverse_graph::cg::{CallGraph, CallGraphGeneratorContext, ParameterInfo};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf};
 use std::{fs, path::Path};
+use traverse_graph::cg::{CallGraph, CallGraphGeneratorContext, ParameterInfo};
 
 // Import proper Solidity AST and builders
 use traverse_solidity::ast::*;
 use traverse_solidity::builder::*;
 use traverse_solidity::solidity_writer::write_source_unit;
 
+use crate::access_control_stub;
 use crate::deployer_stub;
 use crate::revert_stub;
 use crate::state_change_stub;
-use crate::access_control_stub;
 use crate::CodeGenError;
 
 // Re-export for backward compatibility during migration
-pub use traverse_solidity::ast::{Expression, Statement, TypeName, Visibility, StateMutability};
-pub use traverse_solidity::builder::{SolidityBuilder, ContractBuilder, FunctionBuilder, BlockBuilder};
+pub use traverse_solidity::ast::{Expression, StateMutability, Statement, TypeName, Visibility};
+pub use traverse_solidity::builder::{
+    BlockBuilder, ContractBuilder, FunctionBuilder, SolidityBuilder,
+};
 
 #[derive(Debug, serde::Serialize)]
 pub struct ContractInfo {
@@ -96,7 +98,7 @@ pub struct SolidityTestContractBuilder {
 impl SolidityTestContractBuilder {
     pub fn new(contract_name: String) -> Self {
         let mut builder = SolidityBuilder::new();
-        
+
         // Add standard pragma and imports for test contracts
         builder
             .pragma("solidity", "^0.8.0")
@@ -154,7 +156,10 @@ impl FoundryIntegration {
     fn init_foundry_project(project_root: &Path) -> Result<()> {
         use std::process::Command;
 
-        debug!("🔧 Initializing Foundry project at: {}", project_root.display());
+        debug!(
+            "🔧 Initializing Foundry project at: {}",
+            project_root.display()
+        );
 
         let output = Command::new("forge")
             .arg("init")
@@ -172,7 +177,10 @@ impl FoundryIntegration {
                 debug!("✅ Foundry project initialized (some files already existed)");
                 Ok(())
             } else {
-                Err(anyhow::anyhow!("Failed to initialize Foundry project: {}", stderr))
+                Err(anyhow::anyhow!(
+                    "Failed to initialize Foundry project: {}",
+                    stderr
+                ))
             }
         }
     }
@@ -185,7 +193,11 @@ impl FoundryIntegration {
         if contract_path.exists() {
             fs::copy(contract_path, &dest_path)
                 .context("Failed to copy contract to src directory")?;
-            debug!("📄 Copied {} to {}", contract_path.display(), dest_path.display());
+            debug!(
+                "📄 Copied {} to {}",
+                contract_path.display(),
+                dest_path.display()
+            );
         }
 
         Ok(())
@@ -238,7 +250,9 @@ impl FoundryIntegration {
             cmd.arg("--match-test").arg(pattern);
         }
 
-        let output = cmd.output().context("Failed to execute 'forge test' command")?;
+        let output = cmd
+            .output()
+            .context("Failed to execute 'forge test' command")?;
 
         if output.status.success() {
             debug!("✅ All tests passed!");
@@ -253,7 +267,6 @@ impl FoundryIntegration {
 
 pub mod expression_helpers {
     use super::*;
-    
 
     /// Create a require statement with condition and message
     pub fn require_statement(condition: Expression, message: &str) -> Statement {
@@ -311,7 +324,11 @@ pub mod expression_helpers {
     }
 
     /// Create a function call expression
-    pub fn function_call(target: Option<Expression>, function_name: &str, args: Vec<Expression>) -> Expression {
+    pub fn function_call(
+        target: Option<Expression>,
+        function_name: &str,
+        args: Vec<Expression>,
+    ) -> Expression {
         if let Some(target_expr) = target {
             Expression::FunctionCall(FunctionCallExpression {
                 function: Box::new(Expression::MemberAccess(MemberAccessExpression {
@@ -332,9 +349,7 @@ pub mod expression_helpers {
 pub fn strings_to_expressions(arg_strings: &[String]) -> Vec<Expression> {
     arg_strings
         .iter()
-        .map(|s| Expression::Literal(Literal::String(StringLiteral {
-            value: s.clone(),
-        })))
+        .map(|s| Expression::Literal(Literal::String(StringLiteral { value: s.clone() })))
         .collect()
 }
 
@@ -408,8 +423,10 @@ pub(crate) fn extract_contracts_from_graph(
     for node in graph.nodes.iter() {
         if let Some(contract_name_str) = &node.contract_name {
             let is_interface_scope = ctx.all_interfaces.contains_key(contract_name_str);
-            
-            if node.node_type == traverse_graph::cg::NodeType::Interface && &node.name == contract_name_str {
+
+            if node.node_type == traverse_graph::cg::NodeType::Interface
+                && &node.name == contract_name_str
+            {
                 continue;
             }
 
@@ -533,11 +550,9 @@ pub fn generate_tests_with_foundry(
     let mut validated_count = 0;
 
     for contract_info in &contracts {
-        if graph
-            .nodes
-            .iter()
-            .any(|n| n.node_type == traverse_graph::cg::NodeType::Interface && n.name == contract_info.name)
-        {
+        if graph.nodes.iter().any(|n| {
+            n.node_type == traverse_graph::cg::NodeType::Interface && n.name == contract_info.name
+        }) {
             if verbose {
                 debug!("  ⏭️  Skipping interface: {}", contract_info.name);
             }
@@ -554,7 +569,8 @@ pub fn generate_tests_with_foundry(
                         format!("{}DeployerTest", contract_info.name),
                         deployer_source_unit,
                     );
-                    let deployer_test_filename = format!("{}.t.sol", deployer_test_contract.contract_name);
+                    let deployer_test_filename =
+                        format!("{}.t.sol", deployer_test_contract.contract_name);
                     let deployer_test_path = test_dir.join(deployer_test_filename);
 
                     generate_and_write_test_file(
@@ -566,7 +582,10 @@ pub fn generate_tests_with_foundry(
                     generated_count += 1;
                 }
                 Err(e) => {
-                    debug!("Failed to generate deployer test for {}: {}", contract_info.name, e);
+                    debug!(
+                        "Failed to generate deployer test for {}: {}",
+                        contract_info.name, e
+                    );
                 }
             }
         }
@@ -588,8 +607,11 @@ pub fn generate_tests_with_foundry(
             ) {
                 Ok(revert_test_contracts) => {
                     for (i, test_contract) in revert_test_contracts.iter().enumerate() {
-                        let test_filename = format!("{}RevertTest{}.t.sol", 
-                            format!("{}{}", contract_info.name, function_info.name), i);
+                        let test_filename = format!(
+                            "{}RevertTest{}.t.sol",
+                            format!("{}{}", contract_info.name, function_info.name),
+                            i
+                        );
                         let test_path = test_dir.join(test_filename);
 
                         generate_and_write_test_file(&foundry, test_contract, &test_path, verbose)?;
@@ -615,8 +637,11 @@ pub fn generate_tests_with_foundry(
             ) {
                 Ok(state_test_contracts) => {
                     for (i, test_contract) in state_test_contracts.iter().enumerate() {
-                        let test_filename = format!("{}StateTest{}.t.sol", 
-                            format!("{}{}", contract_info.name, function_info.name), i);
+                        let test_filename = format!(
+                            "{}StateTest{}.t.sol",
+                            format!("{}{}", contract_info.name, function_info.name),
+                            i
+                        );
                         let test_path = test_dir.join(test_filename);
 
                         generate_and_write_test_file(&foundry, test_contract, &test_path, verbose)?;
@@ -642,8 +667,11 @@ pub fn generate_tests_with_foundry(
             ) {
                 Ok(access_test_contracts) => {
                     for (i, test_contract) in access_test_contracts.iter().enumerate() {
-                        let test_filename = format!("{}AccessTest{}.t.sol", 
-                            format!("{}{}", contract_info.name, function_info.name), i);
+                        let test_filename = format!(
+                            "{}AccessTest{}.t.sol",
+                            format!("{}{}", contract_info.name, function_info.name),
+                            i
+                        );
                         let test_path = test_dir.join(test_filename);
 
                         generate_and_write_test_file(&foundry, test_contract, &test_path, verbose)?;
@@ -673,7 +701,7 @@ pub fn generate_tests_with_foundry(
                     if verbose {
                         debug!("✅ Project build successful. All {} generated test contracts are valid.", generated_count);
                     }
-                    
+
                     // Run tests after successful build
                     if verbose {
                         debug!("\n🧪 Running generated tests with 'forge test'...");
@@ -742,7 +770,12 @@ mod tests {
             .add_import("../src/MyContract.sol".to_string())
             .build_with_contract(|contract| {
                 contract
-                    .state_variable(uint256(), "testVar", Some(Visibility::Private), Some(number("42")))
+                    .state_variable(
+                        uint256(),
+                        "testVar",
+                        Some(Visibility::Private),
+                        Some(number("42")),
+                    )
                     .function("testSetValue", |func| {
                         func.parameter(uint256(), "_value")
                             .visibility(Visibility::Public)
@@ -770,8 +803,12 @@ mod tests {
         use expression_helpers::*;
 
         let require_stmt = require_statement(
-            binary(identifier("balance"), BinaryOperator::GreaterThanOrEqual, identifier("amount")),
-            "Insufficient balance"
+            binary(
+                identifier("balance"),
+                BinaryOperator::GreaterThanOrEqual,
+                identifier("amount"),
+            ),
+            "Insufficient balance",
         );
 
         // Verify the statement structure
@@ -790,7 +827,10 @@ mod tests {
     fn test_type_safety_improvements() {
         // Test that we can use proper type enums instead of strings
         let type_name = uint256();
-        assert!(matches!(type_name, TypeName::Elementary(ElementaryTypeName::UnsignedInteger(Some(256)))));
+        assert!(matches!(
+            type_name,
+            TypeName::Elementary(ElementaryTypeName::UnsignedInteger(Some(256)))
+        ));
 
         let visibility = Visibility::Public;
         assert_eq!(visibility.to_string(), "public");

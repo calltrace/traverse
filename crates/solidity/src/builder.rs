@@ -880,13 +880,12 @@ pub fn bytes() -> TypeName {
 
 pub fn requires_data_location(type_name: &TypeName) -> bool {
     match type_name {
-        TypeName::Elementary(elem) => match elem {
-            ElementaryTypeName::String | ElementaryTypeName::Bytes => true,
-            _ => false,
-        },
+        TypeName::Elementary(elem) => {
+            matches!(elem, ElementaryTypeName::String | ElementaryTypeName::Bytes)
+        }
         TypeName::Array(_, _) => true,
         TypeName::UserDefined(_) => true, // Structs require data location
-        TypeName::Mapping(_) => false, // Mappings are always storage
+        TypeName::Mapping(_) => false,    // Mappings are always storage
         TypeName::Function(_) => false,
     }
 }

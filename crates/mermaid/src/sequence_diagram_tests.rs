@@ -843,7 +843,7 @@ fn test_complex_diagram() {
 fn parse_and_serialize(input: &str) -> Result<String, String> {
     // Trim leading and trailing whitespace to avoid parser issues
     let input = input.trim();
-    
+
     let pairs = SequenceDiagramParser::parse(Rule::sequence_diagram, input)
         .map_err(|e| format!("Parse error: {}", e))?;
     let mut builder = SequenceDiagramBuilder::new();
@@ -881,7 +881,10 @@ Bob-->>-Alice: Hi Alice!"#;
 
     match parse_and_serialize(input) {
         Ok(output) => {
-            assert_eq!(normalize_mermaid(&output), normalize_mermaid(expected_output));
+            assert_eq!(
+                normalize_mermaid(&output),
+                normalize_mermaid(expected_output)
+            );
         }
         Err(e) => panic!("Serialization test failed: {}", e),
     }
@@ -918,7 +921,10 @@ Bob->Alice: Done"#;
 
     match parse_and_serialize(input) {
         Ok(output) => {
-            assert_eq!(normalize_mermaid(&output), normalize_mermaid(expected_output));
+            assert_eq!(
+                normalize_mermaid(&output),
+                normalize_mermaid(expected_output)
+            );
         }
         Err(e) => panic!("Serialization test failed: {}", e),
     }
@@ -926,7 +932,7 @@ Bob->Alice: Done"#;
 
 #[test]
 fn test_serialization_create_destroy() {
-     let input = r#"sequenceDiagram
+    let input = r#"sequenceDiagram
     participant A
     create participant B
     A->>B: Initialize
@@ -938,9 +944,12 @@ create participant B
 A->>B: Initialize
 destroy B
 A->>A: B is gone"#;
-     match parse_and_serialize(input) {
+    match parse_and_serialize(input) {
         Ok(output) => {
-            assert_eq!(normalize_mermaid(&output), normalize_mermaid(expected_output));
+            assert_eq!(
+                normalize_mermaid(&output),
+                normalize_mermaid(expected_output)
+            );
         }
         Err(e) => panic!("Serialization test failed: {}", e),
     }

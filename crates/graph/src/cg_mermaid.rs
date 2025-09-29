@@ -1,7 +1,7 @@
 use crate::cg::{CallGraph, Edge, EdgeType, Node, NodeType};
+use std::collections::{HashMap, HashSet};
 use traverse_mermaid::sequence_diagram_ast::SequenceDiagram;
-use traverse_mermaid::sequence_diagram_builder::SequenceDiagramBuilder;
-use std::collections::{HashMap, HashSet}; // Import HashMap
+use traverse_mermaid::sequence_diagram_builder::SequenceDiagramBuilder; // Import HashMap
 
 /// Trait for converting a CallGraph into a Mermaid Sequence Diagram AST.
 pub trait ToSequenceDiagram {
@@ -739,7 +739,7 @@ impl ToSequenceDiagram for MermaidGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cg::{CallGraph, EdgeType, NodeType, Visibility};
+    use crate::cg::{CallGraph, EdgeType, NodeType, Visibility, EdgeParams};
     use traverse_mermaid::sequence_diagram_ast::*; // Import AST elements for assertions
 
     fn create_test_graph() -> CallGraph {
@@ -770,84 +770,164 @@ mod tests {
         );
 
         // Call: A -> B (seq 1)
-        graph.add_edge(
-            node_a_id,
-            node_b_id,
-            EdgeType::Call,
-            (5, 8),
+        graph.add_edge(EdgeParams {
+
+            source_node_id: node_a_id,
+
+            target_node_id: node_b_id,
+
+            edge_type: EdgeType::Call,
+
+            call_site_span: (5, 8),
+
+            return_site_span: None,
+
+            sequence_number: 1,
+
+            returned_value: // Sequence number 1
             None,
-            1, // Sequence number 1
-            None,
-            None,
-            None,
-            None,
-        );
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
         // Call: B -> C (seq 2)
-        graph.add_edge(
-            node_b_id,
-            node_c_id,
-            EdgeType::Call,
-            (25, 28),
+        graph.add_edge(EdgeParams {
+
+            source_node_id: node_b_id,
+
+            target_node_id: node_c_id,
+
+            edge_type: EdgeType::Call,
+
+            call_site_span: (25, 28),
+
+            return_site_span: None,
+
+            sequence_number: 2,
+
+            returned_value: // Sequence number 2
             None,
-            2, // Sequence number 2
-            None,
-            None,
-            None,
-            None,
-        );
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
         // Return: C -> B (seq 2) with value "result"
-        graph.add_edge(
-            node_c_id,
-            node_b_id,
-            EdgeType::Return,
-            (40, 50),       // func def span
-            Some((48, 49)), // return statement span
-            2,              // Corresponds to call seq 2
+        graph.add_edge(EdgeParams {
+
+            source_node_id: node_c_id,
+
+            target_node_id: node_b_id,
+
+            edge_type: EdgeType::Return,
+
+            call_site_span: (40, 50),
+
+            return_site_span: // func def span
+            Some((48, 49)),
+
+            sequence_number: // return statement span
+            2,
+
+            returned_value: // Corresponds to call seq 2
             Some("result".to_string()),
-            None,
-            None,
-            None,
-        );
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
         // Return: B -> A (seq 1)
-        graph.add_edge(
-            node_b_id,
-            node_a_id,
-            EdgeType::Return,
-            (20, 30),       // func def span
-            Some((29, 29)), // return statement span (implicit/end of func)
-            1,              // Corresponds to call seq 1
+        graph.add_edge(EdgeParams {
+
+            source_node_id: node_b_id,
+
+            target_node_id: node_a_id,
+
+            edge_type: EdgeType::Return,
+
+            call_site_span: (20, 30),
+
+            return_site_span: // func def span
+            Some((29, 29)),
+
+            sequence_number: // return statement span (implicit/end of func)
+            1,
+
+            returned_value: // Corresponds to call seq 1
             None,
-            None,
-            None,
-            None,
-        );
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
 
         // Add a second call site: A -> C (seq 3)
-        graph.add_edge(
-            node_a_id,
-            node_c_id,
-            EdgeType::Call,
-            (9, 9), // Different location in A
+        graph.add_edge(EdgeParams {
+
+            source_node_id: node_a_id,
+
+            target_node_id: node_c_id,
+
+            edge_type: EdgeType::Call,
+
+            call_site_span: (9, 9),
+
+            return_site_span: // Different location in A
             None,
-            3, // New sequence number 3
+
+            sequence_number: 3,
+
+            returned_value: // New sequence number 3
             None,
-            None,
-            None,
-            None,
-        );
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
         // Return: C -> A (seq 3)
-        graph.add_edge(
-            node_c_id,
-            node_a_id,
-            EdgeType::Return,
-            (40, 50),                   // func def span
-            Some((48, 49)),             // return statement span (same return as before)
-            3,                          // Corresponds to call seq 3
-            Some("result".to_string()), // Same return value for simplicity
+        graph.add_edge(EdgeParams {
+
+            source_node_id: node_c_id,
+
+            target_node_id: node_a_id,
+
+            edge_type: EdgeType::Return,
+
+            call_site_span: (40, 50),
+
+            return_site_span: // func def span
+            Some((48, 49)),
+
+            sequence_number: // return statement span (same return as before)
+            3,
+
+            returned_value: // Corresponds to call seq 3
+            Some("result".to_string()),
+
+            argument_names: // Same return value for simplicity
             None,
-            None,
-            None,
-        );
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
 
         // Mark funcA and funcC as having explicit returns for testing synthetic returns
         graph.nodes[node_a_id].has_explicit_return = true;
@@ -1023,7 +1103,12 @@ mod tests {
         assert_eq!(signal_statements[0].from, user_id);
         assert_eq!(signal_statements[0].to, id_a);
         assert_eq!(signal_statements[0].arrow.sequence, "->>");
-        assert!(signal_statements[0].message.as_ref().unwrap().content.contains("funcA"));
+        assert!(signal_statements[0]
+            .message
+            .as_ref()
+            .unwrap()
+            .content
+            .contains("funcA"));
 
         // 2. ContractA -> User (return from funcA)
         assert_eq!(signal_statements[1].from, id_a);
@@ -1034,7 +1119,12 @@ mod tests {
         assert_eq!(signal_statements[2].from, user_id);
         assert_eq!(signal_statements[2].to, id_b);
         assert_eq!(signal_statements[2].arrow.sequence, "->>");
-        assert!(signal_statements[2].message.as_ref().unwrap().content.contains("funcC"));
+        assert!(signal_statements[2]
+            .message
+            .as_ref()
+            .unwrap()
+            .content
+            .contains("funcC"));
 
         // 4. ContractB -> User (return from funcC)
         assert_eq!(signal_statements[3].from, id_b);
@@ -1074,31 +1164,53 @@ mod tests {
         graph.nodes[node_a_id].has_explicit_return = true; // Add synthetic return
 
         // Call: A -> A (seq 1)
-        graph.add_edge(
-            node_a_id,
-            node_a_id,
-            EdgeType::Call,
-            (5, 8),
-            None,
-            1,
-            None,
-            None,
-            None,
-            None,
-        );
+        graph.add_edge(EdgeParams {
+
+            source_node_id: node_a_id,
+
+            target_node_id: node_a_id,
+
+            edge_type: EdgeType::Call,
+
+            call_site_span: (5, 8),
+
+            return_site_span: None,
+
+            sequence_number: 1,
+
+            returned_value: None,
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
         // Return: A -> A (seq 1)
-        graph.add_edge(
-            node_a_id,
-            node_a_id,
-            EdgeType::Return,
-            (0, 10),
-            Some((9, 9)),
-            1,
-            None,
-            None,
-            None,
-            None,
-        );
+        graph.add_edge(EdgeParams {
+
+            source_node_id: node_a_id,
+
+            target_node_id: node_a_id,
+
+            edge_type: EdgeType::Return,
+
+            call_site_span: (0, 10),
+
+            return_site_span: Some((9, 9)),
+
+            sequence_number: 1,
+
+            returned_value: None,
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
 
         let generator = MermaidGenerator::new();
         let diagram = generator.to_sequence_diagram(&graph);
@@ -1164,57 +1276,101 @@ mod tests {
         graph.nodes[node_a_id].has_explicit_return = true; // Add synthetic return for A
 
         // Call: A -> B (seq 1)
-        graph.add_edge(
-            node_a_id,
-            node_b_id,
-            EdgeType::Call,
-            (5, 8),
-            None,
-            1,
-            None,
-            None,
-            None,
-            None,
-        );
+        graph.add_edge(EdgeParams {
+
+            source_node_id: node_a_id,
+
+            target_node_id: node_b_id,
+
+            edge_type: EdgeType::Call,
+
+            call_site_span: (5, 8),
+
+            return_site_span: None,
+
+            sequence_number: 1,
+
+            returned_value: None,
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
         // Call: B -> A (seq 2) - Recursive step
-        graph.add_edge(
-            node_b_id,
-            node_a_id,
-            EdgeType::Call,
-            (25, 28),
-            None,
-            2,
-            None,
-            None,
-            None,
-            None,
-        );
+        graph.add_edge(EdgeParams {
+
+            source_node_id: node_b_id,
+
+            target_node_id: node_a_id,
+
+            edge_type: EdgeType::Call,
+
+            call_site_span: (25, 28),
+
+            return_site_span: None,
+
+            sequence_number: 2,
+
+            returned_value: None,
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
         // Return: A -> B (seq 2)
-        graph.add_edge(
-            node_a_id,
-            node_b_id,
-            EdgeType::Return,
-            (0, 10),
-            Some((9, 9)),
-            2,
-            None,
-            None,
-            None,
-            None,
-        );
+        graph.add_edge(EdgeParams {
+
+            source_node_id: node_a_id,
+
+            target_node_id: node_b_id,
+
+            edge_type: EdgeType::Return,
+
+            call_site_span: (0, 10),
+
+            return_site_span: Some((9, 9)),
+
+            sequence_number: 2,
+
+            returned_value: None,
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
         // Return: B -> A (seq 1)
-        graph.add_edge(
-            node_b_id,
-            node_a_id,
-            EdgeType::Return,
-            (20, 30),
-            Some((29, 29)),
-            1,
-            None,
-            None,
-            None,
-            None,
-        );
+        graph.add_edge(EdgeParams {
+
+            source_node_id: node_b_id,
+
+            target_node_id: node_a_id,
+
+            edge_type: EdgeType::Return,
+
+            call_site_span: (20, 30),
+
+            return_site_span: Some((29, 29)),
+
+            sequence_number: 1,
+
+            returned_value: None,
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
 
         let generator = MermaidGenerator::new();
         let diagram = generator.to_sequence_diagram(&graph);
@@ -1252,7 +1408,7 @@ mod tests {
             .unwrap()
             .content
             .contains("call funcA()"));
-        
+
         // 2. ContractM -> User (return from funcA)
         assert_eq!(signal_statements[1].from, id_m);
         assert_eq!(signal_statements[1].to, user_id);

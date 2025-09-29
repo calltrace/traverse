@@ -32,12 +32,12 @@ use tracing::debug;
 
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use traverse_solidity::ast::*;
 use traverse_solidity::{
     format_value_for_expression, parse_expression, write_expression_to_string, SolidityInterpreter,
     Value,
 };
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvariantBreakerResult {

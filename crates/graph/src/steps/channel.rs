@@ -5,18 +5,17 @@ use std::{
 
 use crate::{
     cg::{
-        extract_arguments, CallGraph, CallGraphGeneratorContext,
-        CallGraphGeneratorInput, CallGraphGeneratorStep, EdgeType, NodeInfo, NodeType, Visibility,
-        ELSE_BLOCK_NODE_NAME, EVENT_LISTENER_NODE_NAME, EVM_NODE_NAME, IF_CONDITION_NODE_NAME,
-        THEN_BLOCK_NODE_NAME,
+        extract_arguments, CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput,
+        CallGraphGeneratorStep, EdgeParams, EdgeType, NodeInfo, NodeType, Visibility, ELSE_BLOCK_NODE_NAME,
+        EVENT_LISTENER_NODE_NAME, EVM_NODE_NAME, IF_CONDITION_NODE_NAME, THEN_BLOCK_NODE_NAME,
     },
     chains::{analyze_chained_call, ResolvedTarget}, // Import items from chains module
     parser::get_node_text,
 };
 use anyhow::{anyhow, Context, Result};
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Node as TsNode, Query, QueryCursor};
 use tracing::trace;
+use tree_sitter::{Node as TsNode, Query, QueryCursor};
 
 // Type alias for the key used to track unique storage edges
 // type StorageEdgeKey = (usize, usize, EdgeType, (usize, usize)); // No longer needed with deferred approach
@@ -187,7 +186,12 @@ impl CallGraphGeneratorStep for CallsHandling {
                     n.name
                 )
             });
-            trace!("Processing calls/emits within Caller Node ID: {} (Name: '{}', Contract: {:?})", owner_node_id, caller_node_name, owner_contract_name_opt);
+            trace!(
+                "Processing calls/emits within Caller Node ID: {} (Name: '{}', Contract: {:?})",
+                owner_node_id,
+                caller_node_name,
+                owner_contract_name_opt
+            );
 
             let mut call_cursor = QueryCursor::new();
             // Sequence counter is now initialized outside the loop
@@ -208,9 +212,10 @@ impl CallGraphGeneratorStep for CallsHandling {
             let assignment_capture_index = call_query
                 .capture_index_for_name("assignment_expr")
                 .unwrap_or(u32::MAX);
-            let augmented_assignment_capture_index = call_query // New capture index
-                .capture_index_for_name("augmented_assignment_expr")
-                .unwrap_or(u32::MAX);
+            let augmented_assignment_capture_index =
+                call_query // New capture index
+                    .capture_index_for_name("augmented_assignment_expr")
+                    .unwrap_or(u32::MAX);
             let read_identifier_capture_index =
                 call_query // Renamed
                     .capture_index_for_name("read_candidate_identifier")
@@ -261,7 +266,8 @@ impl CallGraphGeneratorStep for CallsHandling {
                         Some("call")
                     } else if capture_index == assignment_capture_index {
                         Some("write")
-                    } else if capture_index == augmented_assignment_capture_index { // New type
+                    } else if capture_index == augmented_assignment_capture_index {
+                        // New type
                         Some("augmented_write")
                     } else if capture_index == read_identifier_capture_index {
                         // Renamed
@@ -296,7 +302,7 @@ impl CallGraphGeneratorStep for CallsHandling {
                                     "for" => 3,   // Added
                                     "write" => 2,
                                     "augmented_write" => 2, // Same collection priority as simple write
-                                    "delete" => 2, // Same priority as write
+                                    "delete" => 2,          // Same priority as write
                                     "read_identifier" => 1,
                                     "read_subscript" => 1,
                                     _ => -1,
@@ -453,18 +459,18 @@ impl CallGraphGeneratorStep for CallsHandling {
                     modification.chain_index, // Log chain index
                     modification.arguments // Log arguments
                 );
-                graph.add_edge(
-                    modification.source_node_id,
-                    modification.target_node_id,
-                    modification.edge_type,
-                    modification.span,
-                    None, // Modifier span is not tracked in GraphModification currently
-                    call_sequence_counter, // Assign the determined sequence number
-                    modification.return_value,
-                    modification.arguments,
-                    modification.event_name,
-                    None, // declared_return_type is None for non-Return edges
-                );
+                graph.add_edge(EdgeParams {
+                    source_node_id: modification.source_node_id,
+                    target_node_id: modification.target_node_id,
+                    edge_type: modification.edge_type,
+                    call_site_span: modification.span,
+                    return_site_span: None, // Modifier span is not tracked in GraphModification currently
+                    sequence_number: call_sequence_counter, // Assign the determined sequence number
+                    returned_value: modification.return_value,
+                    argument_names: modification.arguments,
+                    event_name: modification.event_name,
+                    declared_return_type: None, // declared_return_type is None for non-Return edges
+                });
             }
         }
 
@@ -576,7 +582,8 @@ fn process_statements_in_block(
                 Some("read_subscript")
             } else if capture_index == delete_expression_capture_index {
                 Some("delete")
-            } else if capture_index == augmented_assignment_capture_index { // Added this
+            } else if capture_index == augmented_assignment_capture_index {
+                // Added this
                 Some("augmented_write")
             } else if capture_index == if_statement_capture_index {
                 Some("if")
@@ -687,7 +694,10 @@ fn process_statements_in_block(
                 });
 
                 if is_nested {
-                    trace!("      Skipping nested call/new node at span {:?}, handled by outer call.", span);
+                    trace!(
+                        "      Skipping nested call/new node at span {:?}, handled by outer call.",
+                        span
+                    );
                     continue;
                 }
 
@@ -983,7 +993,11 @@ fn process_statements_in_block(
                         }
                     }
                     Err(e) => {
-                        trace!("      Error during analyze_chained_call for span {:?}: {:?}", span, e);
+                        trace!(
+                            "      Error during analyze_chained_call for span {:?}: {:?}",
+                            span,
+                            e
+                        );
                         // If analyze_chained_call fails, we should still mark the node as handled
                         // to prevent potential re-processing or erroneous further attempts.
                         handled_node_ids.insert(node.id());
@@ -1069,7 +1083,7 @@ fn process_statements_in_block(
                             //     .map_or(false, |n| n.node_type == NodeType::StorageVariable)
                             // {
                             trace!("Collecting WRITE modification (simple assignment): CallerID={}, VarID={}, VarName='{}', AssignmentSpan={:?}", owner_node_id, var_node_id, var_name, assignment_span);
-                            
+
                             // This is for simple assignment_expression, only add StorageWrite
                             modifications.push(GraphModification {
                                 source_node_id: owner_node_id,
@@ -1082,28 +1096,36 @@ fn process_statements_in_block(
                                 event_name: None,
                                 sort_span_start: assignment_span.0,
                                 chain_index: None,
-                                execution_priority: 1000, 
+                                execution_priority: 1000,
                             });
                             // } else {
                             //     trace!("Write target '{}' (NodeID {}) is not a StorageVariable.", var_name, var_node_id);
                             // }
                         } else {
-                            trace!("Write target '{}' could not be resolved via inheritance.", var_name);
+                            trace!(
+                                "Write target '{}' could not be resolved via inheritance.",
+                                var_name
+                            );
                         }
                     } else {
-                        trace!("Could not find base identifier for LHS of assignment: {}", get_node_text(&lhs_node_expr, &input.source));
+                        trace!(
+                            "Could not find base identifier for LHS of assignment: {}",
+                            get_node_text(&lhs_node_expr, &input.source)
+                        );
                     }
                 } else {
                     trace!("Assignment node missing LHS. Span: {:?}", assignment_span);
                 }
                 handled_node_ids.insert(node.id()); // Mark assignment_expression as handled
             }
-            "augmented_write" => { // New case for augmented_assignment_expression
+            "augmented_write" => {
+                // New case for augmented_assignment_expression
                 let augmented_assignment_node = node;
                 let assignment_span = span; // Span of the whole augmented_assignment_expression
                 if let Some(lhs_node_expr) = augmented_assignment_node.child_by_field_name("left") {
-                     // Helper to find the base identifier (re-defined for scope or use from outer scope if visible)
-                    fn find_base_identifier_recursive_for_aug<'a>( // Renamed
+                    // Helper to find the base identifier (re-defined for scope or use from outer scope if visible)
+                    fn find_base_identifier_recursive_for_aug<'a>(
+                        // Renamed
                         n: TsNode<'a>,
                         input_source: &str,
                     ) -> Option<TsNode<'a>> {
@@ -1111,28 +1133,49 @@ fn process_statements_in_block(
                         match actual_node.kind() {
                             "identifier" => Some(actual_node),
                             "member_expression" => {
-                                if let Some(object_expr) = actual_node.child_by_field_name("object") {
-                                    find_base_identifier_recursive_for_aug(object_expr, input_source)
-                                } else { None }
+                                if let Some(object_expr) = actual_node.child_by_field_name("object")
+                                {
+                                    find_base_identifier_recursive_for_aug(
+                                        object_expr,
+                                        input_source,
+                                    )
+                                } else {
+                                    None
+                                }
                             }
                             "array_access" => {
                                 if let Some(base_expr) = actual_node.child_by_field_name("base") {
                                     find_base_identifier_recursive_for_aug(base_expr, input_source)
-                                } else { None }
+                                } else {
+                                    None
+                                }
                             }
                             _ => None,
                         }
                     }
 
-                    if let Some(write_target_node) = find_base_identifier_recursive_for_aug(lhs_node_expr, &input.source) {
+                    if let Some(write_target_node) =
+                        find_base_identifier_recursive_for_aug(lhs_node_expr, &input.source)
+                    {
                         let var_name = get_node_text(&write_target_node, &input.source);
-                        if let Some(var_node_id) = resolve_storage_variable(&owner_contract_name_opt, &var_name, graph, ctx) {
-                            trace!("Augmented assignment for '{}'. Adding implicit StorageRead.", var_name);
+                        if let Some(var_node_id) = resolve_storage_variable(
+                            &owner_contract_name_opt,
+                            &var_name,
+                            graph,
+                            ctx,
+                        ) {
+                            trace!(
+                                "Augmented assignment for '{}'. Adding implicit StorageRead.",
+                                var_name
+                            );
                             modifications.push(GraphModification {
                                 source_node_id: owner_node_id,
                                 target_node_id: var_node_id,
                                 edge_type: EdgeType::StorageRead,
-                                span: (write_target_node.start_byte(), write_target_node.end_byte()), // Span of the LHS identifier
+                                span: (
+                                    write_target_node.start_byte(),
+                                    write_target_node.end_byte(),
+                                ), // Span of the LHS identifier
                                 modifier: None,
                                 return_value: None,
                                 arguments: None,
@@ -1160,10 +1203,16 @@ fn process_statements_in_block(
                             trace!("Augmented write target '{}' could not be resolved via inheritance.", var_name);
                         }
                     } else {
-                        trace!("Could not find base identifier for LHS of augmented assignment: {}", get_node_text(&lhs_node_expr, &input.source));
+                        trace!(
+                            "Could not find base identifier for LHS of augmented assignment: {}",
+                            get_node_text(&lhs_node_expr, &input.source)
+                        );
                     }
                 } else {
-                    trace!("Augmented assignment node missing LHS. Span: {:?}", assignment_span);
+                    trace!(
+                        "Augmented assignment node missing LHS. Span: {:?}",
+                        assignment_span
+                    );
                 }
                 handled_node_ids.insert(node.id()); // Mark augmented_assignment_expression as handled
             }
@@ -1605,7 +1654,10 @@ fn process_statements_in_block(
                                     } // End loop
 
                                     if is_function_of_call {
-                                        trace!("Skipping READ for function name in member call '{}'", var_name);
+                                        trace!(
+                                            "Skipping READ for function name in member call '{}'",
+                                            var_name
+                                        );
                                         skip_read_edge = true;
                                     }
                                 }
@@ -1805,7 +1857,11 @@ fn process_statements_in_block(
                         }
 
                         if skip_read_edge {
-                            trace!("Skipping READ modification for '{}' due to filtering. Span={:?}", var_name, read_span);
+                            trace!(
+                                "Skipping READ modification for '{}' due to filtering. Span={:?}",
+                                var_name,
+                                read_span
+                            );
                         } else {
                             trace!("Collecting READ modification: CallerID={}, VarID={}, VarName='{}', Span={:?}", owner_node_id, var_node_id, var_name, read_span);
                             modifications.push(GraphModification {
@@ -2031,7 +2087,10 @@ fn process_statements_in_block(
                         trace!("Skipping READ modification for subscript '{}' due to filtering. ArrayAccessSpan={:?}", var_name, array_access_span);
                     }
                 } else {
-                    trace!("Could not extract base identifier for read from array_access at span {:?}", array_access_span);
+                    trace!(
+                        "Could not extract base identifier for read from array_access at span {:?}",
+                        array_access_span
+                    );
                 }
                 handled_node_ids.insert(node.id()); // Mark array_access node as handled
             }
@@ -2039,10 +2098,7 @@ fn process_statements_in_block(
                 // --- Handle Delete Statements ---
                 let delete_expression_node = node; // Use the new node name
                 let delete_span = span;
-                trace!(
-                    "Processing Delete Statement at span {:?}",
-                    delete_span
-                );
+                trace!("Processing Delete Statement at span {:?}", delete_span);
 
                 // Find the expression being deleted (the 'argument' of the unary 'delete' expression)
                 let target_expr_node_opt = delete_expression_node // Use the new node name
@@ -2070,10 +2126,7 @@ fn process_statements_in_block(
 
                     if let Some(base_id_node) = base_identifier_node {
                         let var_name = get_node_text(&base_id_node, &input.source);
-                        trace!(
-                            "  Delete target base identifier: '{}'",
-                            var_name
-                        );
+                        trace!("  Delete target base identifier: '{}'", var_name);
 
                         // Resolve the base identifier as a storage variable
                         if let Some(var_node_id) = resolve_storage_variable(
@@ -2097,13 +2150,22 @@ fn process_statements_in_block(
                                 execution_priority: 1000, // Priority 1000 for writes
                             });
                         } else {
-                            trace!("  Delete target base '{}' did not resolve to a storage variable.", var_name);
+                            trace!(
+                                "  Delete target base '{}' did not resolve to a storage variable.",
+                                var_name
+                            );
                         }
                     } else {
-                        trace!("  Could not find base identifier in delete target expression: {}", get_node_text(&target_expr_node, &input.source));
+                        trace!(
+                            "  Could not find base identifier in delete target expression: {}",
+                            get_node_text(&target_expr_node, &input.source)
+                        );
                     }
                 } else {
-                    trace!("  Delete expression node missing 'argument' child. Span: {:?}", delete_span);
+                    trace!(
+                        "  Delete expression node missing 'argument' child. Span: {:?}",
+                        delete_span
+                    );
                 }
                 handled_node_ids.insert(node.id()); // Mark delete_expression_node as handled
             }
@@ -2126,8 +2188,8 @@ fn process_statements_in_block(
 
                 // Condition expression TsNode and its source text
                 let condition_ts_node_opt = argument_nodes_ts.get(0);
-                let condition_source_text_opt = condition_ts_node_opt
-                    .map(|n| get_node_text(n, &input.source).to_string());
+                let condition_source_text_opt =
+                    condition_ts_node_opt.map(|n| get_node_text(n, &input.source).to_string());
 
                 // Revert message (optional second argument)
                 let revert_message_text_opt = argument_nodes_ts.get(1).and_then(|call_arg_node| {
@@ -2167,54 +2229,65 @@ fn process_statements_in_block(
                     format!("{}_{}", require_condition_node_name, require_span.0),
                 );
 
-                let specific_require_condition_node_id =
-                    if let Some(id) = graph.node_lookup.get(&unique_require_node_key) {
-                        let node_id = *id;
-                        // If node already exists, ensure its fields are up-to-date (should ideally be set on creation)
-                        if let Some(graph_node_mut) = graph.nodes.get_mut(node_id) {
-                            if graph_node_mut.condition_expression.is_none() && condition_source_text_opt.is_some() {
-                                graph_node_mut.condition_expression = condition_source_text_opt.clone();
-                            }
-                            if graph_node_mut.revert_message.is_none() && revert_message_text_opt.is_some() {
-                                graph_node_mut.revert_message = revert_message_text_opt.clone();
-                            }
-                        }
-                        node_id
-                    } else {
-                        let condition_display_span = condition_ts_node_opt
-                            .map_or(require_span, |n| (n.start_byte(), n.end_byte()));
-
-                        let new_id = graph.add_node(
-                            require_condition_node_name.clone(), // Node's primary name
-                            NodeType::RequireCondition,
-                            owner_contract_name_opt.clone(), // Scoped to the contract
-                            Visibility::Default,
-                            condition_display_span, // Span of the condition expression
-                        );
-
-                        // Populate the new fields for the RequireCondition node
-                        if let Some(graph_node_mut) = graph.nodes.get_mut(new_id) {
+                let specific_require_condition_node_id = if let Some(id) =
+                    graph.node_lookup.get(&unique_require_node_key)
+                {
+                    let node_id = *id;
+                    // If node already exists, ensure its fields are up-to-date (should ideally be set on creation)
+                    if let Some(graph_node_mut) = graph.nodes.get_mut(node_id) {
+                        if graph_node_mut.condition_expression.is_none()
+                            && condition_source_text_opt.is_some()
+                        {
                             graph_node_mut.condition_expression = condition_source_text_opt.clone();
-                            graph_node_mut.revert_message = revert_message_text_opt.clone();
-                            trace!("Created RequireCondition node {}: name='{}', expr='{:?}', msg='{:?}'", new_id, graph_node_mut.name, graph_node_mut.condition_expression, graph_node_mut.revert_message);
                         }
-                        graph.node_lookup.insert(unique_require_node_key, new_id);
+                        if graph_node_mut.revert_message.is_none()
+                            && revert_message_text_opt.is_some()
+                        {
+                            graph_node_mut.revert_message = revert_message_text_opt.clone();
+                        }
+                    }
+                    node_id
+                } else {
+                    let condition_display_span = condition_ts_node_opt
+                        .map_or(require_span, |n| (n.start_byte(), n.end_byte()));
 
-                        // Add NodeInfo for this synthetic RequireCondition node
-                        let require_condition_node_info = NodeInfo {
-                            span: condition_display_span,
-                            kind: condition_ts_node_opt
-                                .map_or("require_condition_expr".to_string(), |n| {
-                                    n.kind().to_string()
-                                }),
-                        };
-                        ctx.definition_nodes_info.push((
+                    let new_id = graph.add_node(
+                        require_condition_node_name.clone(), // Node's primary name
+                        NodeType::RequireCondition,
+                        owner_contract_name_opt.clone(), // Scoped to the contract
+                        Visibility::Default,
+                        condition_display_span, // Span of the condition expression
+                    );
+
+                    // Populate the new fields for the RequireCondition node
+                    if let Some(graph_node_mut) = graph.nodes.get_mut(new_id) {
+                        graph_node_mut.condition_expression = condition_source_text_opt.clone();
+                        graph_node_mut.revert_message = revert_message_text_opt.clone();
+                        trace!(
+                            "Created RequireCondition node {}: name='{}', expr='{:?}', msg='{:?}'",
                             new_id,
-                            require_condition_node_info,
-                            owner_contract_name_opt.clone(),
-                        ));
-                        new_id
+                            graph_node_mut.name,
+                            graph_node_mut.condition_expression,
+                            graph_node_mut.revert_message
+                        );
+                    }
+                    graph.node_lookup.insert(unique_require_node_key, new_id);
+
+                    // Add NodeInfo for this synthetic RequireCondition node
+                    let require_condition_node_info = NodeInfo {
+                        span: condition_display_span,
+                        kind: condition_ts_node_opt
+                            .map_or("require_condition_expr".to_string(), |n| {
+                                n.kind().to_string()
+                            }),
                     };
+                    ctx.definition_nodes_info.push((
+                        new_id,
+                        require_condition_node_info,
+                        owner_contract_name_opt.clone(),
+                    ));
+                    new_id
+                };
 
                 // Collect Modification: Caller -> SpecificRequireConditionNode
                 trace!("[Require DEBUG]   Collecting modification: Source={}, Target={}, Type=Require, Span={:?}, Args={:?}", owner_node_id, specific_require_condition_node_id, require_span, argument_texts);
@@ -2237,10 +2310,7 @@ fn process_statements_in_block(
                 // --- Handle Emit Statements ---
                 let emit_node = node;
                 let emit_span = span;
-                trace!(
-                    "      Processing Emit Statement at span {:?}",
-                    emit_span
-                );
+                trace!("      Processing Emit Statement at span {:?}", emit_span);
 
                 // Extract event name
                 let event_name_opt = emit_node
@@ -2255,7 +2325,8 @@ fn process_statements_in_block(
                 if let Some(event_name) = event_name_opt {
                     trace!(
                         "        Event Name: '{}', Args: {:?}",
-                        event_name, argument_texts
+                        event_name,
+                        argument_texts
                     );
 
                     // --- Get or Create EVM Node ---
@@ -2327,7 +2398,10 @@ fn process_statements_in_block(
                         execution_priority: 20, // Base priority 20 for Emit EVM->Listener (2 * 10)
                     });
                 } else {
-                    trace!("      >>> Emit statement missing event name. Span: {:?}", emit_span);
+                    trace!(
+                        "      >>> Emit statement missing event name. Span: {:?}",
+                        emit_span
+                    );
                 }
                 handled_node_ids.insert(node.id()); // Mark emit_node as handled
             }
@@ -2336,10 +2410,7 @@ fn process_statements_in_block(
                 let if_span = span; // Span of the whole if_statement
                 let if_start_byte = if_statement_node.start_byte();
 
-                trace!(
-                    "Processing If Statement at span {:?}",
-                    if_span
-                );
+                trace!("Processing If Statement at span {:?}", if_span);
 
                 // 1. Extract Condition
                 let condition_node = if_statement_node
@@ -2383,7 +2454,11 @@ fn process_statements_in_block(
                         if_condition_node_info,
                         owner_contract_name_opt.clone(), // Inherit contract scope
                     ));
-                    trace!("Added IfConditionNode ID {} with span {:?} to definition_nodes_info", new_id, condition_span);
+                    trace!(
+                        "Added IfConditionNode ID {} with span {:?} to definition_nodes_info",
+                        new_id,
+                        condition_span
+                    );
                     // --- End NodeInfo addition ---
                     new_id
                 };
@@ -2442,7 +2517,11 @@ fn process_statements_in_block(
                             then_block_node_info,
                             owner_contract_name_opt.clone(), // Inherit contract scope from parent
                         ));
-                        trace!("Added ThenBlock Node ID {} with span {:?} to definition_nodes_info", new_id, then_body_span);
+                        trace!(
+                            "Added ThenBlock Node ID {} with span {:?} to definition_nodes_info",
+                            new_id,
+                            then_body_span
+                        );
                         // --- End NodeInfo addition ---
                         new_id
                     };
@@ -2489,7 +2568,12 @@ fn process_statements_in_block(
                 if let Some(else_body_node) = body_nodes.get(1).copied() {
                     // If this else_body_node is an if_statement, it's an 'else if'.
                     // Mark it so it's not processed again by the main loop for this block.
-                    trace!("Checking else_body_node.kind(). ID: {}, Kind: '{}', Span: {:?}", else_body_node.id(), else_body_node.kind(), (else_body_node.start_byte(), else_body_node.end_byte()));
+                    trace!(
+                        "Checking else_body_node.kind(). ID: {}, Kind: '{}', Span: {:?}",
+                        else_body_node.id(),
+                        else_body_node.kind(),
+                        (else_body_node.start_byte(), else_body_node.end_byte())
+                    );
                     // If this else_body_node represents an 'else if' structure, we need to mark the
                     // actual if_statement node to prevent its reprocessing by the main loop.
                     // The CST can be `(statement (if_statement ...))` where `else_body_node` is the outer `statement`.
@@ -2527,10 +2611,7 @@ fn process_statements_in_block(
                         trace!("else_body_node (Kind: '{}', Span: {:?}) is not an 'else if' structure. Contents will be processed recursively.", else_body_node.kind(), (else_body_node.start_byte(), else_body_node.end_byte()));
                     }
 
-                    trace!(
-                        "Found else block for if statement at span {:?}",
-                        if_span
-                    );
+                    trace!("Found else block for if statement at span {:?}", if_span);
                     let else_body_span = (else_body_node.start_byte(), else_body_node.end_byte());
                     let else_block_node_name =
                         format!("{}_{}", ELSE_BLOCK_NODE_NAME, else_body_node.start_byte());
@@ -2559,7 +2640,11 @@ fn process_statements_in_block(
                             else_block_node_info,
                             owner_contract_name_opt.clone(), // Inherit contract scope from parent
                         ));
-                        trace!("Added ElseBlock Node ID {} with span {:?} to definition_nodes_info", new_id, else_body_span);
+                        trace!(
+                            "Added ElseBlock Node ID {} with span {:?} to definition_nodes_info",
+                            new_id,
+                            else_body_span
+                        );
                         // --- End NodeInfo addition ---
                         new_id
                     };
@@ -2599,10 +2684,7 @@ fn process_statements_in_block(
                 let while_span = span; // Span of the whole while_statement
                 let while_start_byte = while_statement_node.start_byte();
 
-                trace!(
-                    "Processing While Statement at span {:?}",
-                    while_span
-                );
+                trace!("Processing While Statement at span {:?}", while_span);
 
                 // 1. Extract Condition
                 let condition_node = while_statement_node
@@ -2649,7 +2731,11 @@ fn process_statements_in_block(
                         while_condition_node_info,
                         owner_contract_name_opt.clone(),
                     ));
-                    trace!("Added WhileConditionNode ID {} with span {:?} to definition_nodes_info", new_id, condition_span);
+                    trace!(
+                        "Added WhileConditionNode ID {} with span {:?} to definition_nodes_info",
+                        new_id,
+                        condition_span
+                    );
                     new_id
                 };
 
@@ -2681,31 +2767,34 @@ fn process_statements_in_block(
                         owner_contract_name_opt.clone(),
                         while_block_node_name.clone(),
                     );
-                    let while_block_node_id = if let Some(id) =
-                        graph.node_lookup.get(&while_block_key)
-                    {
-                        *id
-                    } else {
-                        let new_id = graph.add_node(
-                            while_block_node_name.clone(),
-                            NodeType::WhileBlock,
-                            owner_contract_name_opt.clone(),
-                            Visibility::Default,
-                            while_body_span,
-                        );
-                        graph.node_lookup.insert(while_block_key, new_id);
-                        let while_block_node_info = NodeInfo {
-                            span: while_body_span,
-                            kind: while_body_node.kind().to_string(),
-                        };
-                        ctx.definition_nodes_info.push((
+                    let while_block_node_id =
+                        if let Some(id) = graph.node_lookup.get(&while_block_key) {
+                            *id
+                        } else {
+                            let new_id = graph.add_node(
+                                while_block_node_name.clone(),
+                                NodeType::WhileBlock,
+                                owner_contract_name_opt.clone(),
+                                Visibility::Default,
+                                while_body_span,
+                            );
+                            graph.node_lookup.insert(while_block_key, new_id);
+                            let while_block_node_info = NodeInfo {
+                                span: while_body_span,
+                                kind: while_body_node.kind().to_string(),
+                            };
+                            ctx.definition_nodes_info.push((
+                                new_id,
+                                while_block_node_info,
+                                owner_contract_name_opt.clone(),
+                            ));
+                            trace!(
+                            "Added WhileBlock Node ID {} with span {:?} to definition_nodes_info",
                             new_id,
-                            while_block_node_info,
-                            owner_contract_name_opt.clone(),
-                        ));
-                        trace!("Added WhileBlock Node ID {} with span {:?} to definition_nodes_info", new_id, while_body_span);
-                        new_id
-                    };
+                            while_body_span
+                        );
+                            new_id
+                        };
 
                     modifications.push(GraphModification {
                         source_node_id: while_condition_node_id,
@@ -2762,10 +2851,7 @@ fn process_statements_in_block(
                 let for_span = span; // Span of the whole for_statement
                 let for_start_byte = for_statement_node.start_byte();
 
-                trace!(
-                    "Processing For Statement at span {:?}",
-                    for_span
-                );
+                trace!("Processing For Statement at span {:?}", for_span);
 
                 // 1. Extract Condition (and optionally init/update for the label)
                 let init_node_opt = for_statement_node.child_by_field_name("initial");
@@ -2823,7 +2909,11 @@ fn process_statements_in_block(
                         for_condition_node_info,
                         owner_contract_name_opt.clone(),
                     ));
-                    trace!("Added ForConditionNode ID {} with span {:?} to definition_nodes_info", new_id, condition_span);
+                    trace!(
+                        "Added ForConditionNode ID {} with span {:?} to definition_nodes_info",
+                        new_id,
+                        condition_span
+                    );
                     new_id
                 };
 
@@ -2873,7 +2963,11 @@ fn process_statements_in_block(
                             for_block_node_info,
                             owner_contract_name_opt.clone(),
                         ));
-                        trace!("Added ForBlock Node ID {} with span {:?} to definition_nodes_info", new_id, for_body_span);
+                        trace!(
+                            "Added ForBlock Node ID {} with span {:?} to definition_nodes_info",
+                            new_id,
+                            for_body_span
+                        );
                         new_id
                     };
 
@@ -2915,7 +3009,10 @@ fn process_statements_in_block(
                         for cap in m.captures {
                             if cap.index == for_statement_capture_index {
                                 processed_nested_for_nodes.insert(cap.node.id());
-                                trace!("Marked nested for node ID {} as processed by recursive call.", cap.node.id());
+                                trace!(
+                                    "Marked nested for node ID {} as processed by recursive call.",
+                                    cap.node.id()
+                                );
                             }
                         }
                     }
@@ -2982,7 +3079,9 @@ fn resolve_storage_variable(
     let ancestors = graph.get_ancestor_contracts(contract_name, ctx);
     trace!(
         "[Storage Resolve DEBUG] Resolving variable '{}' in contract '{}'. Ancestors: {:?}",
-        variable_name, contract_name, ancestors
+        variable_name,
+        contract_name,
+        ancestors
     );
 
     for ancestor_name in ancestors {
@@ -3005,7 +3104,8 @@ fn resolve_storage_variable(
 
     trace!(
         "[Storage Resolve DEBUG] Variable '{}' not found in contract '{}' or its ancestors.",
-        variable_name, contract_name
+        variable_name,
+        contract_name
     );
     None
 }

@@ -1,0 +1,91 @@
+name: Release Guard
+
+# This workflow ensures tests pass before any release
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag'
+        required: true
+        type: string
+
+jobs:
+  test-before-release:
+    name: Pre-Release Test Suite
+    uses: ./.github/workflows/test.yml
+    
+  validate-release:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    needs: test-before-release
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Validate tag format
+      run: |
+        if [[ "${GITHUB_REF}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "✅ Valid version tag"
+        else
+          echo "❌ Invalid tag format. Must be v#.#.#"
+          exit 1
+        fi
+
+    - name: Check version in Cargo files
+      run: |
+        TAG_VERSION=${GITHUB_REF#refs/tags/v}
+        echo "Tag version: $TAG_VERSION"
+        
+        # Check all Cargo.toml files have this version
+        for cargo_file in crates/*/Cargo.toml; do
+          FILE_VERSION=$(grep '^version' "$cargo_file" | head -1 | cut -d '"' -f 2)
+          if [ "$FILE_VERSION" != "$TAG_VERSION" ]; then
+            echo "❌ Version mismatch in $cargo_file"
+            echo "   Expected: $TAG_VERSION"
+            echo "   Found: $FILE_VERSION"
+            exit 1
+          fi
+        done
+        
+        echo "✅ All versions match tag: $TAG_VERSION"
+
+    - name: Verify RELEASE_NOTES exist
+      run: |
+        if [ -f "RELEASE_NOTES.md" ]; then
+          echo "✅ Release notes found"
+        else
+          echo "⚠️  No RELEASE_NOTES.md file found (optional)"
+        fi
+
+    - name: Build release artifacts
+      run: cargo build --release --workspace
+
+    - name: Create release checkpoint
+      run: |
+        echo "Release ${{ github.ref_name }} validated at $(date)" > release-checkpoint.txt
+        echo "All tests passed ✅" >> release-checkpoint.txt
+        echo "Version consistency verified ✅" >> release-checkpoint.txt
+        
+    - name: Upload checkpoint
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-checkpoint-${{ github.ref_name }}
+        path: release-checkpoint.txt
+
+  block-if-failed:
+    name: Block Release on Failure
+    runs-on: ubuntu-latest
+    needs: validate-release
+    if: failure()
+    
+    steps:
+    - name: Block release
+      run: |
+        echo "❌ RELEASE BLOCKED - Tests or validation failed!"
+        echo "Please fix the issues and try again."
+        exit 1

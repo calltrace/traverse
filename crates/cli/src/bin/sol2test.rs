@@ -8,24 +8,21 @@
 // along with configurable templates or native Foundry integration to produce test files.
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use tracing::{info, debug, warn};
+use std::collections::HashMap;
+use std::fmt;
+use std::fs;
+use std::path::{Path, PathBuf};
+use tracing::{debug, info, warn};
 use traverse_codegen::generate_tests_with_foundry;
 use traverse_graph::cg::{
     CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline,
 };
 use traverse_graph::interface_resolver::BindingRegistry;
-use traverse_graph::manifest::{
-    find_solidity_files_for_manifest, Manifest,
-    ManifestEntry,
-};
+use traverse_graph::manifest::{find_solidity_files_for_manifest, Manifest, ManifestEntry};
 use traverse_graph::natspec::extract::extract_source_comments;
+use traverse_graph::parser::get_solidity_language;
 use traverse_graph::parser::parse_solidity;
 use traverse_graph::steps::{CallsHandling, ContractHandling};
-use traverse_graph::parser::get_solidity_language;
-use std::collections::HashMap;
-use std::fmt;
-use std::fs;
-use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 #[derive(Parser, Debug)]
@@ -127,12 +124,16 @@ impl Default for FoundryConfig {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     // Initialize logging
     traverse_logging::init_subscriber(cli.verbose);
 
     debug!(
-        mode = if cli.use_foundry { "Native Foundry" } else { "Template-based" },
+        mode = if cli.use_foundry {
+            "Native Foundry"
+        } else {
+            "Template-based"
+        },
         "Starting sol2test with Foundry integration"
     );
 
@@ -220,7 +221,7 @@ fn main() -> Result<()> {
                 if let Some(contract_name) = &entry.item_name {
                     let absolute_path = project_root_for_paths.join(&entry.file_path);
                     original_contract_paths.insert(contract_name.clone(), absolute_path);
-                    
+
                     info!(
                         "️ Mapping contract '{}' to original path: {}",
                         contract_name,
@@ -241,7 +242,7 @@ fn main() -> Result<()> {
                 let absolute_path =
                     fs::canonicalize(sol_file).context("Failed to canonicalize input file path")?;
                 original_contract_paths.insert(file_stem.to_string(), absolute_path);
-                
+
                 info!(
                     "️ Direct mapping contract '{}' to original path: {}",
                     file_stem,
@@ -266,7 +267,7 @@ fn main() -> Result<()> {
         &original_contract_paths, // Pass the newly constructed map
         foundry_config.as_ref(),  // Pass Foundry configuration
     )?;
-    
+
     info!(" Test generation completed successfully!");
 
     Ok(())
@@ -309,7 +310,6 @@ fn setup_manifest_and_bindings(ctx: &mut CallGraphGeneratorContext, cli: &Cli) -
     )
     .context("Failed to determine project root for manifest generation")?;
 
-    
     info!(" Using project root: {}", project_root.display());
 
     let mut manifest_loaded_from_file = false;
@@ -656,8 +656,7 @@ fn discover_project_contracts_with_config(
 
     let mut sol_files = Vec::new();
     for entry in WalkDir::new(&src_dir).into_iter().filter_map(|e| e.ok()) {
-        if entry.file_type().is_file() && entry.path().extension().is_some_and(|ext| ext == "sol")
-        {
+        if entry.file_type().is_file() && entry.path().extension().is_some_and(|ext| ext == "sol") {
             sol_files.push(entry.path().to_path_buf());
             if verbose {
                 info!("   Found: {}", entry.path().display());
@@ -735,10 +734,7 @@ fn flatten_project_contracts_with_config(
             String::from_utf8(output.stdout).context("forge flatten output is not valid UTF-8")?;
 
         if verbose {
-            info!(
-                "     Flattened {} lines",
-                flattened_content.lines().count()
-            );
+            info!("     Flattened {} lines", flattened_content.lines().count());
         }
 
         combined_flattened.push_str(&flattened_content);

@@ -184,7 +184,7 @@ impl CgToJson for CallGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cg::{CallGraph, EdgeType, NodeType, Visibility};
+    use crate::cg::{CallGraph, EdgeParams, EdgeType, NodeType, Visibility};
     use serde_json::json;
 
     fn create_test_graph() -> CallGraph {
@@ -203,18 +203,18 @@ mod tests {
             Visibility::Private,
             (30, 40),
         );
-        graph.add_edge(
-            n1,
-            n0,
-            EdgeType::Call,
-            (35, 38),
-            None,
-            1,
-            None,
-            None,
-            None,
-            None,
-        );
+        graph.add_edge(EdgeParams {
+            source_node_id: n1,
+            target_node_id: n0,
+            edge_type: EdgeType::Call,
+            call_site_span: (35, 38),
+            return_site_span: None,
+            sequence_number: 1,
+            returned_value: None,
+            argument_names: None,
+            event_name: None,
+            declared_return_type: None,
+        });
         graph
     }
 
@@ -223,17 +223,17 @@ mod tests {
         let graph = create_test_graph();
         let config = JsonExportConfig::default();
         let json_str = graph.to_json("Test Graph", &config);
-        
+
         let json: Value = serde_json::from_str(&json_str).expect("Failed to parse JSON");
-        
+
         assert_eq!(json["name"], "Test Graph");
         assert!(json["metadata"].is_object());
         assert_eq!(json["metadata"]["node_count"], 2);
         assert_eq!(json["metadata"]["edge_count"], 1);
-        
+
         assert!(json["nodes"].is_array());
         assert_eq!(json["nodes"].as_array().unwrap().len(), 2);
-        
+
         assert!(json["edges"].is_array());
         assert_eq!(json["edges"].as_array().unwrap().len(), 1);
     }
@@ -262,9 +262,18 @@ mod tests {
             Visibility::Public,
             (50, 60),
         );
-        graph.add_edge(
-            n0, n1, EdgeType::Call, (15, 18), None, 1, None, None, None, None,
-        );
+        graph.add_edge(EdgeParams {
+            source_node_id: n0,
+            target_node_id: n1,
+            edge_type: EdgeType::Call,
+            call_site_span: (15, 18),
+            return_site_span: None,
+            sequence_number: 1,
+            returned_value: None,
+            argument_names: None,
+            event_name: None,
+            declared_return_type: None,
+        });
 
         let config_exclude = JsonExportConfig {
             exclude_isolated_nodes: true,
@@ -273,7 +282,7 @@ mod tests {
         };
         let json_str = graph.to_json("Test", &config_exclude);
         let json: Value = serde_json::from_str(&json_str).expect("Failed to parse JSON");
-        
+
         assert_eq!(json["nodes"].as_array().unwrap().len(), 2);
         assert_eq!(json["metadata"]["node_count"], 2);
         assert_eq!(json["metadata"]["isolated_node_count"], 0);
@@ -285,7 +294,7 @@ mod tests {
         };
         let json_str = graph.to_json("Test", &config_include);
         let json: Value = serde_json::from_str(&json_str).expect("Failed to parse JSON");
-        
+
         assert_eq!(json["nodes"].as_array().unwrap().len(), 3);
         assert_eq!(json["metadata"]["node_count"], 3);
         assert_eq!(json["metadata"]["isolated_node_count"], 1);
@@ -299,14 +308,14 @@ mod tests {
             pretty_print: false,
             include_metadata: false,
         };
-        
+
         let json_value = graph.to_json_with_formatters(
             "Custom Test",
             &config,
             |node| {
                 json!({
                     "id": node.id,
-                    "label": format!("{}.{}", 
+                    "label": format!("{}.{}",
                         node.contract_name.as_deref().unwrap_or(""),
                         node.name
                     ),
@@ -321,14 +330,14 @@ mod tests {
                 })
             },
         );
-        
+
         assert_eq!(json_value["name"], "Custom Test");
         assert!(json_value["metadata"].is_null());
-        
+
         let nodes = json_value["nodes"].as_array().unwrap();
         assert_eq!(nodes.len(), 2);
         assert_eq!(nodes[0]["custom_field"], "custom_value");
-        
+
         let edges = json_value["edges"].as_array().unwrap();
         assert_eq!(edges.len(), 1);
         assert_eq!(edges[0]["label"], "custom_edge");

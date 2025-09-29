@@ -1,8 +1,8 @@
 //! Builder for Mermaid Sequence Diagrams
 
 use crate::sequence_diagram_ast::*;
-use pest::iterators::Pair;
 use crate::sequence_diagram_parser::Rule;
+use pest::iterators::Pair;
 use std::error::Error;
 use std::fmt;
 
@@ -95,7 +95,7 @@ impl SequenceDiagramBuilder {
                     }
                 }
                 Ok(self)
-            },
+            }
             _ => {
                 // Try to convert directly to a statement
                 let rule = pair.as_rule();
@@ -103,7 +103,10 @@ impl SequenceDiagramBuilder {
                     self.statements.push(statement);
                     Ok(self)
                 } else {
-                    Err(BuilderError::InvalidPair(format!("Could not convert pair to statement: {:?}", rule)))
+                    Err(BuilderError::InvalidPair(format!(
+                        "Could not convert pair to statement: {:?}",
+                        rule
+                    )))
                 }
             }
         }
@@ -113,22 +116,30 @@ impl SequenceDiagramBuilder {
 
     /// Adds a `title` statement to the diagram.
     pub fn title(&mut self, title: impl Into<String>) -> &mut Self {
-        self.add_statement(Statement::Title(TitleStatement { title: title.into() }))
+        self.add_statement(Statement::Title(TitleStatement {
+            title: title.into(),
+        }))
     }
 
     /// Adds an `accTitle` (accessibility title) statement.
     pub fn acc_title(&mut self, title: impl Into<String>) -> &mut Self {
-        self.add_statement(Statement::AccTitle(AccTitleStatement { title: title.into() }))
+        self.add_statement(Statement::AccTitle(AccTitleStatement {
+            title: title.into(),
+        }))
     }
 
     /// Adds an `accDescr` (accessibility description) statement.
     pub fn acc_descr(&mut self, description: impl Into<String>) -> &mut Self {
-        self.add_statement(Statement::AccDescr(AccDescrStatement { description: description.into() }))
+        self.add_statement(Statement::AccDescr(AccDescrStatement {
+            description: description.into(),
+        }))
     }
 
     /// Adds a multiline `accDescr` (accessibility description) statement.
     pub fn acc_descr_multiline(&mut self, description: impl Into<String>) -> &mut Self {
-        self.add_statement(Statement::AccDescrMultiline(AccDescrMultilineStatement { description: description.into() }))
+        self.add_statement(Statement::AccDescrMultiline(AccDescrMultilineStatement {
+            description: description.into(),
+        }))
     }
 
     // --- Participant Statements ---
@@ -154,7 +165,12 @@ impl SequenceDiagramBuilder {
     }
 
     /// Internal helper for adding participants/actors.
-    fn add_participant_internal(&mut self, participant_type: ParticipantType, id: String, alias: Option<String>) -> &mut Self {
+    fn add_participant_internal(
+        &mut self,
+        participant_type: ParticipantType,
+        id: String,
+        alias: Option<String>,
+    ) -> &mut Self {
         self.add_statement(Statement::Participant(ParticipantStatement {
             participant_type,
             id,
@@ -187,10 +203,10 @@ impl SequenceDiagramBuilder {
         let mut activation_marker = None;
 
         if sequence.ends_with('+') {
-            sequence = &sequence[..sequence.len()-1];
+            sequence = &sequence[..sequence.len() - 1];
             activation_marker = Some(ActivationMarker::Activate);
         } else if sequence.ends_with('-') {
-            sequence = &sequence[..sequence.len()-1];
+            sequence = &sequence[..sequence.len() - 1];
             activation_marker = Some(ActivationMarker::Deactivate);
         }
 
@@ -202,12 +218,15 @@ impl SequenceDiagramBuilder {
         self.add_statement(Statement::Signal(SignalStatement {
             from: from.into(),
             to: to.into(),
-            arrow: Arrow { sequence: sequence.to_string(), activation_marker },
+            arrow: Arrow {
+                sequence: sequence.to_string(),
+                activation_marker,
+            },
             message: msg,
         }))
     }
 
-     // --- Activation Statements ---
+    // --- Activation Statements ---
 
     /// Adds an `activate` statement for a participant.
     pub fn activate(&mut self, id: impl Into<String>) -> &mut Self {
@@ -227,17 +246,34 @@ impl SequenceDiagramBuilder {
     }
 
     /// Adds a `Note right of` statement.
-    pub fn note_right_of(&mut self, actor: impl Into<String>, text: impl Into<String>) -> &mut Self {
+    pub fn note_right_of(
+        &mut self,
+        actor: impl Into<String>,
+        text: impl Into<String>,
+    ) -> &mut Self {
         self.add_note(NotePlacement::RightOf, vec![actor.into()], text.into())
     }
 
     /// Adds a `Note over` statement, potentially spanning multiple actors.
-    pub fn note_over(&mut self, actors: Vec<impl Into<String>>, text: impl Into<String>) -> &mut Self {
-        self.add_note(NotePlacement::Over, actors.into_iter().map(Into::into).collect(), text.into())
+    pub fn note_over(
+        &mut self,
+        actors: Vec<impl Into<String>>,
+        text: impl Into<String>,
+    ) -> &mut Self {
+        self.add_note(
+            NotePlacement::Over,
+            actors.into_iter().map(Into::into).collect(),
+            text.into(),
+        )
     }
 
     /// Internal helper for adding notes.
-    fn add_note(&mut self, placement: NotePlacement, actors: Vec<String>, text: String) -> &mut Self {
+    fn add_note(
+        &mut self,
+        placement: NotePlacement,
+        actors: Vec<String>,
+        text: String,
+    ) -> &mut Self {
         self.add_statement(Statement::Note(NoteStatement {
             placement,
             actors,
@@ -250,12 +286,16 @@ impl SequenceDiagramBuilder {
     /// Starts an `alt` block with the given condition label.
     /// Must be followed by statements and eventually `alt_else` or `alt_end`.
     pub fn alt_start(&mut self, label: impl Into<String>) -> &mut Self {
-        self.add_statement(Statement::AltStart(AltStartStatement { label: label.into() }))
+        self.add_statement(Statement::AltStart(AltStartStatement {
+            label: label.into(),
+        }))
     }
 
     /// Adds an `else` section to an existing `alt` block with the given condition label.
     pub fn alt_else(&mut self, label: impl Into<String>) -> &mut Self {
-        self.add_statement(Statement::AltElse(AltElseStatement { label: label.into() }))
+        self.add_statement(Statement::AltElse(AltElseStatement {
+            label: label.into(),
+        }))
     }
 
     /// Ends the current `alt` block.
@@ -310,17 +350,21 @@ impl SequenceDiagramBuilder {
     /// # Arguments
     /// * `rgb_color` - Optional label, often used for RGB color like "rgb(200, 200, 255)".
     /// * `build_inner` - A closure that builds the inner statements of the block.
-     pub fn rect_block<F>(&mut self, rgb_color: Option<impl Into<String>>, build_inner: F) -> &mut Self
-     where
-         F: FnOnce(&mut SequenceDiagramBuilder),
-     {
-         let mut inner_builder = SequenceDiagramBuilder::new();
-         build_inner(&mut inner_builder);
-         self.add_statement(Statement::Rect(RectStatement {
-             label: rgb_color.map(Into::into),
-             statements: inner_builder.statements,
-         }))
-     }
+    pub fn rect_block<F>(
+        &mut self,
+        rgb_color: Option<impl Into<String>>,
+        build_inner: F,
+    ) -> &mut Self
+    where
+        F: FnOnce(&mut SequenceDiagramBuilder),
+    {
+        let mut inner_builder = SequenceDiagramBuilder::new();
+        build_inner(&mut inner_builder);
+        self.add_statement(Statement::Rect(RectStatement {
+            label: rgb_color.map(Into::into),
+            statements: inner_builder.statements,
+        }))
+    }
 
     // --- Other Statements (Basic Implementations) ---
 
@@ -373,8 +417,6 @@ impl SequenceDiagramBuilder {
     pub fn destroy(&mut self, id: impl Into<String>) -> &mut Self {
         self.add_statement(Statement::Destroy(DestroyStatement { id: id.into() }))
     }
-
-
 }
 
 // --- Unit Tests ---
@@ -382,12 +424,15 @@ impl SequenceDiagramBuilder {
 mod tests {
     use super::*;
     // Use crate::... path if types are not re-exported at the crate root
-    use crate::sequence_diagram_ast::{ActivationMarker, NotePlacement, ParticipantType, Statement};
+    use crate::sequence_diagram_ast::{
+        ActivationMarker, NotePlacement, ParticipantType, Statement,
+    };
 
     #[test]
     fn build_basic_diagram() {
         let mut builder = SequenceDiagramBuilder::new();
-        builder.title("Test Diagram")
+        builder
+            .title("Test Diagram")
             .participant_as("u", "User")
             .actor_as("s", "System")
             .activate("u")
@@ -398,38 +443,54 @@ mod tests {
             .signal("s", "u", "-->>-", Some("Action Complete")) // Deactivate s
             .deactivate("u")
             .note_over(vec!["u", "s"], "Interaction finished");
-        
+
         let diagram = builder.build();
 
         // There are 9 statements added above.
         assert_eq!(diagram.statements.len(), 9);
 
         // Basic checks on statement types and content
-        assert!(matches!(diagram.statements[0], Statement::Title(ref t) if t.title == "Test Diagram"));
-        assert!(matches!(diagram.statements[1], Statement::Participant(ref p) if p.id == "u" && p.alias == Some("User".to_string()) && p.participant_type == ParticipantType::Participant));
-        assert!(matches!(diagram.statements[2], Statement::Participant(ref p) if p.id == "s" && p.alias == Some("System".to_string()) && p.participant_type == ParticipantType::Actor));
+        assert!(
+            matches!(diagram.statements[0], Statement::Title(ref t) if t.title == "Test Diagram")
+        );
+        assert!(
+            matches!(diagram.statements[1], Statement::Participant(ref p) if p.id == "u" && p.alias == Some("User".to_string()) && p.participant_type == ParticipantType::Participant)
+        );
+        assert!(
+            matches!(diagram.statements[2], Statement::Participant(ref p) if p.id == "s" && p.alias == Some("System".to_string()) && p.participant_type == ParticipantType::Actor)
+        );
         assert!(matches!(diagram.statements[3], Statement::Activate(ref a) if a.id == "u"));
-        assert!(matches!(diagram.statements[4], Statement::Signal(ref s) if s.from == "u" && s.to == "s" && s.arrow.sequence == "->>" && s.arrow.activation_marker == Some(ActivationMarker::Activate)));
-        assert!(matches!(diagram.statements[5], Statement::Opt(ref o) if o.label == Some("Optional Step".to_string()) && o.statements.len() == 1));
-        assert!(matches!(diagram.statements[6], Statement::Signal(ref s) if s.from == "s" && s.to == "u" && s.arrow.sequence == "-->>" && s.arrow.activation_marker == Some(ActivationMarker::Deactivate)));
+        assert!(
+            matches!(diagram.statements[4], Statement::Signal(ref s) if s.from == "u" && s.to == "s" && s.arrow.sequence == "->>" && s.arrow.activation_marker == Some(ActivationMarker::Activate))
+        );
+        assert!(
+            matches!(diagram.statements[5], Statement::Opt(ref o) if o.label == Some("Optional Step".to_string()) && o.statements.len() == 1)
+        );
+        assert!(
+            matches!(diagram.statements[6], Statement::Signal(ref s) if s.from == "s" && s.to == "u" && s.arrow.sequence == "-->>" && s.arrow.activation_marker == Some(ActivationMarker::Deactivate))
+        );
         assert!(matches!(diagram.statements[7], Statement::Deactivate(ref d) if d.id == "u"));
         // Note check is missing, let's add it
-         assert!(matches!(diagram.statements[8], Statement::Note(ref n) if n.placement == NotePlacement::Over && n.actors == vec!["u", "s"] && n.text == "Interaction finished"));
-
+        assert!(
+            matches!(diagram.statements[8], Statement::Note(ref n) if n.placement == NotePlacement::Over && n.actors == vec!["u", "s"] && n.text == "Interaction finished")
+        );
 
         // Check nested statement in opt block
         if let Statement::Opt(opt_stmt) = &diagram.statements[5] {
             assert_eq!(opt_stmt.statements.len(), 1);
-            assert!(matches!(opt_stmt.statements[0], Statement::Signal(ref s) if s.from == "s" && s.to == "s" && s.arrow.sequence == "->"));
+            assert!(
+                matches!(opt_stmt.statements[0], Statement::Signal(ref s) if s.from == "s" && s.to == "s" && s.arrow.sequence == "->")
+            );
         } else {
             panic!("Expected Opt statement at index 5");
         }
     }
 
-     #[test]
+    #[test]
     fn build_with_loop_and_notes() {
-         let mut builder = SequenceDiagramBuilder::new();
-         builder.participant("A")
+        let mut builder = SequenceDiagramBuilder::new();
+        builder
+            .participant("A")
             .participant("B")
             .note_left_of("A", "A prepares")
             .loop_block(Some("Retry Loop"), |b| {
@@ -437,43 +498,62 @@ mod tests {
                 b.signal("B", "A", "-->", Some("Maybe Fail"));
             })
             .note_right_of("B", "B responds");
-            
-         let diagram = builder.build();
+
+        let diagram = builder.build();
 
         assert_eq!(diagram.statements.len(), 5);
         assert!(matches!(diagram.statements[0], Statement::Participant(ref p) if p.id == "A"));
         assert!(matches!(diagram.statements[1], Statement::Participant(ref p) if p.id == "B"));
-        assert!(matches!(diagram.statements[2], Statement::Note(ref n) if n.placement == NotePlacement::LeftOf && n.actors == vec!["A"]));
-        assert!(matches!(diagram.statements[3], Statement::Loop(ref l) if l.label == Some("Retry Loop".to_string()) && l.statements.len() == 2));
-        assert!(matches!(diagram.statements[4], Statement::Note(ref n) if n.placement == NotePlacement::RightOf && n.actors == vec!["B"]));
+        assert!(
+            matches!(diagram.statements[2], Statement::Note(ref n) if n.placement == NotePlacement::LeftOf && n.actors == vec!["A"])
+        );
+        assert!(
+            matches!(diagram.statements[3], Statement::Loop(ref l) if l.label == Some("Retry Loop".to_string()) && l.statements.len() == 2)
+        );
+        assert!(
+            matches!(diagram.statements[4], Statement::Note(ref n) if n.placement == NotePlacement::RightOf && n.actors == vec!["B"])
+        );
 
         // Check nested statements in loop block
         if let Statement::Loop(loop_stmt) = &diagram.statements[3] {
-             assert_eq!(loop_stmt.statements.len(), 2);
-             assert!(matches!(loop_stmt.statements[0], Statement::Signal(ref s) if s.from == "A" && s.to == "B"));
-             assert!(matches!(loop_stmt.statements[1], Statement::Signal(ref s) if s.from == "B" && s.to == "A"));
+            assert_eq!(loop_stmt.statements.len(), 2);
+            assert!(
+                matches!(loop_stmt.statements[0], Statement::Signal(ref s) if s.from == "A" && s.to == "B")
+            );
+            assert!(
+                matches!(loop_stmt.statements[1], Statement::Signal(ref s) if s.from == "B" && s.to == "A")
+            );
         } else {
-             panic!("Expected Loop statement at index 3");
+            panic!("Expected Loop statement at index 3");
         }
     }
 
     #[test]
     fn build_with_autonumber_create_destroy() {
         let mut builder = SequenceDiagramBuilder::new();
-        builder.autonumber()
+        builder
+            .autonumber()
             .participant("Controller")
             .create_actor("Worker")
             .signal("Controller", "Worker", "->", Some("Do work"))
             .destroy("Worker")
             .autonumber_off();
-            
+
         let diagram = builder.build();
 
         assert_eq!(diagram.statements.len(), 6);
-        assert!(matches!(diagram.statements[0], Statement::Autonumber(ref a) if a.start.is_none() && a.increment.is_none() && !a.off));
-        assert!(matches!(diagram.statements[1], Statement::Participant(ref p) if p.id == "Controller"));
-        assert!(matches!(diagram.statements[2], Statement::Create(ref c) if c.id == "Worker" && c.participant_type == Some(ParticipantType::Actor)));
-        assert!(matches!(diagram.statements[3], Statement::Signal(ref s) if s.from == "Controller" && s.to == "Worker"));
+        assert!(
+            matches!(diagram.statements[0], Statement::Autonumber(ref a) if a.start.is_none() && a.increment.is_none() && !a.off)
+        );
+        assert!(
+            matches!(diagram.statements[1], Statement::Participant(ref p) if p.id == "Controller")
+        );
+        assert!(
+            matches!(diagram.statements[2], Statement::Create(ref c) if c.id == "Worker" && c.participant_type == Some(ParticipantType::Actor))
+        );
+        assert!(
+            matches!(diagram.statements[3], Statement::Signal(ref s) if s.from == "Controller" && s.to == "Worker")
+        );
         assert!(matches!(diagram.statements[4], Statement::Destroy(ref d) if d.id == "Worker"));
         assert!(matches!(diagram.statements[5], Statement::Autonumber(ref a) if a.off));
     }

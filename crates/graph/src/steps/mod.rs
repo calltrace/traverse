@@ -1,6 +1,5 @@
-mod entity;
 mod channel;
+mod entity;
 
-pub use entity::ContractHandling;
 pub use channel::CallsHandling;
-
+pub use entity::ContractHandling;

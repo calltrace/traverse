@@ -1,21 +1,21 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use tracing::warn;
-use traverse_graph::cg::{
-    CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline
-};
-use traverse_graph::reachability::NodeId;
-use traverse_graph::interface_resolver::BindingRegistry;
-use traverse_graph::manifest::{find_solidity_files_for_manifest, Manifest, ManifestEntry};
-use traverse_graph::natspec::extract::extract_source_comments;
-use traverse_graph::parser::parse_solidity;
-use traverse_graph::steps::{CallsHandling, ContractHandling};
-use traverse_graph::storage_access::StorageAccessSummary; 
-use traverse_graph::parser::get_solidity_language;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{stdout, Write};
 use std::path::{Path, PathBuf};
+use tracing::warn;
+use traverse_graph::cg::{
+    CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline,
+};
+use traverse_graph::interface_resolver::BindingRegistry;
+use traverse_graph::manifest::{find_solidity_files_for_manifest, Manifest, ManifestEntry};
+use traverse_graph::natspec::extract::extract_source_comments;
+use traverse_graph::parser::get_solidity_language;
+use traverse_graph::parser::parse_solidity;
+use traverse_graph::reachability::NodeId;
+use traverse_graph::steps::{CallsHandling, ContractHandling};
+use traverse_graph::storage_access::StorageAccessSummary;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Analyzes Solidity code and generates a markdown table of storage reads/writes for public/external functions.", long_about = None)]
@@ -51,7 +51,7 @@ fn main() -> Result<()> {
         match fs::read_to_string(sol_file) {
             Ok(source) => {
                 combined_source.push_str(&source);
-                combined_source.push('\n'); 
+                combined_source.push('\n');
             }
             Err(e) => {
                 read_errors.push(format!("Failed to read file {}: {}", sol_file.display(), e));
@@ -224,7 +224,7 @@ fn main() -> Result<()> {
     pipeline.add_step(Box::new(CallsHandling::default()));
 
     pipeline
-        .run(input.clone(), &mut ctx, &mut graph, &HashMap::new()) 
+        .run(input.clone(), &mut ctx, &mut graph, &HashMap::new())
         .context("Failed to generate call graph with pipeline")?;
 
     graph

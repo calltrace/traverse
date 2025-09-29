@@ -5,14 +5,14 @@
 
 use tracing::debug;
 
-use crate::teststubs::{
-    sanitize_identifier, to_pascal_case, ContractInfo, FunctionInfo,
-    SolidityTestContract, SolidityTestContractBuilder,
-};
 use crate::invariant_breaker::{break_invariant, InvariantBreakerValue};
+use crate::teststubs::{
+    sanitize_identifier, to_pascal_case, ContractInfo, FunctionInfo, SolidityTestContract,
+    SolidityTestContractBuilder,
+};
 use anyhow::Result;
-use traverse_graph::cg::{CallGraph, EdgeType, NodeType, ParameterInfo};
 use std::collections::HashMap;
+use traverse_graph::cg::{CallGraph, EdgeType, NodeType, ParameterInfo};
 
 use traverse_solidity::ast::*;
 use traverse_solidity::builder::*;
@@ -94,7 +94,9 @@ pub fn generate_revert_tests_from_cfg(
                 Ok(result) => {
                     debug!(
                         "[REVERT DEBUG] Invariant breaker for '{}': success={}, entries={}",
-                        descriptive_condition_text, result.success, result.entries.len()
+                        descriptive_condition_text,
+                        result.success,
+                        result.entries.len()
                     );
                     if result.success && !result.entries.is_empty() {
                         Some(result)
@@ -207,16 +209,17 @@ fn create_revert_test_contract(
             contract.function("setUp", |func| {
                 func.visibility(Visibility::Public).body(|body| {
                     // Deploy contract instance - use constructor parameters from call graph
-                    let constructor_args = if let Some(constructor_node) = graph.nodes.iter().find(|n| {
-                        n.contract_name.as_deref() == Some(contract_name) && 
-                        n.node_type == NodeType::Constructor
-                    }) {
+                    let constructor_args = if let Some(constructor_node) =
+                        graph.nodes.iter().find(|n| {
+                            n.contract_name.as_deref() == Some(contract_name)
+                                && n.node_type == NodeType::Constructor
+                        }) {
                         generate_constructor_args_as_expressions(&constructor_node.parameters)
                     } else {
                         // Fallback to empty args if no constructor found
                         vec![]
                     };
-                    
+
                     body.expression(Expression::Assignment(AssignmentExpression {
                         left: Box::new(identifier("contractInstance")),
                         operator: AssignmentOperator::Assign,
@@ -235,10 +238,12 @@ fn create_revert_test_contract(
                     if needs_prank {
                         if let Some(prank_addr) = prank_address {
                             body.expression(Expression::FunctionCall(FunctionCallExpression {
-                                function: Box::new(Expression::MemberAccess(MemberAccessExpression {
-                                    object: Box::new(identifier("vm")),
-                                    member: "prank".to_string(),
-                                })),
+                                function: Box::new(Expression::MemberAccess(
+                                    MemberAccessExpression {
+                                        object: Box::new(identifier("vm")),
+                                        member: "prank".to_string(),
+                                    },
+                                )),
                                 arguments: vec![string_literal(&prank_addr)],
                             }));
                         }
@@ -273,15 +278,20 @@ fn create_revert_test_contract(
                     ) {
                         Ok(function_args) => {
                             body.expression(Expression::FunctionCall(FunctionCallExpression {
-                                function: Box::new(Expression::MemberAccess(MemberAccessExpression {
-                                    object: Box::new(identifier("contractInstance")),
-                                    member: function_name.to_string(),
-                                })),
+                                function: Box::new(Expression::MemberAccess(
+                                    MemberAccessExpression {
+                                        object: Box::new(identifier("contractInstance")),
+                                        member: function_name.to_string(),
+                                    },
+                                )),
                                 arguments: function_args,
                             }));
                         }
                         Err(e) => {
-                            debug!("[REVERT DEBUG] Failed to generate function arguments: {}", e);
+                            debug!(
+                                "[REVERT DEBUG] Failed to generate function arguments: {}",
+                                e
+                            );
                             // Add a comment about the error
                             body.expression(Expression::FunctionCall(FunctionCallExpression {
                                 function: Box::new(identifier("// Failed to generate arguments")),
@@ -312,7 +322,8 @@ fn extract_prank_info(
     condition: &str,
 ) -> (bool, Option<String>) {
     let lower_condition = condition.to_lowercase();
-    let involves_sender = lower_condition.contains("msg.sender") || lower_condition.contains("caller");
+    let involves_sender =
+        lower_condition.contains("msg.sender") || lower_condition.contains("caller");
     let involves_access_control = lower_condition.contains("owner")
         || lower_condition.contains("admin")
         || lower_condition.contains("role");
@@ -372,7 +383,10 @@ fn generate_function_args_from_invariant(
                 param.name, var_value
             );
             // Convert the invariant value to match the parameter's Solidity type
-            args.push(invariant_value_to_expression_with_type(var_value, &param.param_type));
+            args.push(invariant_value_to_expression_with_type(
+                var_value,
+                &param.param_type,
+            ));
         } else {
             debug!(
                 "[REVERT DEBUG] No invariant value found for param '{}'",
@@ -392,23 +406,26 @@ fn generate_function_args_from_invariant(
     Ok(args)
 }
 
-fn invariant_value_to_expression_with_type(value: &InvariantBreakerValue, solidity_type: &str) -> Expression {
+fn invariant_value_to_expression_with_type(
+    value: &InvariantBreakerValue,
+    solidity_type: &str,
+) -> Expression {
     match value {
         InvariantBreakerValue::Bool(b) => boolean(*b),
         InvariantBreakerValue::UInt(n) => {
             // For uint types, ensure the value is non-negative
             // UInt values are already non-negative
             number(n.to_string())
-        },
+        }
         InvariantBreakerValue::Int(n) => {
             // Check if the target type is uint - if so, convert to positive
             if solidity_type.starts_with("uint") {
                 // UInt values are already non-negative
-            number(n.to_string())
+                number(n.to_string())
             } else {
                 number(n.to_string())
             }
-        },
+        }
         InvariantBreakerValue::String(s) => string_literal(s),
         InvariantBreakerValue::Address(addr) => {
             // For addresses, we might want to use address() cast or just the literal
@@ -439,7 +456,7 @@ fn invariant_value_to_expression(value: &InvariantBreakerValue) -> Expression {
             // Ensure uint values are non-negative
             // UInt values are already non-negative
             number(n.to_string())
-        },
+        }
         InvariantBreakerValue::Int(n) => number(n.to_string()),
         InvariantBreakerValue::String(s) => string_literal(s),
         InvariantBreakerValue::Address(addr) => {
@@ -524,7 +541,9 @@ mod tests {
         let mut variables = HashMap::new();
         variables.insert(
             "caller".to_string(),
-            InvariantBreakerValue::Address("0x1234567890123456789012345678901234567890".to_string()),
+            InvariantBreakerValue::Address(
+                "0x1234567890123456789012345678901234567890".to_string(),
+            ),
         );
 
         let condition = "msg.sender == owner";

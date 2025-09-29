@@ -7,7 +7,7 @@ const INDENT_STEP: &str = "    ";
 
 pub fn write_source_unit(source_unit: &SourceUnit) -> String {
     let mut output = String::new();
-    let mut indent = String::new(); 
+    let mut indent = String::new();
 
     for item in &source_unit.items {
         write_source_unit_item(&mut output, item, &mut indent);

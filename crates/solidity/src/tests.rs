@@ -626,7 +626,7 @@ fn test_pest_parser_direct() {
 #[test]
 fn test_write_simple_contract() {
     use crate::solidity_writer::write_source_unit;
-    
+
     // Create a simple contract AST
     let contract = ContractDefinition {
         is_abstract: false,
@@ -679,27 +679,29 @@ fn test_write_simple_contract() {
     };
 
     let output = write_source_unit(&source_unit);
-    
+
     // Check that the output contains expected elements
     assert!(output.contains("pragma solidity ^0.8.0;"));
     assert!(output.contains("contract SimpleStorage"));
     assert!(output.contains("uint256 public value;"));
     assert!(output.contains("function setValue(uint256 _value) public"));
     assert!(output.contains("value = _value;"));
-    
+
     println!("Generated Solidity code:\n{}", output);
 }
 
 #[test]
 fn test_write_pragma_directive() {
     use crate::solidity_writer::write_source_unit;
-    
+
     let source_unit = SourceUnit {
-        items: vec![
-            SourceUnitItem::Pragma(PragmaDirective {
-                tokens: vec!["solidity".to_string(), ">=0.8.0".to_string(), "<0.9.0".to_string()],
-            }),
-        ],
+        items: vec![SourceUnitItem::Pragma(PragmaDirective {
+            tokens: vec![
+                "solidity".to_string(),
+                ">=0.8.0".to_string(),
+                "<0.9.0".to_string(),
+            ],
+        })],
     };
 
     let output = write_source_unit(&source_unit);
@@ -709,7 +711,7 @@ fn test_write_pragma_directive() {
 #[test]
 fn test_write_import_directive() {
     use crate::solidity_writer::write_source_unit;
-    
+
     let source_unit = SourceUnit {
         items: vec![
             SourceUnitItem::Import(ImportDirective {
@@ -742,7 +744,7 @@ fn test_write_import_directive() {
 #[test]
 fn test_write_expressions() {
     use crate::solidity_writer::write_source_unit;
-    
+
     // Test various expression types
     let expressions = vec![
         Expression::Binary(BinaryExpression {
@@ -783,9 +785,10 @@ fn test_write_expressions() {
         override_specifier: None,
         returns: None,
         body: Some(Block {
-            statements: expressions.into_iter().map(|expr| {
-                Statement::Expression(ExpressionStatement { expression: expr })
-            }).collect(),
+            statements: expressions
+                .into_iter()
+                .map(|expr| Statement::Expression(ExpressionStatement { expression: expr }))
+                .collect(),
         }),
     };
 
@@ -794,20 +797,20 @@ fn test_write_expressions() {
     };
 
     let output = write_source_unit(&source_unit);
-    
+
     assert!(output.contains("a + b;"));
     assert!(output.contains("!flag;"));
     assert!(output.contains("transfer(to, amount);"));
     assert!(output.contains("msg.sender;"));
     assert!(output.contains("balances[account];"));
-    
+
     println!("Generated expressions:\n{}", output);
 }
 
 #[test]
 fn test_write_type_names() {
     use crate::solidity_writer::write_source_unit;
-    
+
     let struct_def = StructDefinition {
         name: "TestStruct".to_string(),
         members: vec![
@@ -825,7 +828,9 @@ fn test_write_type_names() {
             },
             StructMember {
                 type_name: TypeName::Array(
-                    Box::new(TypeName::Elementary(ElementaryTypeName::UnsignedInteger(Some(256)))),
+                    Box::new(TypeName::Elementary(ElementaryTypeName::UnsignedInteger(
+                        Some(256),
+                    ))),
                     None,
                 ),
                 name: "values".to_string(),
@@ -834,7 +839,9 @@ fn test_write_type_names() {
                 type_name: TypeName::Mapping(MappingType {
                     key_type: Box::new(TypeName::Elementary(ElementaryTypeName::Address)),
                     key_name: None,
-                    value_type: Box::new(TypeName::Elementary(ElementaryTypeName::UnsignedInteger(Some(256)))),
+                    value_type: Box::new(TypeName::Elementary(
+                        ElementaryTypeName::UnsignedInteger(Some(256)),
+                    )),
                     value_name: None,
                 }),
                 name: "balances".to_string(),
@@ -847,14 +854,14 @@ fn test_write_type_names() {
     };
 
     let output = write_source_unit(&source_unit);
-    
+
     assert!(output.contains("struct TestStruct {"));
     assert!(output.contains("address addr;"));
     assert!(output.contains("uint256 amount;"));
     assert!(output.contains("bool isActive;"));
     assert!(output.contains("uint256[] values;"));
     assert!(output.contains("mapping(address => uint256) balances;"));
-    
+
     println!("Generated struct:\n{}", output);
 }
 
@@ -869,16 +876,20 @@ contract TestContract {
 
     // Parse the source
     let parsed = parse_solidity(original_source).expect("Failed to parse Solidity source");
-    
+
     // Write it back
     let written = write_source_unit(&parsed);
-    
+
     println!("Original:\n{}\n", original_source);
     println!("Roundtrip:\n{}", written);
-    
+
     // The written code should contain the key elements that the parser currently supports
     // Note: The pragma tokens are parsed separately, so we check for the individual parts
-    assert!(written.contains("pragma solidity ^ 0.8.0;"), "Missing pragma directive in output: {}", written);
+    assert!(
+        written.contains("pragma solidity ^ 0.8.0;"),
+        "Missing pragma directive in output: {}",
+        written
+    );
     assert!(written.contains("contract TestContract"));
     assert!(written.contains("{"));
     assert!(written.contains("}"));
@@ -887,7 +898,7 @@ contract TestContract {
 #[test]
 fn test_debug_parser_output() {
     let source = r#"pragma solidity ^0.8.0;"#;
-    
+
     match parse_solidity(source) {
         Ok(parsed) => {
             println!("Parsed successfully!");
@@ -907,7 +918,7 @@ fn test_debug_simple_contract() {
     let source = r#"contract Test {
     uint256 value;
 }"#;
-    
+
     match parse_solidity(source) {
         Ok(parsed) => {
             println!("Parsed successfully!");
@@ -915,7 +926,7 @@ fn test_debug_simple_contract() {
             for (i, item) in parsed.items.iter().enumerate() {
                 println!("Item {}: {:?}", i, item);
             }
-            
+
             let written = write_source_unit(&parsed);
             println!("Written output:\n{}", written);
         }

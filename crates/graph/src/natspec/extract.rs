@@ -26,11 +26,11 @@
     parsers if `is_natspec` is true.
 */
 use crate::parser::get_node_text;
-use anyhow::{Context, Result};
 use crate::parser::get_solidity_language;
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node, Parser, Query, QueryCursor};
-use serde::{Serialize, Deserialize};
 
 use super::{TextIndex, TextRange};
 
@@ -202,7 +202,6 @@ pub fn extract_source_comments(source: &str) -> Result<Vec<SourceComment>> {
 #[cfg(test)]
 mod source_comment_extraction_tests {
     use super::*;
-    
 
     #[test]
     fn test_extract_simple_contract_comment() {

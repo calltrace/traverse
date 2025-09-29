@@ -1,15 +1,11 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::{collections::HashSet, fs, path::PathBuf};
 use tracing::warn;
 use traverse_graph::{
     interface_resolver::{BindingConfig, BindingFile}, // Renamed to avoid conflict
     manifest::{find_solidity_files_for_manifest, Manifest, ManifestEntry},
     natspec::{extract::extract_source_comments, parse_natspec_comment, NatSpecKind},
-};
-use std::{
-    collections::HashSet,
-    fs,
-    path::PathBuf,
 };
 
 #[derive(Parser, Debug)]

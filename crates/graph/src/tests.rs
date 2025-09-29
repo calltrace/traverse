@@ -12,9 +12,9 @@ use crate::cg::{
     EVM_NODE_NAME,
 };
 use crate::cg_dot;
+use crate::parser::get_solidity_language;
 use crate::parser::parse_solidity;
 use anyhow::Result; // Add anyhow!
-use crate::parser::get_solidity_language;
 use std::collections::HashMap; // Import HashSet
 
 use crate::steps::CallsHandling;
@@ -104,7 +104,6 @@ fn test_simple_contract_call() -> Result<()> {
     Ok(())
 }
 
-
 #[test]
 fn test_delete_keyword() -> Result<()> {
     let source = r#"
@@ -150,8 +149,8 @@ fn test_delete_keyword() -> Result<()> {
     );
 
     // Find relevant nodes
-    let var_node = find_node(&graph, "myVar", Some("DeleteTest"))
-        .expect("DeleteTest.myVar node missing");
+    let var_node =
+        find_node(&graph, "myVar", Some("DeleteTest")).expect("DeleteTest.myVar node missing");
     let delete_func_node = find_node(&graph, "deleteMyVar", Some("DeleteTest"))
         .expect("DeleteTest.deleteMyVar node missing");
 
@@ -175,8 +174,14 @@ fn test_delete_keyword() -> Result<()> {
         .expect("StorageWrite edge from deleteMyVar to myVar missing");
 
     // Sequence: 1 for the delete (treated as write)
-    assert_eq!(write_edge.sequence_number, 1, "StorageWrite (delete) sequence should be 1");
-    assert!(write_edge.call_site_span.0 > 0, "Delete call site span start should be > 0"); // Basic span check
+    assert_eq!(
+        write_edge.sequence_number, 1,
+        "StorageWrite (delete) sequence should be 1"
+    );
+    assert!(
+        write_edge.call_site_span.0 > 0,
+        "Delete call site span start should be > 0"
+    ); // Basic span check
 
     Ok(())
 }
@@ -565,7 +570,7 @@ fn test_no_calls() -> Result<()> {
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
         tree: ast.tree,               // Pass tree by value
-        solidity_lang: solidity_lang, // Pass language by value
+        solidity_lang, // Pass language by value
     };
 
     let mut ctx = CallGraphGeneratorContext::default();
@@ -601,7 +606,7 @@ fn test_call_order_within_function() -> Result<()> {
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
         tree: ast.tree,
-        solidity_lang: solidity_lang,
+        solidity_lang,
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
@@ -656,7 +661,7 @@ fn test_empty_source() -> Result<()> {
     let input = CallGraphGeneratorInput {
         source: source.to_string(),   // Pass source string by value
         tree: ast.tree,               // Pass tree by value
-        solidity_lang: solidity_lang, // Pass language by value
+        solidity_lang, // Pass language by value
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
@@ -755,7 +760,11 @@ fn test_inter_contract_call() -> Result<()> {
     pipeline.run(input, &mut ctx, &mut graph, &config)?;
 
     // Nodes: Counter.count(0), Counter.increment(1), CounterCaller.myCounter(2), CounterCaller.constructor(3), CounterCaller.callIncrement(4), Counter.constructor(5)
-    assert_eq!(graph.nodes.len(), 6, "Should find 6 nodes (2 vars, 2 funcs, 2 ctors)");
+    assert_eq!(
+        graph.nodes.len(),
+        6,
+        "Should find 6 nodes (2 vars, 2 funcs, 2 ctors)"
+    );
 
     let counter_inc_node =
         find_node(&graph, "increment", Some("Counter")).expect("Counter.increment node not found");
@@ -1330,7 +1339,8 @@ fn test_using_for_call_resolution() -> Result<()> {
     );
     // Sequence: 1 for read of number, 2 for call to isEven
     assert_eq!(
-        call_edge.sequence_number, 2, // Updated sequence
+        call_edge.sequence_number,
+        2, // Updated sequence
         "Edge sequence number should be 2"
     );
 
@@ -1338,14 +1348,11 @@ fn test_using_for_call_resolution() -> Result<()> {
     let read_edge = graph
         .edges
         .iter()
-        .find(|e| {
-            e.source_node_id == contract_func_node.id && e.edge_type == EdgeType::StorageRead
-        })
+        .find(|e| e.source_node_id == contract_func_node.id && e.edge_type == EdgeType::StorageRead)
         .expect("StorageRead edge from checkNumberIsEven not found");
     let number_var_node = find_node(&graph, "number", Some("ExampleContract"))
         .expect("State variable 'number' node not found");
     assert_eq!(read_edge.target_node_id, number_var_node.id);
-
 
     Ok(())
 }
@@ -1736,13 +1743,13 @@ fn test_interface_invocation_single_implementation() -> Result<()> {
     assert!(
         ctx.interface_functions
             .get("ICounter")
-            .map_or(false, |funcs| funcs.contains(&"increment".to_string())),
+            .is_some_and(|funcs| funcs.contains(&"increment".to_string())),
         "Context should contain ICounter.increment function"
     );
     assert!(
         ctx.contract_implements
             .get("Counter")
-            .map_or(false, |ifaces| ifaces.contains(&"ICounter".to_string())),
+            .is_some_and(|ifaces| ifaces.contains(&"ICounter".to_string())),
         "Context should show Counter implements ICounter"
     );
     // Check that ContractHandling populated the state variable type
@@ -1899,7 +1906,8 @@ fn test_chained_call_resolution() -> Result<()> {
     assert_eq!(edge_to_add.edge_type, EdgeType::Call);
     // Sequence: 1 for read of value, 2 for call to add
     assert_eq!(
-        edge_to_add.sequence_number, 2, // Updated sequence
+        edge_to_add.sequence_number,
+        2, // Updated sequence
         "Edge complexUpdate -> add sequence should be 2"
     );
 
@@ -1908,13 +1916,16 @@ fn test_chained_call_resolution() -> Result<()> {
         .edges
         .iter()
         .find(|e| {
-            e.source_node_id == contract_update_node.id && e.target_node_id == lib_sub_node.id && e.edge_type == EdgeType::Call // Be more specific
+            e.source_node_id == contract_update_node.id
+                && e.target_node_id == lib_sub_node.id
+                && e.edge_type == EdgeType::Call // Be more specific
         })
         .expect("Edge complexUpdate -> sub missing");
     assert_eq!(edge_to_sub.edge_type, EdgeType::Call);
     // Sequence: 1(R), 2(add), 3(sub), 4(W)
     assert_eq!(
-        edge_to_sub.sequence_number, 3, // Corrected sequence based on deduplication and sorting
+        edge_to_sub.sequence_number,
+        3, // Corrected sequence based on deduplication and sorting
         "Edge complexUpdate -> sub sequence should be 3"
     );
 
@@ -2243,7 +2254,8 @@ fn test_chained_library_call_resolution() -> Result<()> {
     assert_eq!(edge_to_mul.edge_type, EdgeType::Call);
     // Sequence: 1 for read of balance, 2 for call to mul
     assert_eq!(
-        edge_to_mul.sequence_number, 2, // Updated sequence
+        edge_to_mul.sequence_number,
+        2, // Updated sequence
         "Edge complexUpdate -> mul sequence should be 2"
     );
 
@@ -2252,13 +2264,16 @@ fn test_chained_library_call_resolution() -> Result<()> {
         .edges
         .iter()
         .find(|e| {
-            e.source_node_id == contract_update_node.id && e.target_node_id == lib_sub_node.id && e.edge_type == EdgeType::Call // Be more specific
+            e.source_node_id == contract_update_node.id
+                && e.target_node_id == lib_sub_node.id
+                && e.edge_type == EdgeType::Call // Be more specific
         })
         .expect("Edge complexUpdate -> sub missing");
     assert_eq!(edge_to_sub.edge_type, EdgeType::Call);
     // Sequence: 1(Read balance), 2(Call mul), 3(Call sub), 4(Write balance)
     assert_eq!(
-        edge_to_sub.sequence_number, 3, // Corrected sequence based on sorting
+        edge_to_sub.sequence_number,
+        3, // Corrected sequence based on sorting
         "Edge complexUpdate -> sub sequence should be 3"
     );
 
@@ -2365,25 +2380,25 @@ fn test_interface_call_resolution_factory_pattern() -> Result<()> {
     assert!(
         ctx.interface_functions
             .get("IAction")
-            .map_or(false, |funcs| funcs.contains(&"performAction".to_string())),
+            .is_some_and(|funcs| funcs.contains(&"performAction".to_string())),
         "Context should contain IAction.performAction function"
     );
     assert!(
         ctx.interface_functions
             .get("IActionFactory")
-            .map_or(false, |funcs| funcs.contains(&"createAction".to_string())),
+            .is_some_and(|funcs| funcs.contains(&"createAction".to_string())),
         "Context should contain IActionFactory.createAction function"
     );
     assert!(
         ctx.contract_implements
             .get("ActionImpl")
-            .map_or(false, |ifaces| ifaces.contains(&"IAction".to_string())),
+            .is_some_and(|ifaces| ifaces.contains(&"IAction".to_string())),
         "Context should show ActionImpl implements IAction"
     );
     assert!(
         ctx.contract_implements
             .get("ActionFactory")
-            .map_or(false, |ifaces| ifaces
+            .is_some_and(|ifaces| ifaces
                 .contains(&"IActionFactory".to_string())),
         "Context should show ActionFactory implements IActionFactory"
     );
@@ -2472,11 +2487,13 @@ fn test_interface_call_resolution_factory_pattern() -> Result<()> {
     // Seq 5: Call performAction() -> edge_trigger_to_impl (8->2)
     // Seq 6: Read factoryAddress (8->6)
     assert_eq!(
-        edge_trigger_to_factory.sequence_number, 3, // Updated based on logs
+        edge_trigger_to_factory.sequence_number,
+        3, // Updated based on logs
         "triggerAction -> createAction sequence should be 3"
     );
     assert_eq!(
-        edge_trigger_to_impl.sequence_number, 4, // Corrected sequence based on sorting/dedup
+        edge_trigger_to_impl.sequence_number,
+        4, // Corrected sequence based on sorting/dedup
         "triggerAction -> performAction sequence should be 4"
     );
 
@@ -2575,7 +2592,10 @@ fn test_argument_capturing() -> Result<()> {
         "Intra-contract call arguments mismatch"
     );
     // Sequence: 1 for the call
-    assert_eq!(intra_contract_edge.sequence_number, 1, "Intra-contract call sequence should be 1");
+    assert_eq!(
+        intra_contract_edge.sequence_number, 1,
+        "Intra-contract call sequence should be 1"
+    );
 
     // 2. Contract-to-contract call: callExternal -> externalTarget
     let inter_contract_edge = graph
@@ -2593,7 +2613,10 @@ fn test_argument_capturing() -> Result<()> {
         "Inter-contract call arguments mismatch"
     );
     // Sequence: 1 for read of calleeInstance, 2 for the call
-    assert_eq!(inter_contract_edge.sequence_number, 2, "Inter-contract call sequence should be 2");
+    assert_eq!(
+        inter_contract_edge.sequence_number, 2,
+        "Inter-contract call sequence should be 2"
+    );
 
     // 3. User-to-contract call (entryPoint): No direct edge generated for user calls,
     //    but we can check the node itself exists.
@@ -2605,7 +2628,11 @@ fn test_argument_capturing() -> Result<()> {
     );
 
     // Check total edges (callInternal->internalTarget, callExternal->externalTarget, constructor->calleeInstance(W), callExternal->calleeInstance(R))
-    assert_eq!(graph.edges.len(), 4, "Expected 4 edges (2 calls + 1 write + 1 read)");
+    assert_eq!(
+        graph.edges.len(),
+        4,
+        "Expected 4 edges (2 calls + 1 write + 1 read)"
+    );
 
     Ok(())
 }
@@ -2713,7 +2740,8 @@ fn test_simple_emit_statement() -> Result<()> {
     assert_eq!(edge_evm_to_listener.edge_type, EdgeType::Call);
     // Sequence: 1(Read), 2(Write), 3(Caller->EVM), 4(EVM->Listener)
     assert_eq!(
-        edge_evm_to_listener.sequence_number, 4, // Corrected sequence based on logs
+        edge_evm_to_listener.sequence_number,
+        4, // Corrected sequence based on logs
         "Sequence number for EVM->Listener should be 4"
     );
     assert_eq!(
@@ -2884,17 +2912,18 @@ fn test_interface_call_resolution_factory_pattern_no_return() -> Result<()> {
     // Seq 5: Call performAction() -> edge_trigger_to_impl (8->2)
     // Seq 6: Read factoryAddress (8->6)
     assert_eq!(
-        edge_trigger_to_factory.sequence_number, 3, // Updated based on logs
+        edge_trigger_to_factory.sequence_number,
+        3, // Updated based on logs
         "NoReturn: triggerAction -> createAction sequence should be 3"
     );
     assert_eq!(
-        edge_trigger_to_impl.sequence_number, 4, // Corrected sequence based on logs
+        edge_trigger_to_impl.sequence_number,
+        4, // Corrected sequence based on logs
         "NoReturn: triggerAction -> performAction sequence should be 4"
     );
 
     Ok(())
 }
-
 
 #[test]
 fn test_storage_read_write() -> Result<()> {
@@ -2971,7 +3000,11 @@ fn test_storage_read_write() -> Result<()> {
     // This test assumes that functionality exists or will be added.
     // If CallsHandling doesn't create these, the test will fail, indicating the need for implementation.
 
-    assert_eq!(graph.edges.len(), 2, "Should find 2 edges (1 read, 1 write)");
+    assert_eq!(
+        graph.edges.len(),
+        2,
+        "Should find 2 edges (1 read, 1 write)"
+    );
 
     // --- Assertions for when Read/Write edges are implemented ---
 
@@ -2986,7 +3019,10 @@ fn test_storage_read_write() -> Result<()> {
         })
         .expect("StorageRead edge from readVariable to myVariable missing");
     // Sequence: 1 for the read
-    assert_eq!(read_edge.sequence_number, 1, "StorageRead sequence should be 1");
+    assert_eq!(
+        read_edge.sequence_number, 1,
+        "StorageRead sequence should be 1"
+    );
 
     // Verify Edge 2: writeVariable -> myVariable (StorageWrite)
     let write_edge = graph
@@ -2999,7 +3035,10 @@ fn test_storage_read_write() -> Result<()> {
         })
         .expect("StorageWrite edge from writeVariable to myVariable missing");
     // Sequence: 1 for the write
-    assert_eq!(write_edge.sequence_number, 1, "StorageWrite sequence should be 1");
+    assert_eq!(
+        write_edge.sequence_number, 1,
+        "StorageWrite sequence should be 1"
+    );
 
     Ok(())
 }
@@ -3058,13 +3097,36 @@ fn test_library_call_on_return_value() -> Result<()> {
     // --- DEBUG: Inspect edges related to doMath ---
     let do_math_node_opt = find_node(&graph, "doMath", Some("MyContract"));
     if let Some(do_math_node) = do_math_node_opt {
-        eprintln!("[DEBUG Mermaid Focus] Edges involving doMath (Node ID {}):", do_math_node.id);
+        eprintln!(
+            "[DEBUG Mermaid Focus] Edges involving doMath (Node ID {}):",
+            do_math_node.id
+        );
         for (idx, edge) in graph.edges.iter().enumerate() {
-            let _source_node_name = graph.nodes.get(edge.source_node_id).map_or("?".to_string(), |n| format!("{}.{}", n.contract_name.as_deref().unwrap_or("Global"), n.name));
-            let target_node_name = graph.nodes.get(edge.target_node_id).map_or("?".to_string(), |n| format!("{}.{}", n.contract_name.as_deref().unwrap_or("Global"), n.name));
+            let _source_node_name =
+                graph
+                    .nodes
+                    .get(edge.source_node_id)
+                    .map_or("?".to_string(), |n| {
+                        format!(
+                            "{}.{}",
+                            n.contract_name.as_deref().unwrap_or("Global"),
+                            n.name
+                        )
+                    });
+            let target_node_name =
+                graph
+                    .nodes
+                    .get(edge.target_node_id)
+                    .map_or("?".to_string(), |n| {
+                        format!(
+                            "{}.{}",
+                            n.contract_name.as_deref().unwrap_or("Global"),
+                            n.name
+                        )
+                    });
 
             if edge.source_node_id == do_math_node.id || edge.target_node_id == do_math_node.id {
-                 eprintln!(
+                eprintln!(
                     "[DEBUG Mermaid Focus]   Edge Index {}: {} -> {} (Target: '{}'), Type: {:?}, Seq: {}, Args: {:?}, RetVal: {:?}",
                     idx, edge.source_node_id, edge.target_node_id, target_node_name, edge.edge_type, edge.sequence_number, edge.argument_names, edge.returned_value
                 );
@@ -3075,11 +3137,8 @@ fn test_library_call_on_return_value() -> Result<()> {
     }
     // --- END DEBUG ---
 
-
     // Add explicit return edges AFTER inspecting call edges
     graph.add_explicit_return_edges(&input, &ctx)?;
-
-
 
     // --- Assertions ---
 
@@ -3095,12 +3154,11 @@ fn test_library_call_on_return_value() -> Result<()> {
     );
 
     // Find relevant nodes
-    let do_math_node = find_node(&graph, "doMath", Some("MyContract"))
-        .expect("MyContract.doMath node missing");
-    let balance_of_node = find_node(&graph, "balanceOf", Some("IERC20"))
-        .expect("IERC20.balanceOf node missing");
-    let sub_node =
-        find_node(&graph, "sub", Some("SafeMath")).expect("SafeMath.sub node missing");
+    let do_math_node =
+        find_node(&graph, "doMath", Some("MyContract")).expect("MyContract.doMath node missing");
+    let balance_of_node =
+        find_node(&graph, "balanceOf", Some("IERC20")).expect("IERC20.balanceOf node missing");
+    let sub_node = find_node(&graph, "sub", Some("SafeMath")).expect("SafeMath.sub node missing");
     let _token_var_node = find_node(&graph, "token", Some("MyContract")) // Mark unused
         .expect("MyContract.token state variable node missing");
     let _ctor_node = find_node(&graph, "MyContract", Some("MyContract")) // Mark unused
@@ -3149,7 +3207,10 @@ fn test_library_call_on_return_value() -> Result<()> {
         edge_to_balance_of.sequence_number, 2,
         "balanceOf call should be sequence 2"
     );
-    assert_eq!(edge_to_sub.sequence_number, 3, "sub call should be sequence 3");
+    assert_eq!(
+        edge_to_sub.sequence_number, 3,
+        "sub call should be sequence 3"
+    );
 
     Ok(())
 }
@@ -3223,7 +3284,11 @@ fn test_inherited_storage_access() -> Result<()> {
     // Edges:
     // 1. DerivedStorage.readBase -> BaseStorage.baseVar (StorageRead)
     // 2. DerivedStorage.writeBase -> BaseStorage.baseVar (StorageWrite)
-    assert_eq!(graph.edges.len(), 2, "Should find 2 edges (1 read, 1 write)");
+    assert_eq!(
+        graph.edges.len(),
+        2,
+        "Should find 2 edges (1 read, 1 write)"
+    );
 
     // Verify Edge 1: readBase -> baseVar (StorageRead)
     let read_edge = graph
@@ -3235,7 +3300,10 @@ fn test_inherited_storage_access() -> Result<()> {
                 && e.edge_type == EdgeType::StorageRead
         })
         .expect("StorageRead edge from readBase to baseVar missing");
-    assert_eq!(read_edge.sequence_number, 1, "StorageRead sequence should be 1");
+    assert_eq!(
+        read_edge.sequence_number, 1,
+        "StorageRead sequence should be 1"
+    );
 
     // Verify Edge 2: writeBase -> baseVar (StorageWrite)
     let write_edge = graph
@@ -3247,11 +3315,13 @@ fn test_inherited_storage_access() -> Result<()> {
                 && e.edge_type == EdgeType::StorageWrite
         })
         .expect("StorageWrite edge from writeBase to baseVar missing");
-    assert_eq!(write_edge.sequence_number, 1, "StorageWrite sequence should be 1");
+    assert_eq!(
+        write_edge.sequence_number, 1,
+        "StorageWrite sequence should be 1"
+    );
 
     Ok(())
 }
-
 
 #[test]
 fn test_require_statement() -> Result<()> {
@@ -3304,10 +3374,12 @@ fn test_require_statement() -> Result<()> {
     let _threshold_node = find_node(&graph, "threshold", Some("RequireTest"))
         .expect("RequireTest.threshold node missing");
     // The require node is created with the message as the name - find it by type
-    let require_node = graph.nodes.iter()
+    let require_node = graph
+        .nodes
+        .iter()
         .find(|n| n.node_type == NodeType::RequireCondition)
         .expect("Require node missing");
-    
+
     assert_eq!(require_node.node_type, NodeType::RequireCondition);
 
     // Edges:
@@ -3323,15 +3395,14 @@ fn test_require_statement() -> Result<()> {
     let require_edge = graph
         .edges
         .iter()
-        .find(|e| {
-            e.source_node_id == check_value_node.id && e.target_node_id == require_node.id
-        })
+        .find(|e| e.source_node_id == check_value_node.id && e.target_node_id == require_node.id)
         .expect("Edge checkValue -> Require missing");
 
     assert_eq!(require_edge.edge_type, EdgeType::Require); // Corrected type based on logs
-    // Sequence: 1 for read threshold, 2 for require call
+                                                           // Sequence: 1 for read threshold, 2 for require call
     assert_eq!(
-        require_edge.sequence_number, 2, // Corrected sequence based on logs
+        require_edge.sequence_number,
+        2, // Corrected sequence based on logs
         "Require call sequence number should be 2"
     );
     assert_eq!(
@@ -3342,9 +3413,10 @@ fn test_require_statement() -> Result<()> {
         ]),
         "Require call arguments mismatch"
     );
-    assert!(require_edge.call_site_span.0 > 0, "Require call site span start should be > 0"); // Basic span check
+    assert!(
+        require_edge.call_site_span.0 > 0,
+        "Require call site span start should be > 0"
+    ); // Basic span check
 
     Ok(())
 }
-
-

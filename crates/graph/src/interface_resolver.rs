@@ -22,20 +22,14 @@
 */
 
 use crate::manifest::{Manifest, ManifestEntry}; // ManifestEntry is used as a parameter type, no need to import separately if manifest is the only one needed at top level
-use crate::natspec::{
-    extract::SourceItemKind, parse_natspec_comment, NatSpecKind, TextRange,
-};
+use crate::natspec::{extract::SourceItemKind, parse_natspec_comment, NatSpecKind, TextRange};
 // NatSpec struct itself is not directly used in this file, only its kinds.
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    fs,
-    path::Path,
-};
-use tracing::debug;
 #[cfg(test)]
 use std::path::PathBuf;
+use std::{collections::HashMap, fs, path::Path};
+use tracing::debug;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BindingConfig {
@@ -150,12 +144,11 @@ impl BindingRegistry {
                                         entry.file_path.display()
                                     );
                                 } else if config.contract_name.is_none() {
-                                     debug!(
+                                    debug!(
                                         "Natspec: Setting contract_name for key '{}' to '{}' from contract '{}'",
                                         binding_key, contract_name_val, contract_name_val
                                     );
                                 }
-
 
                                 config.contract_name = Some(contract_name_val.clone());
                                 // Enhance notes
@@ -652,7 +645,6 @@ bindings:
             is_natspec: true,
         });
 
-
         // Entry 4: Not a contract, should be ignored
         manifest.add_entry(ManifestEntry {
             file_path: PathBuf::from("interfaces/IfaceD.sol"),
@@ -675,7 +667,6 @@ bindings:
             is_natspec: false, // Not Natspec
         });
 
-
         registry.populate_from_manifest(&manifest);
 
         assert_eq!(registry.bindings.len(), 2); // KeyA, KeyB. KeyD and KeyE should not be added.
@@ -686,8 +677,11 @@ bindings:
         let binding_a = registry.get_binding("KeyA").unwrap();
         assert_eq!(binding_a.contract_name, Some("ConcreteC".to_string()));
         assert!(binding_a.notes.as_ref().unwrap().contains("ConcreteC"));
-        assert!(binding_a.notes.as_ref().unwrap().contains("Initially from IKeyA interface Natspec"));
-
+        assert!(binding_a
+            .notes
+            .as_ref()
+            .unwrap()
+            .contains("Initially from IKeyA interface Natspec"));
 
         // Check KeyB
         let binding_b = registry.get_binding("KeyB").unwrap();

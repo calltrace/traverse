@@ -9,8 +9,8 @@ use crate::{
 };
 use anyhow::{anyhow, Context, Result};
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Node as TsNode, Query, QueryCursor};
 use tracing::debug;
+use tree_sitter::{Node as TsNode, Query, QueryCursor};
 
 #[derive(Default)] // Add Default derive
 pub struct ContractHandling {
@@ -206,7 +206,8 @@ impl CallGraphGeneratorStep for ContractHandling {
                                 span: (name_node.start_byte(), name_node.end_byte()),
                                 kind: name_node.kind().to_string(),
                             };
-                            ctx.all_interfaces.insert(interface_name.clone(), node_info.clone());
+                            ctx.all_interfaces
+                                .insert(interface_name.clone(), node_info.clone());
                             let node_id = graph.add_node(
                                 interface_name.clone(),
                                 NodeType::Interface,
@@ -214,7 +215,11 @@ impl CallGraphGeneratorStep for ContractHandling {
                                 Visibility::Default,
                                 node_info.span,
                             );
-                            ctx.definition_nodes_info.push((node_id, node_info, Some(interface_name)));
+                            ctx.definition_nodes_info.push((
+                                node_id,
+                                node_info,
+                                Some(interface_name),
+                            ));
                         }
                     }
                     "library_def_item" => {
@@ -225,15 +230,20 @@ impl CallGraphGeneratorStep for ContractHandling {
                                 span: (name_node.start_byte(), name_node.end_byte()),
                                 kind: name_node.kind().to_string(),
                             };
-                            ctx.all_libraries.insert(library_name.clone(), node_info.clone());
-                             let node_id = graph.add_node(
+                            ctx.all_libraries
+                                .insert(library_name.clone(), node_info.clone());
+                            let node_id = graph.add_node(
                                 library_name.clone(),
                                 NodeType::Library,
                                 Some(library_name.clone()),
                                 Visibility::Default,
                                 node_info.span,
                             );
-                            ctx.definition_nodes_info.push((node_id, node_info, Some(library_name)));
+                            ctx.definition_nodes_info.push((
+                                node_id,
+                                node_info,
+                                Some(library_name),
+                            ));
                         }
                     }
                     _ => {}
@@ -241,7 +251,12 @@ impl CallGraphGeneratorStep for ContractHandling {
             }
             matches_pass1.advance();
         }
-        debug!("[ContractHandling] Pass 1: Found {} contracts, {} interfaces, {} libraries.", ctx.all_contracts.len(), ctx.all_interfaces.len(), ctx.all_libraries.len());
+        debug!(
+            "[ContractHandling] Pass 1: Found {} contracts, {} interfaces, {} libraries.",
+            ctx.all_contracts.len(),
+            ctx.all_interfaces.len(),
+            ctx.all_libraries.len()
+        );
 
         // --- Pass 2: Process members, inheritance, and other relationships ---
         debug!("[ContractHandling] Pass 2: Processing members and relationships...");
@@ -256,12 +271,16 @@ impl CallGraphGeneratorStep for ContractHandling {
                 let cap_name = &definition_query.capture_names()[cap.index as usize];
                 cap_name.ends_with("_item") // e.g., contract_def_item, function_def_item
             }) {
-                item_node_kind_opt = Some(definition_query.capture_names()[item_capture.index as usize]);
+                item_node_kind_opt =
+                    Some(definition_query.capture_names()[item_capture.index as usize]);
             }
 
             let mut captures_map: HashMap<String, TsNode> = HashMap::new();
             for capture in match_.captures {
-                captures_map.insert(definition_query.capture_names()[capture.index as usize].to_string(), capture.node);
+                captures_map.insert(
+                    definition_query.capture_names()[capture.index as usize].to_string(),
+                    capture.node,
+                );
             }
 
             if let Some(item_kind_name) = item_node_kind_opt {
@@ -271,23 +290,39 @@ impl CallGraphGeneratorStep for ContractHandling {
                             captures_map.get("contract_name_for_inheritance"),
                             captures_map.get("inherited_name_for_contract"),
                         ) {
-                            let contract_name = get_node_text(contract_name_node, &input.source).to_string();
-                            let inherited_name = get_node_text(inherited_name_node, &input.source).to_string();
+                            let contract_name =
+                                get_node_text(contract_name_node, &input.source).to_string();
+                            let inherited_name =
+                                get_node_text(inherited_name_node, &input.source).to_string();
                             if ctx.all_interfaces.contains_key(&inherited_name) {
-                                ctx.contract_implements.entry(contract_name.clone()).or_default().push(inherited_name.clone());
-                                debug!("[ContractHandling] Contract '{}' implements interface '{}'", contract_name, inherited_name);
+                                ctx.contract_implements
+                                    .entry(contract_name.clone())
+                                    .or_default()
+                                    .push(inherited_name.clone());
+                                debug!(
+                                    "[ContractHandling] Contract '{}' implements interface '{}'",
+                                    contract_name, inherited_name
+                                );
                             }
-                            ctx.contract_inherits.entry(contract_name).or_default().push(inherited_name);
+                            ctx.contract_inherits
+                                .entry(contract_name)
+                                .or_default()
+                                .push(inherited_name);
                         }
                     }
                     "interface_inheritance_item" => {
-                         if let (Some(iface_name_node), Some(inherited_name_node)) = (
+                        if let (Some(iface_name_node), Some(inherited_name_node)) = (
                             captures_map.get("interface_name_for_inheritance"),
                             captures_map.get("inherited_name_for_interface"),
                         ) {
-                            let iface_name = get_node_text(iface_name_node, &input.source).to_string();
-                            let inherited_name = get_node_text(inherited_name_node, &input.source).to_string();
-                            ctx.interface_inherits.entry(iface_name).or_default().push(inherited_name);
+                            let iface_name =
+                                get_node_text(iface_name_node, &input.source).to_string();
+                            let inherited_name =
+                                get_node_text(inherited_name_node, &input.source).to_string();
+                            ctx.interface_inherits
+                                .entry(iface_name)
+                                .or_default()
+                                .push(inherited_name);
                         }
                     }
                     "function_def_item" | "modifier_def_item" | "constructor_def_item" => {
@@ -299,11 +334,13 @@ impl CallGraphGeneratorStep for ContractHandling {
                             _ => unreachable!(),
                         };
 
-                        let name_opt = captures_map.get("function_name")
+                        let name_opt = captures_map
+                            .get("function_name")
                             .or_else(|| captures_map.get("modifier_name"))
                             .map(|n| get_node_text(n, &input.source).to_string());
 
-                        let scope_name_opt = captures_map.get("contract_scope_for_func")
+                        let scope_name_opt = captures_map
+                            .get("contract_scope_for_func")
                             .or_else(|| captures_map.get("library_scope_for_func"))
                             .or_else(|| captures_map.get("interface_scope_for_func"))
                             .or_else(|| captures_map.get("contract_scope_for_modifier"))
@@ -315,20 +352,27 @@ impl CallGraphGeneratorStep for ContractHandling {
                             _ => name_opt.unwrap_or_default(),
                         };
 
-                        if final_name.is_empty() && node_type != NodeType::Constructor { // Constructors can have scope as name
-                            debug!("Warning: Empty name for {:?} at span {:?}", node_type, def_node.byte_range());
+                        if final_name.is_empty() && node_type != NodeType::Constructor {
+                            // Constructors can have scope as name
+                            debug!(
+                                "Warning: Empty name for {:?} at span {:?}",
+                                node_type,
+                                def_node.byte_range()
+                            );
                             matches_pass2.advance();
                             continue;
                         }
-                        
+
                         if node_type == NodeType::Constructor {
-                             if let Some(c_name) = &scope_name_opt {
-                                ctx.contracts_with_explicit_constructors.insert(c_name.clone());
+                            if let Some(c_name) = &scope_name_opt {
+                                ctx.contracts_with_explicit_constructors
+                                    .insert(c_name.clone());
                             }
                         }
 
                         let visibility = captures_map.get("visibility_node").map_or_else(
-                            || match node_type { // Default visibilities
+                            || match node_type {
+                                // Default visibilities
                                 NodeType::Constructor => Visibility::Public,
                                 _ => Visibility::Internal,
                             },
@@ -349,7 +393,8 @@ impl CallGraphGeneratorStep for ContractHandling {
                             (def_node.start_byte(), def_node.end_byte()),
                         );
                         // Extract and store parameters for this node
-                        let params = crate::cg::extract_function_parameters(*def_node, &input.source);
+                        let params =
+                            crate::cg::extract_function_parameters(*def_node, &input.source);
                         if let Some(graph_node_mut) = graph.nodes.get_mut(node_id) {
                             graph_node_mut.parameters = params;
                         }
@@ -358,22 +403,34 @@ impl CallGraphGeneratorStep for ContractHandling {
                             span: (def_node.start_byte(), def_node.end_byte()),
                             kind: def_node.kind().to_string(),
                         };
-                        ctx.definition_nodes_info.push((node_id, node_info, scope_name_opt.clone()));
-                        
+                        ctx.definition_nodes_info.push((
+                            node_id,
+                            node_info,
+                            scope_name_opt.clone(),
+                        ));
+
                         if node_type == NodeType::Function {
                             if let Some(scope) = &scope_name_opt {
                                 if ctx.all_interfaces.contains_key(scope) {
-                                     ctx.interface_functions.entry(scope.clone()).or_default().push(final_name);
+                                    ctx.interface_functions
+                                        .entry(scope.clone())
+                                        .or_default()
+                                        .push(final_name);
                                 }
                             }
                         }
                     }
                     "state_var_item" => {
-                        let state_var_decl_node = captures_map.get("state_var_node_capture")
-                            .ok_or_else(|| anyhow!("state_var_item missing state_var_node_capture capture"))?;
-                        let contract_name_node = captures_map.get("contract_scope_for_var")
-                            .ok_or_else(|| anyhow!("state_var_item missing contract_scope_for_var capture"))?;
-                        let contract_name = get_node_text(contract_name_node, &input.source).to_string();
+                        let state_var_decl_node =
+                            captures_map.get("state_var_node_capture").ok_or_else(|| {
+                                anyhow!("state_var_item missing state_var_node_capture capture")
+                            })?;
+                        let contract_name_node =
+                            captures_map.get("contract_scope_for_var").ok_or_else(|| {
+                                anyhow!("state_var_item missing contract_scope_for_var capture")
+                            })?;
+                        let contract_name =
+                            get_node_text(contract_name_node, &input.source).to_string();
 
                         // Extract type, name, and visibility from children of state_var_decl_node
                         let type_node_opt = state_var_decl_node.child_by_field_name("type");
@@ -383,13 +440,17 @@ impl CallGraphGeneratorStep for ContractHandling {
                         let mut child_cursor = state_var_decl_node.walk();
                         for child in state_var_decl_node.children(&mut child_cursor) {
                             if child.kind() == "visibility" {
-                                visibility_text_opt = Some(get_node_text(&child, &input.source).to_string());
+                                visibility_text_opt =
+                                    Some(get_node_text(&child, &input.source).to_string());
                                 break;
                             }
                         }
 
-                        if let (Some(var_type_node), Some(var_name_node)) = (type_node_opt, name_node_opt) {
-                            let var_name_str = get_node_text(&var_name_node, &input.source).to_string();
+                        if let (Some(var_type_node), Some(var_name_node)) =
+                            (type_node_opt, name_node_opt)
+                        {
+                            let var_name_str =
+                                get_node_text(&var_name_node, &input.source).to_string();
                             let visibility = match visibility_text_opt.as_deref() {
                                 Some("public") => Visibility::Public,
                                 Some("internal") => Visibility::Internal,
@@ -397,46 +458,64 @@ impl CallGraphGeneratorStep for ContractHandling {
                                 _ => Visibility::Internal, // Default visibility for state variables
                             };
 
+                            let mut extracted_key_types = Vec::new();
+                            // Call parse_mapping_recursive. It will return the final value type,
+                            // the full type string, and a boolean indicating if it was a mapping.
+                            match parse_mapping_recursive(
+                                var_type_node,
+                                &input.source,
+                                &mut extracted_key_types,
+                            ) {
+                                Ok((final_value_type, full_type_str, is_mapping)) => {
+                                    // Always store the full type string in state_var_types
+                                    ctx.state_var_types.insert(
+                                        (contract_name.clone(), var_name_str.clone()),
+                                        full_type_str.clone(),
+                                    );
+                                    debug!("[ContractHandling DEBUG] Adding to state_var_types (any type): Key=({}, {}), Value={}", contract_name, var_name_str, full_type_str);
 
-                                let mut extracted_key_types = Vec::new();
-                                // Call parse_mapping_recursive. It will return the final value type,
-                                // the full type string, and a boolean indicating if it was a mapping.
-                                match parse_mapping_recursive(var_type_node, &input.source, &mut extracted_key_types) {
-                                    Ok((final_value_type, full_type_str, is_mapping)) => {
-                                        // Always store the full type string in state_var_types
-                                        ctx.state_var_types.insert((contract_name.clone(), var_name_str.clone()), full_type_str.clone());
-                                        debug!("[ContractHandling DEBUG] Adding to state_var_types (any type): Key=({}, {}), Value={}", contract_name, var_name_str, full_type_str);
-
-                                        if is_mapping {
-                                            // If it was a mapping, populate contract_mappings
-                                            let mapping_info = crate::cg::MappingInfo {
-                                                name: var_name_str.clone(),
-                                                visibility: visibility.clone(),
-                                                key_types: extracted_key_types, // These are filled by parse_mapping_recursive
-                                                value_type: final_value_type, // This is the ultimate value type from parse_mapping_recursive
-                                                span: (state_var_decl_node.start_byte(), state_var_decl_node.end_byte()),
-                                                full_type_str: full_type_str.clone(), // This is the full "mapping(...)" string
-                                            };
-                                            ctx.contract_mappings.insert((contract_name.clone(), var_name_str.clone()), mapping_info.clone());
-                                            debug!("[ContractHandling] Added mapping info for {}.{}: Name='{}', Visibility='{:?}', Keys='{:?}', ValueType='{}', FullType='{}'",
+                                    if is_mapping {
+                                        // If it was a mapping, populate contract_mappings
+                                        let mapping_info = crate::cg::MappingInfo {
+                                            name: var_name_str.clone(),
+                                            visibility: visibility.clone(),
+                                            key_types: extracted_key_types, // These are filled by parse_mapping_recursive
+                                            value_type: final_value_type, // This is the ultimate value type from parse_mapping_recursive
+                                            span: (
+                                                state_var_decl_node.start_byte(),
+                                                state_var_decl_node.end_byte(),
+                                            ),
+                                            full_type_str: full_type_str.clone(), // This is the full "mapping(...)" string
+                                        };
+                                        ctx.contract_mappings.insert(
+                                            (contract_name.clone(), var_name_str.clone()),
+                                            mapping_info.clone(),
+                                        );
+                                        debug!("[ContractHandling] Added mapping info for {}.{}: Name='{}', Visibility='{:?}', Keys='{:?}', ValueType='{}', FullType='{}'",
                                                 contract_name, var_name_str,
                                                 mapping_info.name, mapping_info.visibility, mapping_info.key_types, mapping_info.value_type, mapping_info.full_type_str);
-                                        } else {
-                                            // If it wasn't a mapping, full_type_str is just the simple type string.
-                                            // state_var_types is already populated above. No need to populate contract_mappings.
-                                            debug!("[ContractHandling] State variable {}.{} is not a mapping. Type: {}", contract_name, var_name_str, full_type_str);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        debug!("Error parsing type for {}.{}: {}", contract_name, var_name_str, e);
-                                        // Fallback: store the raw text if parsing fails, though parse_mapping_recursive should handle non-mappings gracefully.
-                                        let raw_type_str = get_node_text(&var_type_node, &input.source).to_string();
-                                        ctx.state_var_types.insert((contract_name.clone(), var_name_str.clone()), raw_type_str);
-
+                                    } else {
+                                        // If it wasn't a mapping, full_type_str is just the simple type string.
+                                        // state_var_types is already populated above. No need to populate contract_mappings.
+                                        debug!("[ContractHandling] State variable {}.{} is not a mapping. Type: {}", contract_name, var_name_str, full_type_str);
                                     }
                                 }
-                                // The `else` block for non-mapping_type kinds is removed because
-                                // parse_mapping_recursive now handles all type_name nodes.
+                                Err(e) => {
+                                    debug!(
+                                        "Error parsing type for {}.{}: {}",
+                                        contract_name, var_name_str, e
+                                    );
+                                    // Fallback: store the raw text if parsing fails, though parse_mapping_recursive should handle non-mappings gracefully.
+                                    let raw_type_str =
+                                        get_node_text(&var_type_node, &input.source).to_string();
+                                    ctx.state_var_types.insert(
+                                        (contract_name.clone(), var_name_str.clone()),
+                                        raw_type_str,
+                                    );
+                                }
+                            }
+                            // The `else` block for non-mapping_type kinds is removed because
+                            // parse_mapping_recursive now handles all type_name nodes.
 
                             // Add node to graph for all state variables (mapping or not)
                             let node_id = graph.add_node(
@@ -444,33 +523,42 @@ impl CallGraphGeneratorStep for ContractHandling {
                                 NodeType::StorageVariable,
                                 Some(contract_name.clone()),
                                 visibility, // Use parsed visibility
-                                (state_var_decl_node.start_byte(), state_var_decl_node.end_byte()),
+                                (
+                                    state_var_decl_node.start_byte(),
+                                    state_var_decl_node.end_byte(),
+                                ),
                             );
-                            ctx.storage_var_nodes.insert((Some(contract_name), var_name_str), node_id);
-
+                            ctx.storage_var_nodes
+                                .insert((Some(contract_name), var_name_str), node_id);
                         } else {
-                             debug!("Warning: Could not extract type or name for state variable in contract '{}' at span {:?}. Type found: {}, Name found: {}", 
-                                contract_name, 
+                            debug!("Warning: Could not extract type or name for state variable in contract '{}' at span {:?}. Type found: {}, Name found: {}",
+                                contract_name,
                                 state_var_decl_node.byte_range(),
                                 type_node_opt.is_some(),
                                 name_node_opt.is_some()
-                             );
+                            );
                         }
                     }
-                   "using_directive_item" => {
+                    "using_directive_item" => {
                         if let (Some(scope_node), Some(lib_name_node), Some(type_node)) = (
                             captures_map.get("contract_scope_for_using"),
                             captures_map.get("using_library_name"),
                             captures_map.get("using_type_or_wildcard_node"),
                         ) {
-                            let contract_name = get_node_text(scope_node, &input.source).to_string();
-                            let library_name = get_node_text(lib_name_node, &input.source).to_string();
+                            let contract_name =
+                                get_node_text(scope_node, &input.source).to_string();
+                            let library_name =
+                                get_node_text(lib_name_node, &input.source).to_string();
                             let type_text = get_node_text(type_node, &input.source).to_string();
-                            ctx.using_for_directives.entry((Some(contract_name), type_text)).or_default().push(library_name);
+                            ctx.using_for_directives
+                                .entry((Some(contract_name), type_text))
+                                .or_default()
+                                .push(library_name);
                         }
                     }
                     // contract_def_item, interface_def_item, library_def_item were handled in Pass 1
-                    "contract_def_item" | "interface_def_item" | "library_def_item" => { /* Already handled */ }
+                    "contract_def_item" | "interface_def_item" | "library_def_item" => { /* Already handled */
+                    }
                     _ => {
                         debug!("Warning: Unhandled item kind in Pass 2: {}", item_kind_name);
                     }
@@ -482,10 +570,14 @@ impl CallGraphGeneratorStep for ContractHandling {
         // --- Add Default Constructor Nodes ---
         // Iterate through all identified contracts from Pass 1
         for (contract_name, identifier_node_info) in &ctx.all_contracts {
-            if !ctx.contracts_with_explicit_constructors.contains(contract_name) {
+            if !ctx
+                .contracts_with_explicit_constructors
+                .contains(contract_name)
+            {
                 let span = identifier_node_info.span;
                 let constructor_name = contract_name.clone();
-                let _node_id = graph.add_node( // Mark unused
+                let _node_id = graph.add_node(
+                    // Mark unused
                     constructor_name.clone(),
                     NodeType::Constructor,
                     Some(contract_name.clone()),
@@ -498,7 +590,6 @@ impl CallGraphGeneratorStep for ContractHandling {
         debug!("[ContractHandling] Pass 2: Processing complete.");
         Ok(())
     }
-
 }
 
 // Helper function to recursively parse mapping types
@@ -506,7 +597,8 @@ fn parse_mapping_recursive(
     current_node: TsNode, // This is a type_name node
     source: &str,
     key_types: &mut Vec<String>, // Accumulates key types
-) -> Result<(String, String, bool)> { // Returns (final_value_type, full_type_string, is_mapping_flag)
+) -> Result<(String, String, bool)> {
+    // Returns (final_value_type, full_type_string, is_mapping_flag)
 
     // Check if the current_node (a type_name node) represents a mapping
     // by looking for 'key_type' and 'value_type' fields, as per CST.
@@ -524,7 +616,7 @@ fn parse_mapping_recursive(
         // Recursively parse this value_type_field_node.
         let (final_value_type, nested_value_str, _is_nested_mapping) =
             parse_mapping_recursive(value_type_field_node, source, key_types)?;
-        
+
         let current_level_full_str = format!("mapping({} => {})", key_type_str, nested_value_str);
         return Ok((final_value_type, current_level_full_str, true));
     }
@@ -538,16 +630,12 @@ fn parse_mapping_recursive(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cg::{
-            CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, Visibility,
-        };
+    use crate::cg::{CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, Visibility};
     use crate::parser::get_solidity_language;
-    
+
     use tree_sitter::Parser;
 
-    fn run_contract_handling(
-        source_code: &str,
-    ) -> Result<(CallGraph, CallGraphGeneratorContext)> {
+    fn run_contract_handling(source_code: &str) -> Result<(CallGraph, CallGraphGeneratorContext)> {
         let mut parser = Parser::new();
         let sol_lang = get_solidity_language();
         parser
@@ -564,7 +652,7 @@ mod tests {
             source: source_code.to_string(),
             tree,
             solidity_lang: sol_lang.clone(), // Use the fetched language here
-            // Add other necessary fields if they become required by ContractHandling
+                                             // Add other necessary fields if they become required by ContractHandling
         };
 
         contract_handler.generate(input, &mut ctx, &mut graph)?;
@@ -607,7 +695,6 @@ mod tests {
             Some(&"mapping(address => UserStruct)".to_string()) // This will be captured as string
         );
 
-
         // Check contract_mappings for balanceOf
         let balance_of_key = ("TestMappings".to_string(), "balanceOf".to_string());
         let balance_of_info = ctx.contract_mappings.get(&balance_of_key).unwrap();
@@ -639,14 +726,18 @@ mod tests {
         assert_eq!(nested_map_info.visibility, Visibility::Internal); // Based on 'internal' keyword
         assert_eq!(
             nested_map_info.key_types,
-            vec!["bytes32".to_string(), "uint256".to_string(), "address".to_string()]
+            vec![
+                "bytes32".to_string(),
+                "uint256".to_string(),
+                "address".to_string()
+            ]
         );
         assert_eq!(nested_map_info.value_type, "bool".to_string());
         assert_eq!(
             nested_map_info.full_type_str,
             "mapping(bytes32 => mapping(uint256 => mapping(address => bool)))"
         );
-        
+
         // Check contract_mappings for userInfos (mapping to a struct)
         let user_infos_key = ("TestMappings".to_string(), "userInfos".to_string());
         let user_infos_info = ctx.contract_mappings.get(&user_infos_key).unwrap();
@@ -654,8 +745,10 @@ mod tests {
         assert_eq!(user_infos_info.visibility, Visibility::Internal); // Default for state vars without explicit visibility
         assert_eq!(user_infos_info.key_types, vec!["address".to_string()]);
         assert_eq!(user_infos_info.value_type, "UserStruct".to_string());
-        assert_eq!(user_infos_info.full_type_str, "mapping(address => UserStruct)");
-
+        assert_eq!(
+            user_infos_info.full_type_str,
+            "mapping(address => UserStruct)"
+        );
 
         Ok(())
     }

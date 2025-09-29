@@ -24,7 +24,7 @@ pub fn init_subscriber(verbose: bool) {
 /// * `filter` - A custom filter string (e.g., "info", "debug", "trace")
 pub fn init_subscriber_with_filter(filter: &str) {
     let env_filter = EnvFilter::new(filter);
-    
+
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(env_filter)

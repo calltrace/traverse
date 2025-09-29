@@ -90,12 +90,12 @@ impl NatSpecItem {
         if !matches!(self.kind, NatSpecKind::Return { name: _ }) {
             return;
         }
-        
+
         // If already populated with a name, don't reprocess
         if let NatSpecKind::Return { name: Some(_) } = &self.kind {
             return;
         }
-        
+
         let name = self
             .comment
             .split_whitespace()
@@ -267,14 +267,25 @@ fn parse_one_multiline_natspec_item(input: &str) -> IResult<&str, NatSpecItem> {
         )));
     }
 
-    let (remaining_input, (_lead_space_consumed, _star_opt, _mid_space_consumed, kind_opt, _trail_space_consumed, comment_str)) = (
+    let (
+        remaining_input,
+        (
+            _lead_space_consumed,
+            _star_opt,
+            _mid_space_consumed,
+            kind_opt,
+            _trail_space_consumed,
+            comment_str,
+        ),
+    ) = (
         space0,
-        opt(many0(char('*'))),  // Changed to consume multiple asterisks
+        opt(many0(char('*'))), // Changed to consume multiple asterisks
         space0,
         opt(parse_natspec_kind),
         space0,
         parse_multiline_comment_text,
-    ).parse(input)?;
+    )
+        .parse(input)?;
 
     let item = NatSpecItem {
         kind: kind_opt.unwrap_or(NatSpecKind::Notice),
@@ -292,7 +303,7 @@ fn parse_multiline_comment(input: &str) -> IResult<&str, NatSpec> {
             nom::error::ErrorKind::Tag,
         )));
     }
-    
+
     let mut parser = map(
         delimited(
             // Changed multispace0 to space0 after tag("/**").
@@ -307,7 +318,9 @@ fn parse_multiline_comment(input: &str) -> IResult<&str, NatSpec> {
             // Filter out any completely empty NatSpecItems (Notice with empty comment)
             // that might arise from lines like " * " or the final " */" if not handled by line_ending.
             let filtered_items = items.into_iter().filter(|item| !item.is_empty()).collect();
-            NatSpec { items: filtered_items }
+            NatSpec {
+                items: filtered_items,
+            }
         },
     );
     parser.parse(input)
@@ -315,13 +328,9 @@ fn parse_multiline_comment(input: &str) -> IResult<&str, NatSpec> {
 
 fn parse_empty_multiline_comment(input: &str) -> IResult<&str, NatSpec> {
     // Match /**/ or /** */ but not /***/ or similar
-    let mut parser = map(
-        preceded(
-            tag("/**"),
-            preceded(space0, tag("*/"))
-        ),
-        |_| NatSpec::default(),
-    );
+    let mut parser = map(preceded(tag("/**"), preceded(space0, tag("*/"))), |_| {
+        NatSpec::default()
+    });
     parser.parse(input)
 }
 
@@ -382,10 +391,7 @@ pub fn parse_natspec_comment(input: &str) -> anyhow::Result<NatSpec> {
         Ok((_, natspec)) => Ok(natspec),
         Err(e) => {
             // Use a simpler error message approach that doesn't rely on convert_error
-            Err(anyhow::anyhow!(
-                "Failed to parse Natspec comment: {}",
-                e
-            ))
+            Err(anyhow::anyhow!("Failed to parse Natspec comment: {}", e))
         }
     }
 }

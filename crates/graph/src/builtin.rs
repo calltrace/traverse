@@ -22,9 +22,7 @@ static BUILTIN_FUNCTIONS: Lazy<HashMap<&'static str, Vec<BuiltinFunction>>> = La
     let mut m = HashMap::new();
 
     let mut add = |builtin: BuiltinFunction| {
-        m.entry(builtin.name)
-            .or_insert_with(Vec::new)
-            .push(builtin);
+        m.entry(builtin.name).or_insert_with(Vec::new).push(builtin);
     };
 
     // --- Array Built-ins (Dynamic Storage Arrays T[]) ---
@@ -136,8 +134,8 @@ static BUILTIN_FUNCTIONS: Lazy<HashMap<&'static str, Vec<BuiltinFunction>>> = La
     add(BuiltinFunction {
         name: "concat",
         object_type: "string", // Global abi function now, but was member-like? Check docs.
-                               // Let's assume global `abi.string.concat` for now.
-                               // Keeping this commented out as it's likely not a direct member.
+        // Let's assume global `abi.string.concat` for now.
+        // Keeping this commented out as it's likely not a direct member.
         return_type: "string", // memory
         mutates_state: false,
     });
@@ -180,18 +178,18 @@ pub fn get_builtin(name: &str, object_type: &str) -> Option<&'static BuiltinFunc
                 || (builtin.object_type == "any_array" && object_type == "bytes") // bytes has .length like arrays
                 || (builtin.object_type == "any_array" && object_type == "string") // string has .length like arrays
                 || (builtin.object_type == "bytes" && object_type.ends_with("[]")) // length applies to arrays too
-                || (builtin.object_type == "string" && object_type.ends_with("[]")) // length applies to arrays too
+                || (builtin.object_type == "string" && object_type.ends_with("[]"))
+            // length applies to arrays too
         })
     })
 }
 
 /// Checks if a specific built-in function mutates state.
 pub fn is_mutating_builtin(name: &str, object_type: &str) -> bool {
-    get_builtin(name, object_type).map_or(false, |b| b.mutates_state)
+    get_builtin(name, object_type).is_some_and(|b| b.mutates_state)
 }
 
 /// Gets the return type string for a specific built-in function.
 pub fn get_builtin_return_type(name: &str, object_type: &str) -> Option<&'static str> {
     get_builtin(name, object_type).map(|b| b.return_type)
 }
-

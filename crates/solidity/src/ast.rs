@@ -236,9 +236,9 @@ pub enum ElementaryTypeName {
     Bool,
     String,
     Bytes,
-    SignedInteger(Option<u16>), // bit size
+    SignedInteger(Option<u16>),   // bit size
     UnsignedInteger(Option<u16>), // bit size
-    FixedBytes(Option<u8>), // byte size
+    FixedBytes(Option<u8>),       // byte size
     Fixed,
     Ufixed,
 }
@@ -268,7 +268,7 @@ impl IdentifierPath {
     pub fn new(parts: Vec<String>) -> Self {
         Self { parts }
     }
-    
+
     pub fn single(name: String) -> Self {
         Self { parts: vec![name] }
     }

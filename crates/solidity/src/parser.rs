@@ -233,18 +233,18 @@ impl From<Pair<'_, Rule>> for ElementaryTypeName {
             ElementaryTypeName::String
         } else if text == "bytes" {
             ElementaryTypeName::Bytes
-        } else if text.starts_with("uint") {
-            let size = if text == "uint" {
+        } else if let Some(stripped) = text.strip_prefix("uint") {
+            let size = if stripped.is_empty() {
                 None
             } else {
-                text[4..].parse().ok()
+                stripped.parse().ok()
             };
             ElementaryTypeName::UnsignedInteger(size)
-        } else if text.starts_with("int") {
-            let size = if text == "int" {
+        } else if let Some(stripped) = text.strip_prefix("int") {
+            let size = if stripped.is_empty() {
                 None
             } else {
-                text[3..].parse().ok()
+                stripped.parse().ok()
             };
             ElementaryTypeName::SignedInteger(size)
         } else {

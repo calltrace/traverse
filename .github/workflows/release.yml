@@ -16,9 +16,15 @@ permissions:
   packages: write # Needed to push to GitHub Container Registry
 
 jobs:
+  # Run tests first - release will be blocked if tests fail
+  run_tests:
+    name: Run Test Suite
+    uses: ./.github/workflows/test.yml
+
   create_release:
     name: Create Release
     runs-on: ubuntu-latest
+    needs: run_tests  # Only create release if tests pass
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
@@ -42,7 +48,7 @@ jobs:
 
   build_binaries:
     name: Build Binaries for ${{ matrix.target }}
-    needs: create_release
+    needs: [run_tests, create_release]  # Require tests to pass before building
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:

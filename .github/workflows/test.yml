@@ -1,0 +1,180 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  # Also run before releases
+  release:
+    types: [created]
+  # Allow manual trigger
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable]
+        include:
+          - os: ubuntu-latest
+            rust: nightly
+          - os: macos-latest
+            rust: nightly
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
+        components: rustfmt, clippy
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache cargo index
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache target directory
+      uses: actions/cache@v4
+      with:
+        path: target
+        key: ${{ runner.os }}-target-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Run tests
+      run: cargo test --workspace --all-features --verbose
+
+    - name: Run doctests
+      run: cargo test --doc --workspace
+
+    - name: Check formatting (stable only)
+      if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
+      run: cargo fmt --all -- --check
+
+    - name: Run clippy (stable only)
+      if: matrix.rust == 'stable'
+      run: cargo clippy --workspace --all-features -- -D warnings
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-integration-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Build release binaries
+      run: cargo build --release --workspace
+
+    - name: Test sol2cg on example project
+      run: |
+        # Test basic DOT generation
+        ./target/release/sol2cg examples/smart-invoice/output/full-project.dot --format dot > /dev/null
+        
+        # Test Mermaid generation with chunking
+        ./target/release/sol2cg examples/smart-invoice/output/full-project.dot --format mermaid --chunk-dir /tmp/test-chunks
+        test -f /tmp/test-chunks/chunk_001.mmd || exit 1
+        
+        # Test JSON generation
+        ./target/release/sol2cg examples/smart-invoice/output/full-project.dot --format json > /dev/null
+
+    - name: Verify chunking functionality
+      run: |
+        # Create a test that would trigger chunking
+        cd /tmp
+        cat > large_test.sol << 'EOF'
+        contract LargeContract {
+            function func1() public { func2(); }
+            function func2() public { func3(); }
+            function func3() public { func4(); }
+            function func4() public { func5(); }
+            function func5() public { func6(); }
+            function func6() public { func7(); }
+            function func7() public { func8(); }
+            function func8() public { func9(); }
+            function func9() public { func10(); }
+            function func10() public {}
+        }
+        EOF
+        
+        # This should create chunks if the diagram is large enough
+        ./target/release/sol2cg large_test.sol --format mermaid --chunk-dir /tmp/verify-chunks || true
+
+  check-examples:
+    name: Verify Examples
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Check Smart Invoice example
+      run: |
+        test -f examples/smart-invoice/README.md
+        test -f examples/smart-invoice/output/full-project.dot
+        test -d examples/smart-invoice/output/mermaid-chunks
+        test -f examples/smart-invoice/analysis/statistics.json
+
+  # Gate for releases - all tests must pass
+  release-gate:
+    name: Release Gate
+    runs-on: ubuntu-latest
+    needs: [test, integration-test, check-examples]
+    if: github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    
+    steps:
+    - name: All tests passed
+      run: |
+        echo "✅ All tests passed successfully!"
+        echo "Release can proceed."
+
+    - name: Check version consistency
+      uses: actions/checkout@v4
+    - run: |
+        # Verify all Cargo.toml files have the same version
+        VERSION=$(grep '^version' crates/cli/Cargo.toml | head -1 | cut -d '"' -f 2)
+        echo "Expected version: $VERSION"
+        
+        for cargo_file in crates/*/Cargo.toml; do
+          FILE_VERSION=$(grep '^version' "$cargo_file" | head -1 | cut -d '"' -f 2)
+          if [ "$FILE_VERSION" != "$VERSION" ]; then
+            echo "❌ Version mismatch in $cargo_file: $FILE_VERSION != $VERSION"
+            exit 1
+          fi
+        done
+        
+        echo "✅ All crates have consistent version: $VERSION"

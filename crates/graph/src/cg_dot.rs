@@ -93,7 +93,6 @@ impl CgToDot for CallGraph {
         self.to_dot_with_formatters(
             name,
             config, // Pass config
-
             |node| {
                 let mut attrs = vec![
                     ("label".to_string(), escape_dot_string(&node.to_dot_label())),
@@ -113,12 +112,12 @@ impl CgToDot for CallGraph {
                             NodeType::Library => "lightgrey".to_string(), // Keep lightgrey for Library
                             NodeType::Interface => "lightpink".to_string(), // Use lightpink for Interface
                             NodeType::StorageVariable => "khaki".to_string(), // Added color for StorageVariable
-                            NodeType::Evm => "gray".to_string(), // Added color for EVM
+                            NodeType::Evm => "gray".to_string(),              // Added color for EVM
                             NodeType::EventListener => "lightcyan".to_string(), // Added color for EventListener
                             NodeType::RequireCondition => "orange".to_string(), // Added color for RequireCondition
                             NodeType::IfStatement => "mediumpurple1".to_string(), // Added color for IfStatement
-                            NodeType::ThenBlock => "palegreen".to_string(),    // Added color for ThenBlock
-                            NodeType::ElseBlock => "lightsalmon".to_string(),  // Added color for ElseBlock
+                            NodeType::ThenBlock => "palegreen".to_string(), // Added color for ThenBlock
+                            NodeType::ElseBlock => "lightsalmon".to_string(), // Added color for ElseBlock
                             NodeType::WhileStatement => "lightsteelblue".to_string(), // Added color for WhileStatement
                             NodeType::WhileBlock => "lightseagreen".to_string(), // Added color for WhileBlock
                             NodeType::ForCondition => "darkseagreen1".to_string(), // Added color for ForCondition
@@ -137,13 +136,18 @@ impl CgToDot for CallGraph {
                         let mut tooltip = format!("Call Site Span: {:?}", edge.call_site_span);
 
                         // Construct the argument string
-                        let args_str = edge.argument_names.as_ref()
+                        let args_str = edge
+                            .argument_names
+                            .as_ref()
                             .map(|args| {
                                 if args.is_empty() {
                                     "".to_string() // No arguments, empty string inside parens
                                 } else {
                                     // Escape each argument individually before joining
-                                    args.iter().map(|arg| escape_dot_string(arg)).collect::<Vec<_>>().join(", ")
+                                    args.iter()
+                                        .map(|arg| escape_dot_string(arg))
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
                                 }
                             })
                             .unwrap_or_default(); // Default to empty string if None
@@ -152,7 +156,12 @@ impl CgToDot for CallGraph {
                         let raw_label = if let Some(event_name) = &edge.event_name {
                             // It's an emit-related edge
                             write!(tooltip, "\\nEvent: {}", escape_dot_string(event_name)).unwrap();
-                            format!("emit {}({})\nSeq: {}", escape_dot_string(event_name), args_str, edge.sequence_number)
+                            format!(
+                                "emit {}({})\nSeq: {}",
+                                escape_dot_string(event_name),
+                                args_str,
+                                edge.sequence_number
+                            )
                         } else {
                             // It's a regular function call
                             format!("({})\n{}", args_str, edge.sequence_number)
@@ -172,7 +181,10 @@ impl CgToDot for CallGraph {
                         }
                     }
                     EdgeType::Return => {
-                        debug!("Formatting Return edge: {} -> {}", edge.source_node_id, edge.target_node_id);
+                        debug!(
+                            "Formatting Return edge: {} -> {}",
+                            edge.source_node_id, edge.target_node_id
+                        );
                         attrs.push((
                             "tooltip".to_string(),
                             escape_dot_string(&format!(
@@ -184,9 +196,11 @@ impl CgToDot for CallGraph {
                         ));
                         // Add returned value to tooltip if present
                         if let Some(ref value) = edge.returned_value {
-                             if let Some((_, tooltip_val)) = attrs.last_mut() { // Find the tooltip attribute
-                                write!(tooltip_val, "\\nReturns: {}", escape_dot_string(value)).unwrap(); // Append to existing tooltip
-                             }
+                            if let Some((_, tooltip_val)) = attrs.last_mut() {
+                                // Find the tooltip attribute
+                                write!(tooltip_val, "\\nReturns: {}", escape_dot_string(value))
+                                    .unwrap(); // Append to existing tooltip
+                            }
                         }
                         // Set label based on returned value
                         let label = match &edge.returned_value {
@@ -198,7 +212,6 @@ impl CgToDot for CallGraph {
                         attrs.push(("style".to_string(), "dashed".to_string()));
                         attrs.push(("color".to_string(), "grey".to_string()));
                         attrs.push(("arrowhead".to_string(), "empty".to_string()));
-
                     }
                     EdgeType::StorageRead => {
                         let tooltip = format!("Read Span: {:?}", edge.call_site_span);
@@ -217,14 +230,22 @@ impl CgToDot for CallGraph {
                         attrs.push(("style".to_string(), "bold".to_string()));
                     }
                     EdgeType::Require => {
-                        debug!("[DOT Require DEBUG] Formatting Require edge: {} -> {}", edge.source_node_id, edge.target_node_id);
+                        debug!(
+                            "[DOT Require DEBUG] Formatting Require edge: {} -> {}",
+                            edge.source_node_id, edge.target_node_id
+                        );
                         let tooltip = format!("Require Check Span: {:?}", edge.call_site_span);
-                        let args_str = edge.argument_names.as_ref()
+                        let args_str = edge
+                            .argument_names
+                            .as_ref()
                             .map(|args| {
                                 if args.is_empty() {
                                     "".to_string()
                                 } else {
-                                    args.iter().map(|arg| escape_dot_string(arg)).collect::<Vec<_>>().join(", ")
+                                    args.iter()
+                                        .map(|arg| escape_dot_string(arg))
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
                                 }
                             })
                             .unwrap_or_default();
@@ -236,25 +257,32 @@ impl CgToDot for CallGraph {
                         attrs.push(("style".to_string(), "dashed".to_string()));
                     }
                     EdgeType::IfConditionBranch => {
-                        let condition = edge.argument_names.as_ref()
+                        let condition = edge
+                            .argument_names
+                            .as_ref()
                             .and_then(|args| args.first())
                             .map(|arg| escape_dot_string(arg))
                             .unwrap_or_else(|| "condition".to_string());
-                        let tooltip = format!("If Condition: {}\\nSpan: {:?}", condition, edge.call_site_span);
+                        let tooltip = format!(
+                            "If Condition: {}\\nSpan: {:?}",
+                            condition, edge.call_site_span
+                        );
                         attrs.push(("label".to_string(), format!("if ({})", condition)));
                         attrs.push(("tooltip".to_string(), escape_dot_string(&tooltip)));
                         attrs.push(("color".to_string(), "mediumpurple4".to_string()));
                         attrs.push(("fontcolor".to_string(), "mediumpurple4".to_string()));
                     }
                     EdgeType::ThenBranch => {
-                        let tooltip = format!("Then branch taken\\nSpan: {:?}", edge.call_site_span);
+                        let tooltip =
+                            format!("Then branch taken\\nSpan: {:?}", edge.call_site_span);
                         attrs.push(("label".to_string(), "then".to_string()));
                         attrs.push(("tooltip".to_string(), escape_dot_string(&tooltip)));
                         attrs.push(("color".to_string(), "green4".to_string()));
                         attrs.push(("fontcolor".to_string(), "green4".to_string()));
                     }
                     EdgeType::ElseBranch => {
-                        let tooltip = format!("Else branch taken\\nSpan: {:?}", edge.call_site_span);
+                        let tooltip =
+                            format!("Else branch taken\\nSpan: {:?}", edge.call_site_span);
                         attrs.push(("label".to_string(), "else".to_string()));
                         attrs.push(("tooltip".to_string(), escape_dot_string(&tooltip)));
                         attrs.push(("color".to_string(), "salmon4".to_string()));
@@ -266,7 +294,8 @@ impl CgToDot for CallGraph {
                     EdgeType::ForConditionBranch | EdgeType::ForBodyBranch => {
                         // Placeholder for specific styling if needed
                         let label = if edge.edge_type == EdgeType::ForConditionBranch {
-                            edge.argument_names.as_ref()
+                            edge.argument_names
+                                .as_ref()
                                 .and_then(|args| args.first())
                                 .map(|arg| escape_dot_string(arg))
                                 .unwrap_or_else(|| "for_cond".to_string())
@@ -300,7 +329,6 @@ impl CgToDot for CallGraph {
         let mut dot_output = String::new();
         let _ = writeln!(dot_output, "digraph \"{}\" {{", escape_dot_string(name));
 
-
         let _ = writeln!(
             dot_output,
             "    graph [rankdir=LR, fontname=\"Arial\", splines=true];"
@@ -328,7 +356,7 @@ impl CgToDot for CallGraph {
             if let Some(ref connected_ids) = connected_node_ids {
                 debug!("Connected Node IDs: {:?}", connected_ids);
             } else {
-                 debug!("Filtering active, but connected_node_ids is None (unexpected).");
+                debug!("Filtering active, but connected_node_ids is None (unexpected).");
             }
         }
 
@@ -347,14 +375,20 @@ impl CgToDot for CallGraph {
                 false
             };
 
-            if config.exclude_isolated_nodes { // Only log if filtering is active
-                 debug!(
-                     "Including {}node: ID={}, Name='{}', Contract='{:?}'",
-                     if is_isolated { "ISOLATED (ERROR?) " } else { "" }, // Highlight if it was marked isolated but not skipped
-                     node.id, node.name, node.contract_name
-                 );
+            if config.exclude_isolated_nodes {
+                // Only log if filtering is active
+                debug!(
+                    "Including {}node: ID={}, Name='{}', Contract='{:?}'",
+                    if is_isolated {
+                        "ISOLATED (ERROR?) "
+                    } else {
+                        ""
+                    }, // Highlight if it was marked isolated but not skipped
+                    node.id,
+                    node.name,
+                    node.contract_name
+                );
             }
-
 
             let attrs = node_formatter(node);
             let attrs_str = attrs
@@ -402,7 +436,7 @@ pub fn escape_dot_string(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cg::{CallGraph, NodeType, Visibility};
+    use crate::cg::{CallGraph, EdgeParams, NodeType, Visibility};
 
     fn create_test_graph() -> CallGraph {
         let mut graph = CallGraph::new();
@@ -421,18 +455,18 @@ mod tests {
             (30, 40),
         );
         // Updated add_edge call to match the new signature
-        graph.add_edge(
-            n1,
-            n0,
-            EdgeType::Call, // edge_type
-            (35, 38),       // call_site_span
-            None,           // return_site_span
-            1,              // sequence_number
-            None,           // returned_value
-            None,           // argument_names
-            None,
-            None,
-        );
+        graph.add_edge(EdgeParams {
+            source_node_id: n1,
+            target_node_id: n0,
+            edge_type: EdgeType::Call,
+            call_site_span: (35, 38),
+            return_site_span: None,
+            sequence_number: 1,
+            returned_value: None,
+            argument_names: None,
+            event_name: None,
+            declared_return_type: None,
+        });
         graph
     }
 
@@ -443,18 +477,42 @@ mod tests {
         let dot = graph.to_dot("TestDefault", &config); // Pass config
         assert!(dot.starts_with("digraph \"TestDefault\" {"));
         assert!(dot.contains("n0"), "Node n0 definition missing");
-        assert!(dot.contains("label=\"ContractA.foo\\n(function)\""), "Node n0 label incorrect");
-        assert!(dot.contains("tooltip=\"Type: Function\\\\nVisibility: Public\\\\nSpan: (10, 20)\""), "Node n0 tooltip incorrect");
-        assert!(dot.contains("fillcolor=\"lightblue\""), "Node n0 fillcolor incorrect");
+        assert!(
+            dot.contains("label=\"ContractA.foo\\n(function)\""),
+            "Node n0 label incorrect"
+        );
+        assert!(
+            dot.contains("tooltip=\"Type: Function\\\\nVisibility: Public\\\\nSpan: (10, 20)\""),
+            "Node n0 tooltip incorrect"
+        );
+        assert!(
+            dot.contains("fillcolor=\"lightblue\""),
+            "Node n0 fillcolor incorrect"
+        );
         assert!(dot.contains("n1"), "Node n1 definition missing");
-        assert!(dot.contains("label=\"ContractA.bar\\n(function)\""), "Node n1 label incorrect");
-        assert!(dot.contains("tooltip=\"Type: Function\\\\nVisibility: Private\\\\nSpan: (30, 40)\""), "Node n1 tooltip incorrect");
-        assert!(dot.contains("fillcolor=\"lightblue\""), "Node n1 fillcolor incorrect");
+        assert!(
+            dot.contains("label=\"ContractA.bar\\n(function)\""),
+            "Node n1 label incorrect"
+        );
+        assert!(
+            dot.contains("tooltip=\"Type: Function\\\\nVisibility: Private\\\\nSpan: (30, 40)\""),
+            "Node n1 tooltip incorrect"
+        );
+        assert!(
+            dot.contains("fillcolor=\"lightblue\""),
+            "Node n1 fillcolor incorrect"
+        );
         assert!(dot.contains("n1 -> n0"), "Edge n1 -> n0 missing");
         // Check tooltip format (Call Site Span + Sequence)
-        assert!(dot.contains("tooltip=\"Call Site Span: (35, 38)\\\\nSequence: 1\""), "Edge tooltip incorrect"); // Updated to include sequence
-        // Check label format (Args + Sequence) - No args in this test case
-        assert!(dot.contains("label=\"()\\n1\""), "Edge label incorrect or missing sequence"); // Label still includes sequence
+        assert!(
+            dot.contains("tooltip=\"Call Site Span: (35, 38)\\\\nSequence: 1\""),
+            "Edge tooltip incorrect"
+        ); // Updated to include sequence
+           // Check label format (Args + Sequence) - No args in this test case
+        assert!(
+            dot.contains("label=\"()\\n1\""),
+            "Edge label incorrect or missing sequence"
+        ); // Label still includes sequence
         assert!(dot.ends_with("}\n"));
     }
 
@@ -471,7 +529,8 @@ mod tests {
                     ("color".to_string(), escape_dot_string("\"green\"")),
                 ]
             },
-            |_edge| { // Prefix edge with underscore as it's unused in this custom formatter
+            |_edge| {
+                // Prefix edge with underscore as it's unused in this custom formatter
                 vec![
                     ("label".to_string(), escape_dot_string("\"CustomCall\"")),
                     ("style".to_string(), escape_dot_string("\"dashed\"")),
@@ -482,19 +541,31 @@ mod tests {
         assert!(dot.starts_with("digraph \"TestCustom\" {"));
         assert!(dot.contains("n0"), "Node n0 definition missing");
         assert!(dot.contains("label=\"N_foo\""), "Node n0 label incorrect");
-        assert!(dot.contains("color=\"\\\"green\\\"\""), "Node n0 color incorrect");
+        assert!(
+            dot.contains("color=\"\\\"green\\\"\""),
+            "Node n0 color incorrect"
+        );
 
         assert!(dot.contains("n1"), "Node n1 definition missing");
         assert!(dot.contains("label=\"N_bar\""), "Node n1 label incorrect");
-        assert!(dot.contains("color=\"\\\"green\\\"\""), "Node n1 color incorrect");
+        assert!(
+            dot.contains("color=\"\\\"green\\\"\""),
+            "Node n1 color incorrect"
+        );
 
         assert!(dot.contains("n1 -> n0"), "Edge n1 -> n0 missing");
-        assert!(dot.contains("label=\"\\\"CustomCall\\\"\""), "Edge label incorrect");
-        assert!(dot.contains("style=\"\\\"dashed\\\"\""), "Edge style incorrect");
+        assert!(
+            dot.contains("label=\"\\\"CustomCall\\\"\""),
+            "Edge label incorrect"
+        );
+        assert!(
+            dot.contains("style=\"\\\"dashed\\\"\""),
+            "Edge style incorrect"
+        );
         assert!(dot.ends_with("}\n"));
     }
 
-     #[test]
+    #[test]
     fn test_dot_escape_string_internal() {
         assert_eq!(escape_dot_string(""), "");
         assert_eq!(escape_dot_string("simple"), "simple");
@@ -530,9 +601,18 @@ mod tests {
             (50, 60),
         );
         // Add an edge to connect n0 and n1
-        graph.add_edge(
-            n0, n1, EdgeType::Call, (15, 18), None, 1, None, None, None, None,
-        );
+        graph.add_edge(EdgeParams {
+            source_node_id: n0,
+            target_node_id: n1,
+            edge_type: EdgeType::Call,
+            call_site_span: (15, 18),
+            return_site_span: None,
+            sequence_number: 1,
+            returned_value: None,
+            argument_names: None,
+            event_name: None,
+            declared_return_type: None,
+        });
 
         // Test 1: Exclude isolated nodes
         let config_exclude = DotExportConfig {
@@ -540,10 +620,22 @@ mod tests {
         };
         let dot_excluded = graph.to_dot("TestExcludeIsolated", &config_exclude);
 
-        assert!(dot_excluded.contains("n0"), "Node n0 (connected) should be present when excluding");
-        assert!(dot_excluded.contains("n1"), "Node n1 (connected) should be present when excluding");
-        assert!(!dot_excluded.contains("n2"), "Node n2 (isolated) should NOT be present when excluding");
-        assert!(dot_excluded.contains("n0 -> n1"), "Edge n0 -> n1 should be present when excluding");
+        assert!(
+            dot_excluded.contains("n0"),
+            "Node n0 (connected) should be present when excluding"
+        );
+        assert!(
+            dot_excluded.contains("n1"),
+            "Node n1 (connected) should be present when excluding"
+        );
+        assert!(
+            !dot_excluded.contains("n2"),
+            "Node n2 (isolated) should NOT be present when excluding"
+        );
+        assert!(
+            dot_excluded.contains("n0 -> n1"),
+            "Edge n0 -> n1 should be present when excluding"
+        );
 
         // Test 2: Include isolated nodes (default)
         let config_include = DotExportConfig {
@@ -551,10 +643,21 @@ mod tests {
         };
         let dot_included = graph.to_dot("TestIncludeIsolated", &config_include);
 
-        assert!(dot_included.contains("n0"), "Node n0 (connected) should be present when including");
-        assert!(dot_included.contains("n1"), "Node n1 (connected) should be present when including");
-        assert!(dot_included.contains("n2"), "Node n2 (isolated) should be present when including");
-        assert!(dot_included.contains("n0 -> n1"), "Edge n0 -> n1 should be present when including");
+        assert!(
+            dot_included.contains("n0"),
+            "Node n0 (connected) should be present when including"
+        );
+        assert!(
+            dot_included.contains("n1"),
+            "Node n1 (connected) should be present when including"
+        );
+        assert!(
+            dot_included.contains("n2"),
+            "Node n2 (isolated) should be present when including"
+        );
+        assert!(
+            dot_included.contains("n0 -> n1"),
+            "Edge n0 -> n1 should be present when including"
+        );
     }
 }
-

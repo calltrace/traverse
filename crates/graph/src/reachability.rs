@@ -150,7 +150,7 @@ impl ReachabilityAnalyzer {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::cg::{CallGraph, EdgeType, NodeType, Visibility};
+    use crate::cg::{CallGraph, EdgeType, NodeType, Visibility, EdgeParams};
     use std::collections::HashSet;
 
     pub fn create_test_graph_for_reachability() -> CallGraph {
@@ -228,115 +228,236 @@ pub(crate) mod tests {
             (0, 0),
         );
 
-        graph.add_edge(
-            a_pub_func_id,
-            a_priv_func_id,
-            EdgeType::Call,
-            (0, 0),
-            None,
-            1,
-            None,
-            None,
-            None,
-            None,
-        );
-        graph.add_edge(
-            a_priv_func_id,
-            b_internal_func_id,
-            EdgeType::Call,
-            (0, 0),
-            None,
-            1,
-            None,
-            None,
-            None,
-            None,
-        );
-        graph.add_edge(
-            b_pub_func_id,
-            b_internal_func_id,
-            EdgeType::Call,
-            (0, 0),
-            None,
-            1,
-            None,
-            None,
-            None,
-            None,
-        );
-        graph.add_edge(
-            b_internal_func_id,
-            c_internal_func_id,
-            EdgeType::Call,
-            (0, 0),
-            None,
-            1,
-            None,
-            None,
-            None,
-            None,
-        );
+        graph.add_edge(EdgeParams {
 
-        graph.add_edge(
-            a_pub_func_id,
-            storage_var1_id,
-            EdgeType::StorageRead,
-            (0, 0),
-            None,
-            2,
-            None,
-            None,
-            None,
-            None,
-        );
-        graph.add_edge(
-            a_priv_func_id,
-            storage_var1_id,
-            EdgeType::StorageWrite,
-            (0, 0),
-            None,
-            2,
-            None,
-            None,
-            None,
-            None,
-        );
-        graph.add_edge(
-            b_internal_func_id,
-            storage_var2_id,
-            EdgeType::StorageRead,
-            (0, 0),
-            None,
-            2,
-            None,
-            None,
-            None,
-            None,
-        );
-        graph.add_edge(
-            c_internal_func_id,
-            storage_var3_id,
-            EdgeType::StorageWrite,
-            (0, 0),
-            None,
-            1,
-            None,
-            None,
-            None,
-            None,
-        );
-        graph.add_edge(
-            b_pub_func_id,
-            storage_var2_id,
-            EdgeType::StorageWrite,
-            (0, 0),
-            None,
-            2,
-            None,
-            None,
-            None,
-            None,
-        );
+
+            source_node_id: a_pub_func_id,
+
+
+            target_node_id: a_priv_func_id,
+
+
+            edge_type: EdgeType::Call,
+
+
+            call_site_span: (0, 0),
+
+
+            return_site_span: None,
+
+
+            sequence_number: 1,
+
+
+            returned_value: None,
+
+
+            argument_names: None,
+
+
+            event_name: None,
+
+
+            declared_return_type: None,
+
+
+        });
+        graph.add_edge(EdgeParams {
+
+            source_node_id: a_priv_func_id,
+
+            target_node_id: b_internal_func_id,
+
+            edge_type: EdgeType::Call,
+
+            call_site_span: (0, 0),
+
+            return_site_span: None,
+
+            sequence_number: 1,
+
+            returned_value: None,
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
+        graph.add_edge(EdgeParams {
+
+            source_node_id: b_pub_func_id,
+
+            target_node_id: b_internal_func_id,
+
+            edge_type: EdgeType::Call,
+
+            call_site_span: (0, 0),
+
+            return_site_span: None,
+
+            sequence_number: 1,
+
+            returned_value: None,
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
+        graph.add_edge(EdgeParams {
+
+            source_node_id: b_internal_func_id,
+
+            target_node_id: c_internal_func_id,
+
+            edge_type: EdgeType::Call,
+
+            call_site_span: (0, 0),
+
+            return_site_span: None,
+
+            sequence_number: 1,
+
+            returned_value: None,
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
+
+        graph.add_edge(EdgeParams {
+
+
+            source_node_id: a_pub_func_id,
+
+
+            target_node_id: storage_var1_id,
+
+
+            edge_type: EdgeType::StorageRead,
+
+
+            call_site_span: (0, 0),
+
+
+            return_site_span: None,
+
+
+            sequence_number: 2,
+
+
+            returned_value: None,
+
+
+            argument_names: None,
+
+
+            event_name: None,
+
+
+            declared_return_type: None,
+
+
+        });
+        graph.add_edge(EdgeParams {
+
+            source_node_id: a_priv_func_id,
+
+            target_node_id: storage_var1_id,
+
+            edge_type: EdgeType::StorageWrite,
+
+            call_site_span: (0, 0),
+
+            return_site_span: None,
+
+            sequence_number: 2,
+
+            returned_value: None,
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
+        graph.add_edge(EdgeParams {
+
+            source_node_id: b_internal_func_id,
+
+            target_node_id: storage_var2_id,
+
+            edge_type: EdgeType::StorageRead,
+
+            call_site_span: (0, 0),
+
+            return_site_span: None,
+
+            sequence_number: 2,
+
+            returned_value: None,
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
+        graph.add_edge(EdgeParams {
+
+            source_node_id: c_internal_func_id,
+
+            target_node_id: storage_var3_id,
+
+            edge_type: EdgeType::StorageWrite,
+
+            call_site_span: (0, 0),
+
+            return_site_span: None,
+
+            sequence_number: 1,
+
+            returned_value: None,
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
+        graph.add_edge(EdgeParams {
+
+            source_node_id: b_pub_func_id,
+
+            target_node_id: storage_var2_id,
+
+            edge_type: EdgeType::StorageWrite,
+
+            call_site_span: (0, 0),
+
+            return_site_span: None,
+
+            sequence_number: 2,
+
+            returned_value: None,
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
 
         assert_eq!(graph.nodes[a_pub_func_id].name, "a_pub_func");
         assert_eq!(graph.nodes[itest_func_decl_id].name, "interface_func");
@@ -385,30 +506,52 @@ pub(crate) mod tests {
             Visibility::Private,
             (0, 0),
         );
-        graph.add_edge(
-            func1_id,
-            func2_id,
-            EdgeType::Call,
-            (0, 0),
-            None,
-            1,
-            None,
-            None,
-            None,
-            None,
-        );
-        graph.add_edge(
-            func2_id,
-            func1_id,
-            EdgeType::Call,
-            (0, 0),
-            None,
-            1,
-            None,
-            None,
-            None,
-            None,
-        );
+        graph.add_edge(EdgeParams {
+
+            source_node_id: func1_id,
+
+            target_node_id: func2_id,
+
+            edge_type: EdgeType::Call,
+
+            call_site_span: (0, 0),
+
+            return_site_span: None,
+
+            sequence_number: 1,
+
+            returned_value: None,
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
+        graph.add_edge(EdgeParams {
+
+            source_node_id: func2_id,
+
+            target_node_id: func1_id,
+
+            edge_type: EdgeType::Call,
+
+            call_site_span: (0, 0),
+
+            return_site_span: None,
+
+            sequence_number: 1,
+
+            returned_value: None,
+
+            argument_names: None,
+
+            event_name: None,
+
+            declared_return_type: None,
+
+        });
 
         let analyzer = ReachabilityAnalyzer::new();
         let _processed_nodes: HashSet<NodeId> = HashSet::new();

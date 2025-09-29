@@ -5,8 +5,8 @@ use anyhow::{anyhow, Context, Result}; // Add anyhow!
 use std::collections::{HashMap, HashSet}; // Import HashSet
 use std::iter;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Node as TsNode, Query, QueryCursor, Tree};
 use tracing::debug;
+use tree_sitter::{Node as TsNode, Query, QueryCursor, Tree};
 
 // Constants for synthetic node names
 pub(crate) const EVM_NODE_NAME: &str = "EVM";
@@ -20,43 +20,49 @@ pub(crate) const WHILE_BLOCK_NODE_NAME: &str = "WhileBlock"; // Added for while 
 pub(crate) const FOR_CONDITION_NODE_NAME: &str = "ForCondition"; // Added for for statements
 pub(crate) const FOR_BLOCK_NODE_NAME: &str = "ForBlock"; // Added for for blocks
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub enum EdgeType {
     Call,
     Return,
-    StorageRead,  // Represents reading from a storage variable
-    StorageWrite, // Represents writing to a storage variable
-    Require,      // Represents a require check
-    IfConditionBranch, // Represents the edge to an if-condition
-    ThenBranch,   // Represents the true branch of an if statement
-    ElseBranch,   // Represents the false branch of an if statement
+    StorageRead,          // Represents reading from a storage variable
+    StorageWrite,         // Represents writing to a storage variable
+    Require,              // Represents a require check
+    IfConditionBranch,    // Represents the edge to an if-condition
+    ThenBranch,           // Represents the true branch of an if statement
+    ElseBranch,           // Represents the false branch of an if statement
     WhileConditionBranch, // Represents the edge to a while-condition
-    WhileBodyBranch, // Represents the edge from a while-condition to its body
-    ForConditionBranch, // Represents the edge to a for-condition
-    ForBodyBranch, // Represents the edge from a for-condition to its body
+    WhileBodyBranch,      // Represents the edge from a while-condition to its body
+    ForConditionBranch,   // Represents the edge to a for-condition
+    ForBodyBranch,        // Represents the edge from a for-condition to its body
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub enum NodeType {
     Function,
     Interface,
     Constructor,
     Modifier,
-    Library,       // Added Library type
-    StorageVariable, // Represents a state variable in storage
-    Evm,           // Synthetic node for EVM interaction
-    EventListener, // Synthetic node for event listeners
+    Library,          // Added Library type
+    StorageVariable,  // Represents a state variable in storage
+    Evm,              // Synthetic node for EVM interaction
+    EventListener,    // Synthetic node for event listeners
     RequireCondition, // Synthetic node for require checks
-    IfStatement,   // Synthetic node for an if condition
-    ThenBlock,     // Synthetic node for a then block
-    ElseBlock,     // Synthetic node for an else block
-    WhileStatement, // Synthetic node for a while condition
-    WhileBlock,    // Synthetic node for a while block
-    ForCondition, // Synthetic node for a for condition
-    ForBlock,     // Synthetic node for a for block
+    IfStatement,      // Synthetic node for an if condition
+    ThenBlock,        // Synthetic node for a then block
+    ElseBlock,        // Synthetic node for an else block
+    WhileStatement,   // Synthetic node for a while condition
+    WhileBlock,       // Synthetic node for a while block
+    ForCondition,     // Synthetic node for a for condition
+    ForBlock,         // Synthetic node for a for block
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub enum Visibility {
     Public,
     Private,
@@ -73,9 +79,9 @@ pub struct Node {
     pub contract_name: Option<String>,
     pub visibility: Visibility,
     pub span: (usize, usize),
-    pub has_explicit_return: bool, // Added flag
+    pub has_explicit_return: bool,            // Added flag
     pub declared_return_type: Option<String>, // Added: Store declared return type of the function
-    pub parameters: Vec<ParameterInfo>, // Added: Store parameters for function-like nodes
+    pub parameters: Vec<ParameterInfo>,       // Added: Store parameters for function-like nodes
     pub revert_message: Option<String>, // Added: Store revert message for RequireCondition nodes
     pub condition_expression: Option<String>, // Added: Store raw condition expression for RequireCondition nodes
 }
@@ -93,9 +99,9 @@ pub struct MappingInfo {
     pub name: String,
     pub visibility: Visibility,
     pub key_types: Vec<String>, // For mapping(k1 => mapping(k2 => v)), this would be [k1_type_str, k2_type_str]
-    pub value_type: String,   // The final value type string
-    pub span: (usize, usize), // Span of the full state variable declaration
-    pub full_type_str: String, // e.g., "mapping(address => mapping(uint => bool))"
+    pub value_type: String,     // The final value type string
+    pub span: (usize, usize),   // Span of the full state variable declaration
+    pub full_type_str: String,  // e.g., "mapping(address => mapping(uint => bool))"
 }
 
 // --- DOT Label Implementation ---
@@ -112,6 +118,20 @@ impl crate::cg_dot::ToDotLabel for Node {
             format!("{:?}", self.node_type).to_lowercase()
         )
     }
+}
+
+/// Parameters for creating a new edge
+pub struct EdgeParams {
+    pub source_node_id: usize,
+    pub target_node_id: usize,
+    pub edge_type: EdgeType,
+    pub call_site_span: (usize, usize),
+    pub return_site_span: Option<(usize, usize)>,
+    pub sequence_number: usize,
+    pub returned_value: Option<String>,
+    pub argument_names: Option<Vec<String>>,
+    pub event_name: Option<String>,
+    pub declared_return_type: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -180,8 +200,8 @@ impl CallGraph {
             span,
             has_explicit_return: false,
             declared_return_type: None, // Initialize with None
-            parameters: Vec::new(), // Initialize parameters as empty
-            revert_message: None, // Initialize new field
+            parameters: Vec::new(),     // Initialize parameters as empty
+            revert_message: None,       // Initialize new field
             condition_expression: None, // Initialize new field
         };
         self.nodes.push(node);
@@ -190,34 +210,23 @@ impl CallGraph {
         id
     }
 
-    pub fn add_edge(
-        &mut self,
-        source_node_id: usize,
-        target_node_id: usize,
-        edge_type: EdgeType,                      // Added type
-        call_site_span: (usize, usize),           // Span of the call site (or function for return)
-        return_site_span: Option<(usize, usize)>, // Span of the return site
-        sequence_number: usize,                   // Sequence for calls, maybe 0 for returns
-        returned_value: Option<String>,           // Added returned value
-        argument_names: Option<Vec<String>>,      // Added: Argument names/texts
-        event_name: Option<String>,               // Added: Event name for emits
-        declared_return_type: Option<String>,     // Added: Declared return type
-    ) {
+    pub fn add_edge(&mut self, params: EdgeParams) {
         debug!(
             "Attempting to add edge: {} -> {} (Type: {:?}, Seq: {}, RetVal: {:?}, Args: {:?}, DeclRetType: {:?})",
-            source_node_id, target_node_id, edge_type, sequence_number, returned_value, argument_names, declared_return_type
+            params.source_node_id, params.target_node_id, params.edge_type, params.sequence_number, 
+            params.returned_value, params.argument_names, params.declared_return_type
         );
         let edge = Edge {
-            source_node_id,
-            target_node_id,
-            edge_type, // Store type
-            call_site_span,
-            return_site_span, // Store return span
-            sequence_number,
-            returned_value, // Store returned value
-            argument_names, // Store argument names
-            event_name,
-            declared_return_type, // Store declared return type
+            source_node_id: params.source_node_id,
+            target_node_id: params.target_node_id,
+            edge_type: params.edge_type,
+            call_site_span: params.call_site_span,
+            return_site_span: params.return_site_span,
+            sequence_number: params.sequence_number,
+            returned_value: params.returned_value,
+            argument_names: params.argument_names,
+            event_name: params.event_name,
+            declared_return_type: params.declared_return_type,
         };
         self.edges.push(edge);
     }
@@ -227,9 +236,8 @@ impl CallGraph {
     /// 1. Look for the name within the `current_contract` scope.
     /// 2. Look for the name as a free function (no contract scope).
     /// 3. **Fallback:** Search across all known contract scopes.
-    /// TODO: Enhance resolution with proper type analysis for member access, inheritance, imports, etc.
-    ///       This current fallback is a simplification and may be ambiguous if multiple
-
+    ///    TODO: Enhance resolution with proper type analysis for member access, inheritance, imports, etc.
+    ///    This current fallback is a simplification and may be ambiguous if multiple
     pub fn iter_nodes(&self) -> impl Iterator<Item = &Node> {
         self.nodes.iter()
     }
@@ -265,7 +273,12 @@ impl CallGraph {
                         });
                 debug!(
                     "Edge Index {}: {} -> {} (Target: '{}'), Type: {:?}, Seq: {}",
-                    idx, edge.source_node_id, edge.target_node_id, target_node_name, edge.edge_type, edge.sequence_number
+                    idx,
+                    edge.source_node_id,
+                    edge.target_node_id,
+                    target_node_name,
+                    edge.edge_type,
+                    edge.sequence_number
                 );
                 found_node4_edges = true;
             }
@@ -355,7 +368,8 @@ impl CallGraph {
                 | NodeType::Library => {
                     // Get declared return type ONCE for this callee, ONLY if it's a callable type
                     // This is used to update the Node and also for any Return Edges created later.
-                    let actual_declared_ret_type = get_function_return_type(*callee_node_id, ctx, input);
+                    let actual_declared_ret_type =
+                        get_function_return_type(*callee_node_id, ctx, input);
 
                     // Update the Node struct in the graph
                     if let Some(node_mut) = self.nodes.get_mut(*callee_node_id) {
@@ -371,18 +385,17 @@ impl CallGraph {
                                 node_mut.has_explicit_return = true;
                                 _nodes_with_explicit_return_set += 1;
                                 debug!(
-                                     "Set has_explicit_return=true for Node ID {}",
-                                     *callee_node_id
+                                    "Set has_explicit_return=true for Node ID {}",
+                                    *callee_node_id
                                 );
                             }
                         }
                         // Set declared_return_type (clone from the one fetched above)
                         node_mut.declared_return_type = actual_declared_ret_type.clone();
                         if actual_declared_ret_type.is_some() {
-                             debug!(
+                            debug!(
                                 "Set declared_return_type='{:?}' for Node ID {}",
-                                actual_declared_ret_type,
-                                *callee_node_id
+                                actual_declared_ret_type, *callee_node_id
                             );
                         }
                     }
@@ -467,19 +480,13 @@ impl CallGraph {
             "Total return edges generated: {}", // DEBUG Summary
             new_return_edges.len()
         );
-        debug!(
-            "Edge count BEFORE extend: {}",
-            self.edges.len()
-        );
+        debug!("Edge count BEFORE extend: {}", self.edges.len());
         debug!(
             "[Address Debug add_explicit_return_edges] Graph: {:p}",
             self
         ); // Added address log
         self.edges.extend(new_return_edges);
-        debug!(
-            "Edge count AFTER extend: {}",
-            self.edges.len()
-        );
+        debug!("Edge count AFTER extend: {}", self.edges.len());
 
         Ok(())
     }
@@ -552,7 +559,6 @@ pub struct NodeInfo {
     // Add other relevant lifetime-independent info if needed (e.g., text?)
 }
 
-
 // Remove 'a lifetime - Context now stores NodeInfo which owns its data
 #[derive(Debug, Clone, Default)] // Add Default
 pub struct CallGraphGeneratorContext {
@@ -577,7 +583,6 @@ pub struct CallGraphGeneratorContext {
     pub binding_registry: Option<BindingRegistry>,
 }
 
-
 pub trait CallGraphGeneratorStep {
     fn name(&self) -> &'static str;
     /// Configure the step with settings.
@@ -591,20 +596,27 @@ pub trait CallGraphGeneratorStep {
     ) -> Result<()>;
 }
 
-
 pub(crate) fn extract_function_parameters(
     fn_like_ts_node: TsNode, // This is function_definition or constructor_definition
     source: &str,
 ) -> Vec<ParameterInfo> {
     let mut parameters = Vec::new();
-    debug!("[cg::extract_function_parameters DEBUG] Analyzing TsNode kind: '{}', text snippet: '{}'", fn_like_ts_node.kind(), get_node_text(&fn_like_ts_node, source).chars().take(70).collect::<String>());
+    debug!(
+        "[cg::extract_function_parameters DEBUG] Analyzing TsNode kind: '{}', text snippet: '{}'",
+        fn_like_ts_node.kind(),
+        get_node_text(&fn_like_ts_node, source)
+            .chars()
+            .take(70)
+            .collect::<String>()
+    );
 
     let mut child_cursor = fn_like_ts_node.walk();
     // Iterate through direct children of fn_like_ts_node (constructor_definition or function_definition)
     // The 'parameter' nodes are direct children, not nested under a 'parameter_list' node.
     for child_node in fn_like_ts_node.children(&mut child_cursor) {
         debug!("[cg::extract_function_parameters DEBUG] Child of fn_like_ts_node: Kind='{}', Text='{}'", child_node.kind(), get_node_text(&child_node, source).chars().take(30).collect::<String>());
-        if child_node.kind() == "parameter" { // These are the actual parameter definitions
+        if child_node.kind() == "parameter" {
+            // These are the actual parameter definitions
             let type_node = child_node.child_by_field_name("type");
             let name_node = child_node.child_by_field_name("name");
 
@@ -615,7 +627,7 @@ pub(crate) fn extract_function_parameters(
                 debug!("[cg::extract_function_parameters DEBUG]   Extracted param: name='{}', type='{}'", param_name, param_type);
                 parameters.push(ParameterInfo {
                     name: param_name,
-                    param_type: param_type,
+                    param_type,
                     description: None,
                 });
             } else {
@@ -629,8 +641,11 @@ pub(crate) fn extract_function_parameters(
         // Check if the function/constructor signature actually has parameters in the source
         // This is a heuristic based on text, as we've already failed to parse them structurally.
         let signature_text = get_node_text(&fn_like_ts_node, source);
-        if signature_text.contains('(') && signature_text.contains(')') && !signature_text.contains("()") {
-             // A more robust check would be to see if there are any 'parameter' kind nodes between '(' and ')'
+        if signature_text.contains('(')
+            && signature_text.contains(')')
+            && !signature_text.contains("()")
+        {
+            // A more robust check would be to see if there are any 'parameter' kind nodes between '(' and ')'
             let mut has_parameter_nodes_in_signature = false;
             let mut temp_cursor = fn_like_ts_node.walk();
             for child in fn_like_ts_node.children(&mut temp_cursor) {
@@ -641,16 +656,21 @@ pub(crate) fn extract_function_parameters(
             }
 
             if has_parameter_nodes_in_signature {
-                 debug!("[cg::extract_function_parameters DEBUG] No parameters extracted, but 'parameter' nodes were found as direct children. This indicates the loop logic might be incorrect or tree-sitter grammar differs from expectation.");
+                debug!("[cg::extract_function_parameters DEBUG] No parameters extracted, but 'parameter' nodes were found as direct children. This indicates the loop logic might be incorrect or tree-sitter grammar differs from expectation.");
             } else {
-                 debug!("[cg::extract_function_parameters DEBUG] No parameters extracted, and no 'parameter' nodes found as direct children. This might be a function/constructor with no parameters, or an issue with identifying 'parameter' nodes.");
+                debug!("[cg::extract_function_parameters DEBUG] No parameters extracted, and no 'parameter' nodes found as direct children. This might be a function/constructor with no parameters, or an issue with identifying 'parameter' nodes.");
             }
         } else {
             debug!("[cg::extract_function_parameters DEBUG] No parameters extracted. This appears to be a function/constructor with no parameters based on signature text: '{}'", signature_text.chars().take(50).collect::<String>());
         }
     }
 
-    debug!("[cg::extract_function_parameters DEBUG] For node kind '{}', extracted {} parameters: {:?}", fn_like_ts_node.kind(), parameters.len(), parameters);
+    debug!(
+        "[cg::extract_function_parameters DEBUG] For node kind '{}', extracted {} parameters: {:?}",
+        fn_like_ts_node.kind(),
+        parameters.len(),
+        parameters
+    );
     parameters
 }
 
@@ -668,9 +688,11 @@ pub(crate) fn extract_arguments<'a>(
     if let Some(arguments_field_node) = call_expr_node.child_by_field_name("arguments") {
         debug!("[cg::extract_arguments DEBUG]   Found 'arguments' field. Iterating its children.");
         let mut arg_cursor = arguments_field_node.walk();
-        for arg_node in arguments_field_node.children(&mut arg_cursor) { // Iterate children of 'arguments'
+        for arg_node in arguments_field_node.children(&mut arg_cursor) {
+            // Iterate children of 'arguments'
             // These children should be 'call_argument' nodes, which are expressions
-            if arg_node.kind() == "call_argument" { // Ensure it's a call_argument
+            if arg_node.kind() == "call_argument" {
+                // Ensure it's a call_argument
                 let arg_text = get_node_text(&arg_node, &input.source).to_string();
                 debug!("[cg::extract_arguments DEBUG]     Extracted argument text (from 'arguments' field, child is call_argument): '{}'", arg_text);
                 argument_texts.push(arg_text);
@@ -690,7 +712,7 @@ pub(crate) fn extract_arguments<'a>(
             }
         }
         if argument_texts.is_empty() {
-             debug!("[cg::extract_arguments DEBUG]   No 'call_argument' nodes found as direct children either (after checking 'arguments' field).");
+            debug!("[cg::extract_arguments DEBUG]   No 'call_argument' nodes found as direct children either (after checking 'arguments' field).");
         }
     }
     argument_texts
@@ -705,10 +727,14 @@ pub(crate) fn extract_argument_nodes<'a>(call_expr_node: TsNode<'a>) -> Vec<TsNo
     );
 
     if let Some(arguments_field_node) = call_expr_node.child_by_field_name("arguments") {
-        debug!("[cg::extract_argument_nodes DEBUG]   Found 'arguments' field. Iterating its children.");
+        debug!(
+            "[cg::extract_argument_nodes DEBUG]   Found 'arguments' field. Iterating its children."
+        );
         let mut arg_cursor = arguments_field_node.walk();
-        for arg_node in arguments_field_node.children(&mut arg_cursor) { // Iterate children of 'arguments'
-            if arg_node.kind() == "call_argument" { // Ensure it's a call_argument
+        for arg_node in arguments_field_node.children(&mut arg_cursor) {
+            // Iterate children of 'arguments'
+            if arg_node.kind() == "call_argument" {
+                // Ensure it's a call_argument
                 debug!("[cg::extract_argument_nodes DEBUG]     Extracted argument node (from 'arguments' field, child is call_argument): Kind='{}', Span=({:?})", arg_node.kind(), (arg_node.start_byte(), arg_node.end_byte()));
                 argument_nodes_ts.push(arg_node);
             }
@@ -746,12 +772,18 @@ pub(crate) fn get_function_return_type(
         .map(|(_, node_info, _)| node_info); // Extract the NodeInfo
 
     if let Some(definition_node_info) = definition_node_info_opt {
-         // Get the actual TsNode using the span from NodeInfo and the input tree
-        let definition_ts_node = match input.tree.root_node()
-            .descendant_for_byte_range(definition_node_info.span.0, definition_node_info.span.1) {
+        // Get the actual TsNode using the span from NodeInfo and the input tree
+        let definition_ts_node = match input
+            .tree
+            .root_node()
+            .descendant_for_byte_range(definition_node_info.span.0, definition_node_info.span.1)
+        {
             Some(node) => node,
             None => {
-                debug!("[Return Type Parse DEBUG] Failed to find TsNode for span {:?} for node ID {}", definition_node_info.span, target_node_id);
+                debug!(
+                    "[Return Type Parse DEBUG] Failed to find TsNode for span {:?} for node ID {}",
+                    definition_node_info.span, target_node_id
+                );
                 return None;
             }
         };
@@ -884,8 +916,8 @@ pub(crate) fn get_function_return_type(
 // Remove 'a lifetime
 pub struct CallGraphGeneratorPipeline {
     steps: Vec<Box<dyn CallGraphGeneratorStep>>, // Remove 'a
-    enabled_steps: HashSet<String>, // Track enabled step names
-    // Remove _marker
+    enabled_steps: HashSet<String>,              // Track enabled step names
+                                                 // Remove _marker
 }
 
 // Implement Default for Pipeline
@@ -895,19 +927,19 @@ impl Default for CallGraphGeneratorPipeline {
     }
 }
 
-
 // Remove 'a lifetime
 impl CallGraphGeneratorPipeline {
     pub fn new() -> Self {
         Self {
             steps: Vec::new(),
             enabled_steps: HashSet::new(), // Initialize the set
-            // Remove _marker
+                                           // Remove _marker
         }
     }
 
     /// Adds a step to the pipeline. Steps are enabled by default.
-    pub fn add_step(&mut self, step: Box<dyn CallGraphGeneratorStep>) { // Remove 'a
+    pub fn add_step(&mut self, step: Box<dyn CallGraphGeneratorStep>) {
+        // Remove 'a
         self.enabled_steps.insert(step.name().to_string()); // Enable by default
         self.steps.push(step);
     }

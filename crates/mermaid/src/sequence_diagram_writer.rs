@@ -1,9 +1,12 @@
 //! Writes a SequenceDiagram AST to MermaidJS plain text format.
 
+use crate::mermaid_chunker::{chunk_mermaid_diagram, ChunkingResult};
 use crate::sequence_diagram_ast::*;
 use std::fmt::Write; // Use std::fmt::Write for efficient string building
+use std::path::Path;
 
 const INDENT_STEP: &str = "  "; // Define indentation step
+const AUTO_CHUNK_THRESHOLD: usize = 600; // Lines threshold for auto-chunking
 
 /// Writes the entire SequenceDiagram to a Mermaid string.
 pub fn write_diagram(diagram: &SequenceDiagram) -> String {
@@ -17,6 +20,34 @@ pub fn write_diagram(diagram: &SequenceDiagram) -> String {
     }
 
     output
+}
+
+/// Writes a SequenceDiagram to Mermaid format, automatically chunking if it exceeds the threshold.
+/// Returns either the diagram string (if small enough) or a ChunkResult (if chunked).
+pub fn write_diagram_auto_chunk(
+    diagram: &SequenceDiagram,
+    chunk_dir: Option<&Path>,
+    enable_chunking: bool,
+) -> Result<DiagramOutput, anyhow::Error> {
+    let diagram_str = write_diagram(diagram);
+    let line_count = diagram_str.lines().count();
+
+    if enable_chunking && line_count > AUTO_CHUNK_THRESHOLD {
+        // Chunk the diagram
+        let result = chunk_mermaid_diagram(&diagram_str, chunk_dir)?;
+        Ok(DiagramOutput::Chunked(result))
+    } else {
+        // Return as single string
+        Ok(DiagramOutput::Single(diagram_str))
+    }
+}
+
+/// Result of writing a diagram - either a single string or chunked output.
+pub enum DiagramOutput {
+    /// Single diagram string (no chunking needed)
+    Single(String),
+    /// Chunked output with metadata
+    Chunked(ChunkingResult),
 }
 
 /// Writes a single statement to the output string, handling indentation.
@@ -61,7 +92,11 @@ fn write_statement(output: &mut String, statement: &Statement, indent: &mut Stri
             write!(output, "{indent}loop").unwrap();
             if let Some(label) = &s.label {
                 // Clean up multi-line labels for Mermaid compatibility
-                let clean_label = label.replace('\n', " ").split_whitespace().collect::<Vec<_>>().join(" ");
+                let clean_label = label
+                    .replace('\n', " ")
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 write!(output, " {}", clean_label).unwrap();
             }
             writeln!(output).unwrap();
@@ -78,7 +113,11 @@ fn write_statement(output: &mut String, statement: &Statement, indent: &mut Stri
             write!(output, "{indent}opt").unwrap();
             if let Some(label) = &s.label {
                 // Clean up multi-line labels for Mermaid compatibility
-                let clean_label = label.replace('\n', " ").split_whitespace().collect::<Vec<_>>().join(" ");
+                let clean_label = label
+                    .replace('\n', " ")
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 write!(output, " {}", clean_label).unwrap();
             }
             writeln!(output).unwrap();
@@ -91,9 +130,10 @@ fn write_statement(output: &mut String, statement: &Statement, indent: &mut Stri
 
             writeln!(output, "{indent}end").unwrap();
         }
-         Statement::Rect(s) => {
+        Statement::Rect(s) => {
             write!(output, "{indent}rect").unwrap();
-            if let Some(label) = &s.label { // Often used for RGB color
+            if let Some(label) = &s.label {
+                // Often used for RGB color
                 write!(output, " {}", label).unwrap();
             }
             writeln!(output).unwrap();
@@ -116,50 +156,83 @@ fn write_statement(output: &mut String, statement: &Statement, indent: &mut Stri
             }
         }
         Statement::Create(s) => {
-             write!(output, "{indent}create").unwrap();
-             if let Some(ptype) = &s.participant_type {
-                 write!(output, " {}", ptype.to_mermaid()).unwrap();
-             }
-             write!(output, " {}", s.id).unwrap();
-             if let Some(alias) = &s.alias {
-                 write!(output, " as {}", alias).unwrap();
-             }
-             writeln!(output).unwrap();
+            write!(output, "{indent}create").unwrap();
+            if let Some(ptype) = &s.participant_type {
+                write!(output, " {}", ptype.to_mermaid()).unwrap();
+            }
+            write!(output, " {}", s.id).unwrap();
+            if let Some(alias) = &s.alias {
+                write!(output, " as {}", alias).unwrap();
+            }
+            writeln!(output).unwrap();
         }
         Statement::Destroy(s) => writeln!(output, "{indent}destroy {}", s.id).unwrap(),
 
         // --- Alt Block Statements ---
         Statement::AltStart(s) => {
             // Clean up multi-line conditions for Mermaid compatibility
-            let clean_label = s.label.replace('\n', " ").split_whitespace().collect::<Vec<_>>().join(" ");
+            let clean_label = s
+                .label
+                .replace('\n', " ")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
             writeln!(output, "{indent}alt {}", clean_label).unwrap();
             indent.push_str(INDENT_STEP);
-        },
+        }
         Statement::AltElse(s) => {
             // Reduce indent for else (it's at the same level as alt)
             indent.truncate(indent.len().saturating_sub(INDENT_STEP.len()));
             // Clean up multi-line conditions for Mermaid compatibility
-            let clean_label = s.label.replace('\n', " ").split_whitespace().collect::<Vec<_>>().join(" ");
+            let clean_label = s
+                .label
+                .replace('\n', " ")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
             writeln!(output, "{indent}else {}", clean_label).unwrap();
             indent.push_str(INDENT_STEP);
-        },
+        }
         Statement::AltEnd(_) => {
             indent.truncate(indent.len().saturating_sub(INDENT_STEP.len()));
             writeln!(output, "{indent}end").unwrap();
-        },
-
+        }
 
         // --- TODO: Implement remaining statement types ---
-        Statement::Box(_) => writeln!(output, "{indent}%% TODO: Box statement not implemented").unwrap(),
-        Statement::Links(_) => writeln!(output, "{indent}%% TODO: Links statement not implemented").unwrap(),
-        Statement::Link(_) => writeln!(output, "{indent}%% TODO: Link statement not implemented").unwrap(),
-        Statement::Properties(_) => writeln!(output, "{indent}%% TODO: Properties statement not implemented").unwrap(),
-        Statement::Details(_) => writeln!(output, "{indent}%% TODO: Details statement not implemented").unwrap(),
-        Statement::Alt(_) => writeln!(output, "{indent}%% TODO: Alt statement not implemented").unwrap(),
-        Statement::Par(_) => writeln!(output, "{indent}%% TODO: Par statement not implemented").unwrap(),
-        Statement::ParOver(_) => writeln!(output, "{indent}%% TODO: ParOver statement not implemented").unwrap(),
-        Statement::Break(_) => writeln!(output, "{indent}%% TODO: Break statement not implemented").unwrap(),
-        Statement::Critical(_) => writeln!(output, "{indent}%% TODO: Critical statement not implemented").unwrap(),
+        Statement::Box(_) => {
+            writeln!(output, "{indent}%% TODO: Box statement not implemented").unwrap()
+        }
+        Statement::Links(_) => {
+            writeln!(output, "{indent}%% TODO: Links statement not implemented").unwrap()
+        }
+        Statement::Link(_) => {
+            writeln!(output, "{indent}%% TODO: Link statement not implemented").unwrap()
+        }
+        Statement::Properties(_) => writeln!(
+            output,
+            "{indent}%% TODO: Properties statement not implemented"
+        )
+        .unwrap(),
+        Statement::Details(_) => {
+            writeln!(output, "{indent}%% TODO: Details statement not implemented").unwrap()
+        }
+        Statement::Alt(_) => {
+            writeln!(output, "{indent}%% TODO: Alt statement not implemented").unwrap()
+        }
+        Statement::Par(_) => {
+            writeln!(output, "{indent}%% TODO: Par statement not implemented").unwrap()
+        }
+        Statement::ParOver(_) => {
+            writeln!(output, "{indent}%% TODO: ParOver statement not implemented").unwrap()
+        }
+        Statement::Break(_) => {
+            writeln!(output, "{indent}%% TODO: Break statement not implemented").unwrap()
+        }
+        Statement::Critical(_) => writeln!(
+            output,
+            "{indent}%% TODO: Critical statement not implemented"
+        )
+        .unwrap(),
     }
 }
 
@@ -186,7 +259,7 @@ impl Arrow {
 }
 
 impl NotePlacement {
-     fn to_mermaid(&self) -> &'static str {
+    fn to_mermaid(&self) -> &'static str {
         match self {
             NotePlacement::LeftOf => "left of",
             NotePlacement::RightOf => "right of",

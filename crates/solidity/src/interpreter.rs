@@ -1,26 +1,26 @@
 //! Solidity Expression Interpreter
-//! 
+//!
 //! A Rust-based interpreter for Solidity expressions with focus on predicate evaluation.
 //! Evaluates boolean expressions, comparisons, and logical operations commonly used in smart contracts.
-//! 
+//!
 //! # Features
-//! 
+//!
 //! - **Predicate evaluation**: expressions that return boolean values
 //! - **Variable context**: support for variable bindings and lookups  
 //! - **Type system**: handle Solidity's basic types (bool, uint, int, string, address, bytes)
 //! - **Error handling**: comprehensive error reporting for runtime issues
-//! 
+//!
 //! # Supported Operations
-//! 
+//!
 //! - **Literals**: `true`, `false`, `42`, `"hello"`, `hex"deadbeef"`, `unicode"hello"`
 //! - **Binary ops**: `+`, `-`, `*`, `/`, `%`, `**`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`, `&`, `|`, `^`, `<<`, `>>`, `>>>`
 //! - **Unary ops**: `+`, `-`, `!`, `~`
 //! - **Conditional**: `condition ? true_expr : false_expr`
 //! - **Variables**: variable lookup with context management
 //! - **Built-ins**: `keccak256()`, `sha256()`, `ripemd160()`, `ecrecover()` (mock implementations)
-//! 
+//!
 //! # Value Types
-//! 
+//!
 //! - `Bool(bool)`: `true`, `false`
 //! - `UInt(u64)`: `0`, `42`, `1000`  
 //! - `Int(i64)`: `-1`, `0`, `42`
@@ -28,9 +28,9 @@
 //! - `Address(String)`: `"0x1234..."`
 //! - `Bytes(Vec<u8>)`: `[0x12, 0x34, ...]`
 //! - `Null`: null/undefined
-//! 
+//!
 //! # Boolean Conversion
-//! 
+//!
 //! All values convert to boolean for predicate evaluation:
 //! - `Bool(true)` → `true`, `Bool(false)` → `false`
 //! - `UInt(0)` → `false`, `UInt(n)` → `true`
@@ -39,17 +39,17 @@
 //! - `Address("0x0000...")` → `false`, other addresses → `true`
 //! - `Bytes([])` → `false`, non-empty bytes → `true`
 //! - `Null` → `false`
-//! 
+//!
 //! # Limitations
-//! 
+//!
 //! Intentional limitations for predicate evaluation:
 //! - No assignment operations (predicate evaluation shouldn 't mutate state)
 //! - No object creation (new expressions not supported)
 //! - No complex types (arrays/mappings/structs limited)
 //! - No member/index access (not yet implemented)
-//! 
+//!
 //! # Architecture
-//! 
+//!
 //! - **Parser integration**: uses existing Solidity parser to generate AST
 //! - **Context management**: maintains variable bindings and function definitions
 //! - **Type system**: runtime type checking and conversion
@@ -130,7 +130,9 @@ impl fmt::Display for InterpreterError {
             InterpreterError::TypeMismatch { expected, found } => {
                 write!(f, "Type mismatch: expected {}, found {}", expected, found)
             }
-            InterpreterError::UnsupportedOperation(op) => write!(f, "Unsupported operation: {}", op),
+            InterpreterError::UnsupportedOperation(op) => {
+                write!(f, "Unsupported operation: {}", op)
+            }
             InterpreterError::DivisionByZero => write!(f, "Division by zero"),
             InterpreterError::InvalidLiteral(lit) => write!(f, "Invalid literal: {}", lit),
             InterpreterError::FunctionNotFound(name) => write!(f, "Function not found: {}", name),
@@ -173,10 +175,14 @@ impl InterpreterContext {
     }
 
     fn register_builtin_functions(&mut self) {
-        self.functions.insert("keccak256".to_string(), BuiltinFunction::Keccak256);
-        self.functions.insert("sha256".to_string(), BuiltinFunction::Sha256);
-        self.functions.insert("ripemd160".to_string(), BuiltinFunction::Ripemd160);
-        self.functions.insert("ecrecover".to_string(), BuiltinFunction::Ecrecover);
+        self.functions
+            .insert("keccak256".to_string(), BuiltinFunction::Keccak256);
+        self.functions
+            .insert("sha256".to_string(), BuiltinFunction::Sha256);
+        self.functions
+            .insert("ripemd160".to_string(), BuiltinFunction::Ripemd160);
+        self.functions
+            .insert("ecrecover".to_string(), BuiltinFunction::Ecrecover);
     }
 
     pub fn get_function(&self, name: &str) -> Option<&BuiltinFunction> {
@@ -273,9 +279,12 @@ impl SolidityInterpreter {
         }
     }
 
-    fn evaluate_hex_string_literal(&self, hex_lit: &HexStringLiteral) -> Result<Value, InterpreterError> {
+    fn evaluate_hex_string_literal(
+        &self,
+        hex_lit: &HexStringLiteral,
+    ) -> Result<Value, InterpreterError> {
         let hex_str = hex_lit.value.strip_prefix("0x").unwrap_or(&hex_lit.value);
-        
+
         // Try to decode as bytes
         match hex::decode(hex_str) {
             Ok(bytes) => Ok(Value::Bytes(bytes)),
@@ -293,7 +302,10 @@ impl SolidityInterpreter {
             .ok_or_else(|| InterpreterError::UndefinedVariable(name.to_string()))
     }
 
-    fn evaluate_binary_expression(&self, bin_expr: &BinaryExpression) -> Result<Value, InterpreterError> {
+    fn evaluate_binary_expression(
+        &self,
+        bin_expr: &BinaryExpression,
+    ) -> Result<Value, InterpreterError> {
         let left = self.evaluate(&bin_expr.left)?;
         let right = self.evaluate(&bin_expr.right)?;
 
@@ -309,7 +321,9 @@ impl SolidityInterpreter {
             BinaryOperator::LessThan => self.evaluate_less_than(&left, &right),
             BinaryOperator::LessThanOrEqual => self.evaluate_less_than_or_equal(&left, &right),
             BinaryOperator::GreaterThan => self.evaluate_greater_than(&left, &right),
-            BinaryOperator::GreaterThanOrEqual => self.evaluate_greater_than_or_equal(&left, &right),
+            BinaryOperator::GreaterThanOrEqual => {
+                self.evaluate_greater_than_or_equal(&left, &right)
+            }
             BinaryOperator::And => self.evaluate_logical_and(&left, &right),
             BinaryOperator::Or => self.evaluate_logical_or(&left, &right),
             BinaryOperator::BitAnd => self.evaluate_bit_and(&left, &right),
@@ -317,11 +331,16 @@ impl SolidityInterpreter {
             BinaryOperator::BitXor => self.evaluate_bit_xor(&left, &right),
             BinaryOperator::ShiftLeft => self.evaluate_shift_left(&left, &right),
             BinaryOperator::ShiftRight => self.evaluate_shift_right(&left, &right),
-            BinaryOperator::ShiftRightArithmetic => self.evaluate_shift_right_arithmetic(&left, &right),
+            BinaryOperator::ShiftRightArithmetic => {
+                self.evaluate_shift_right_arithmetic(&left, &right)
+            }
         }
     }
 
-    fn evaluate_unary_expression(&self, unary_expr: &UnaryExpression) -> Result<Value, InterpreterError> {
+    fn evaluate_unary_expression(
+        &self,
+        unary_expr: &UnaryExpression,
+    ) -> Result<Value, InterpreterError> {
         let operand = self.evaluate(&unary_expr.operand)?;
 
         match &unary_expr.operator {
@@ -331,7 +350,8 @@ impl SolidityInterpreter {
             UnaryOperator::BitNot => self.evaluate_bit_not(&operand),
             UnaryOperator::Increment | UnaryOperator::Decrement => {
                 Err(InterpreterError::UnsupportedOperation(
-                    "Increment/decrement operators are not supported in predicate evaluation".to_string(),
+                    "Increment/decrement operators are not supported in predicate evaluation"
+                        .to_string(),
                 ))
             }
             UnaryOperator::Delete => Err(InterpreterError::UnsupportedOperation(
@@ -340,7 +360,10 @@ impl SolidityInterpreter {
         }
     }
 
-    fn evaluate_function_call(&self, call_expr: &FunctionCallExpression) -> Result<Value, InterpreterError> {
+    fn evaluate_function_call(
+        &self,
+        call_expr: &FunctionCallExpression,
+    ) -> Result<Value, InterpreterError> {
         // For now, we only support built-in functions identified by simple identifiers
         if let Expression::Identifier(func_name) = &*call_expr.function {
             if let Some(builtin_func) = self.context.get_function(func_name) {
@@ -359,7 +382,10 @@ impl SolidityInterpreter {
         ))
     }
 
-    fn evaluate_member_access(&self, member_expr: &MemberAccessExpression) -> Result<Value, InterpreterError> {
+    fn evaluate_member_access(
+        &self,
+        member_expr: &MemberAccessExpression,
+    ) -> Result<Value, InterpreterError> {
         let _object = self.evaluate(&member_expr.object)?;
         // For now, we don't support member access in predicate evaluation
         Err(InterpreterError::UnsupportedOperation(
@@ -367,7 +393,10 @@ impl SolidityInterpreter {
         ))
     }
 
-    fn evaluate_index_access(&self, index_expr: &IndexAccessExpression) -> Result<Value, InterpreterError> {
+    fn evaluate_index_access(
+        &self,
+        index_expr: &IndexAccessExpression,
+    ) -> Result<Value, InterpreterError> {
         let _object = self.evaluate(&index_expr.object)?;
         // For now, we don't support index access in predicate evaluation
         Err(InterpreterError::UnsupportedOperation(
@@ -375,7 +404,10 @@ impl SolidityInterpreter {
         ))
     }
 
-    fn evaluate_conditional(&self, cond_expr: &ConditionalExpression) -> Result<Value, InterpreterError> {
+    fn evaluate_conditional(
+        &self,
+        cond_expr: &ConditionalExpression,
+    ) -> Result<Value, InterpreterError> {
         let condition = self.evaluate(&cond_expr.condition)?;
         let condition_bool = condition.to_bool()?;
 
@@ -388,27 +420,30 @@ impl SolidityInterpreter {
 
     fn evaluate_tuple(&self, tuple_expr: &TupleExpression) -> Result<Value, InterpreterError> {
         // For predicate evaluation, we don't support tuples
-        Err(InterpreterError::UnsupportedOperation(
-            format!("Tuple expressions are not supported in predicate evaluation (found {} elements)", 
-                   tuple_expr.elements.len())
-        ))
+        Err(InterpreterError::UnsupportedOperation(format!(
+            "Tuple expressions are not supported in predicate evaluation (found {} elements)",
+            tuple_expr.elements.len()
+        )))
     }
 
     fn evaluate_array(&self, array_expr: &ArrayExpression) -> Result<Value, InterpreterError> {
         // For predicate evaluation, we don't support arrays
-        Err(InterpreterError::UnsupportedOperation(
-            format!("Array expressions are not supported in predicate evaluation (found {} elements)", 
-                   array_expr.elements.len())
-        ))
+        Err(InterpreterError::UnsupportedOperation(format!(
+            "Array expressions are not supported in predicate evaluation (found {} elements)",
+            array_expr.elements.len()
+        )))
     }
 
-    fn evaluate_type_conversion(&self, conv_expr: &TypeConversionExpression) -> Result<Value, InterpreterError> {
+    fn evaluate_type_conversion(
+        &self,
+        conv_expr: &TypeConversionExpression,
+    ) -> Result<Value, InterpreterError> {
         let value = self.evaluate(&conv_expr.expression)?;
         // For now, we don't support type conversions in predicate evaluation
-        Err(InterpreterError::UnsupportedOperation(
-            format!("Type conversion is not yet supported in predicate evaluation (converting {} to type)", 
-                   value.type_name())
-        ))
+        Err(InterpreterError::UnsupportedOperation(format!(
+            "Type conversion is not yet supported in predicate evaluation (converting {} to type)",
+            value.type_name()
+        )))
     }
 
     fn evaluate_add(&self, left: &Value, right: &Value) -> Result<Value, InterpreterError> {
@@ -521,7 +556,9 @@ impl SolidityInterpreter {
         match (left, right) {
             (Value::UInt(base), Value::UInt(exp)) => {
                 if *exp > 32 {
-                    Err(InterpreterError::RuntimeError("Exponent too large".to_string()))
+                    Err(InterpreterError::RuntimeError(
+                        "Exponent too large".to_string(),
+                    ))
                 } else {
                     Ok(Value::UInt(base.pow(*exp as u32)))
                 }
@@ -561,7 +598,11 @@ impl SolidityInterpreter {
         }
     }
 
-    fn evaluate_less_than_or_equal(&self, left: &Value, right: &Value) -> Result<Value, InterpreterError> {
+    fn evaluate_less_than_or_equal(
+        &self,
+        left: &Value,
+        right: &Value,
+    ) -> Result<Value, InterpreterError> {
         match (left, right) {
             (Value::UInt(a), Value::UInt(b)) => Ok(Value::Bool(a <= b)),
             (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(a <= b)),
@@ -574,7 +615,11 @@ impl SolidityInterpreter {
         }
     }
 
-    fn evaluate_greater_than(&self, left: &Value, right: &Value) -> Result<Value, InterpreterError> {
+    fn evaluate_greater_than(
+        &self,
+        left: &Value,
+        right: &Value,
+    ) -> Result<Value, InterpreterError> {
         match (left, right) {
             (Value::UInt(a), Value::UInt(b)) => Ok(Value::Bool(a > b)),
             (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(a > b)),
@@ -587,7 +632,11 @@ impl SolidityInterpreter {
         }
     }
 
-    fn evaluate_greater_than_or_equal(&self, left: &Value, right: &Value) -> Result<Value, InterpreterError> {
+    fn evaluate_greater_than_or_equal(
+        &self,
+        left: &Value,
+        right: &Value,
+    ) -> Result<Value, InterpreterError> {
         match (left, right) {
             (Value::UInt(a), Value::UInt(b)) => Ok(Value::Bool(a >= b)),
             (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(a >= b)),
@@ -649,7 +698,9 @@ impl SolidityInterpreter {
         match (left, right) {
             (Value::UInt(a), Value::UInt(b)) => {
                 if *b > 64 {
-                    Err(InterpreterError::RuntimeError("Shift amount too large".to_string()))
+                    Err(InterpreterError::RuntimeError(
+                        "Shift amount too large".to_string(),
+                    ))
                 } else {
                     Ok(Value::UInt(a << b))
                 }
@@ -665,7 +716,9 @@ impl SolidityInterpreter {
         match (left, right) {
             (Value::UInt(a), Value::UInt(b)) => {
                 if *b > 64 {
-                    Err(InterpreterError::RuntimeError("Shift amount too large".to_string()))
+                    Err(InterpreterError::RuntimeError(
+                        "Shift amount too large".to_string(),
+                    ))
                 } else {
                     Ok(Value::UInt(a >> b))
                 }
@@ -677,11 +730,17 @@ impl SolidityInterpreter {
         }
     }
 
-    fn evaluate_shift_right_arithmetic(&self, left: &Value, right: &Value) -> Result<Value, InterpreterError> {
+    fn evaluate_shift_right_arithmetic(
+        &self,
+        left: &Value,
+        right: &Value,
+    ) -> Result<Value, InterpreterError> {
         match (left, right) {
             (Value::Int(a), Value::UInt(b)) => {
                 if *b > 64 {
-                    Err(InterpreterError::RuntimeError("Shift amount too large".to_string()))
+                    Err(InterpreterError::RuntimeError(
+                        "Shift amount too large".to_string(),
+                    ))
                 } else {
                     Ok(Value::Int(a >> b))
                 }
@@ -757,7 +816,9 @@ impl SolidityInterpreter {
                     ));
                 }
                 // For predicate evaluation, we'll return a mock address
-                Ok(Value::Address("0x0000000000000000000000000000000000000000".to_string()))
+                Ok(Value::Address(
+                    "0x0000000000000000000000000000000000000000".to_string(),
+                ))
             }
         }
     }
@@ -771,52 +832,55 @@ mod tests {
     #[test]
     fn test_evaluate_boolean_literal() {
         let interpreter = SolidityInterpreter::new();
-        
+
         let true_expr = Expression::Literal(Literal::Boolean(true));
         let false_expr = Expression::Literal(Literal::Boolean(false));
-        
+
         assert_eq!(interpreter.evaluate(&true_expr).unwrap(), Value::Bool(true));
-        assert_eq!(interpreter.evaluate(&false_expr).unwrap(), Value::Bool(false));
+        assert_eq!(
+            interpreter.evaluate(&false_expr).unwrap(),
+            Value::Bool(false)
+        );
     }
 
     #[test]
     fn test_evaluate_number_literal() {
         let interpreter = SolidityInterpreter::new();
-        
+
         let num_expr = Expression::Literal(Literal::Number(NumberLiteral {
             value: "42".to_string(),
             sub_denomination: None,
         }));
-        
+
         assert_eq!(interpreter.evaluate(&num_expr).unwrap(), Value::UInt(42));
     }
 
     #[test]
     fn test_evaluate_binary_comparison() {
         let interpreter = SolidityInterpreter::new();
-        
+
         let left = Box::new(Expression::Literal(Literal::Number(NumberLiteral {
             value: "10".to_string(),
             sub_denomination: None,
         })));
-        
+
         let right = Box::new(Expression::Literal(Literal::Number(NumberLiteral {
             value: "5".to_string(),
             sub_denomination: None,
         })));
-        
+
         let gt_expr = Expression::Binary(BinaryExpression {
             left: left.clone(),
             operator: BinaryOperator::GreaterThan,
             right: right.clone(),
         });
-        
+
         let lt_expr = Expression::Binary(BinaryExpression {
             left: left.clone(),
             operator: BinaryOperator::LessThan,
             right: right.clone(),
         });
-        
+
         assert!(interpreter.evaluate_predicate(&gt_expr).unwrap());
         assert!(!interpreter.evaluate_predicate(&lt_expr).unwrap());
     }
@@ -824,38 +888,38 @@ mod tests {
     #[test]
     fn test_evaluate_logical_and() {
         let interpreter = SolidityInterpreter::new();
-        
+
         let true_expr = Box::new(Expression::Literal(Literal::Boolean(true)));
         let false_expr = Box::new(Expression::Literal(Literal::Boolean(false)));
-        
+
         let and_expr = Expression::Binary(BinaryExpression {
             left: true_expr.clone(),
             operator: BinaryOperator::And,
             right: false_expr.clone(),
         });
-        
+
         assert!(!interpreter.evaluate_predicate(&and_expr).unwrap());
     }
 
     #[test]
     fn test_evaluate_logical_not() {
         let interpreter = SolidityInterpreter::new();
-        
+
         let true_expr = Box::new(Expression::Literal(Literal::Boolean(true)));
-        
+
         let not_expr = Expression::Unary(UnaryExpression {
             operator: UnaryOperator::Not,
             operand: true_expr,
             is_prefix: true,
         });
-        
+
         assert!(!interpreter.evaluate_predicate(&not_expr).unwrap());
     }
 
     #[test]
     fn test_evaluate_conditional() {
         let interpreter = SolidityInterpreter::new();
-        
+
         let condition = Box::new(Expression::Literal(Literal::Boolean(true)));
         let true_branch = Box::new(Expression::Literal(Literal::Number(NumberLiteral {
             value: "1".to_string(),
@@ -865,32 +929,34 @@ mod tests {
             value: "0".to_string(),
             sub_denomination: None,
         })));
-        
+
         let cond_expr = Expression::Conditional(ConditionalExpression {
             condition,
             true_expr: true_branch,
             false_expr: false_branch,
         });
-        
+
         assert_eq!(interpreter.evaluate(&cond_expr).unwrap(), Value::UInt(1));
     }
 
     #[test]
     fn test_variable_lookup() {
         let mut interpreter = SolidityInterpreter::new();
-        interpreter.context_mut().set_variable("x".to_string(), Value::Bool(true));
-        
+        interpreter
+            .context_mut()
+            .set_variable("x".to_string(), Value::Bool(true));
+
         let var_expr = Expression::Identifier("x".to_string());
-        
+
         assert!(interpreter.evaluate_predicate(&var_expr).unwrap());
     }
 
     #[test]
     fn test_undefined_variable() {
         let interpreter = SolidityInterpreter::new();
-        
+
         let var_expr = Expression::Identifier("undefined".to_string());
-        
+
         match interpreter.evaluate(&var_expr) {
             Err(InterpreterError::UndefinedVariable(name)) => {
                 assert_eq!(name, "undefined");
@@ -930,7 +996,9 @@ mod tests {
 
         // Case 1: _newValue = 42 (positive)
         // Expected: _newValue > 0  =>  42 > 0  =>  true
-        interpreter.context_mut().set_variable("_newValue".to_string(), Value::UInt(42));
+        interpreter
+            .context_mut()
+            .set_variable("_newValue".to_string(), Value::UInt(42));
         match interpreter.evaluate_predicate(&expr) {
             Ok(result) => assert!(result, "Expected '42 > 0' to be true"),
             Err(e) => panic!("Evaluation failed for _newValue = 42: {}", e),
@@ -938,15 +1006,19 @@ mod tests {
 
         // Case 2: _newValue = 0
         // Expected: _newValue > 0  =>  0 > 0  =>  false
-        interpreter.context_mut().set_variable("_newValue".to_string(), Value::UInt(0));
+        interpreter
+            .context_mut()
+            .set_variable("_newValue".to_string(), Value::UInt(0));
         match interpreter.evaluate_predicate(&expr) {
             Ok(result) => assert!(!result, "Expected '0 > 0' to be false"),
             Err(e) => panic!("Evaluation failed for _newValue = 0: {}", e),
         }
-        
+
         // Case 3: _newValue = 1 (positive, edge case near 0)
         // Expected: _newValue > 0  =>  1 > 0  =>  true
-        interpreter.context_mut().set_variable("_newValue".to_string(), Value::UInt(1));
+        interpreter
+            .context_mut()
+            .set_variable("_newValue".to_string(), Value::UInt(1));
         match interpreter.evaluate_predicate(&expr) {
             Ok(result) => assert!(result, "Expected '1 > 0' to be true"),
             Err(e) => panic!("Evaluation failed for _newValue = 1: {}", e),
@@ -966,7 +1038,9 @@ mod tests {
 
         // Case 1: _newValue = 42 (positive)
         // Expected: _newValue > 0  =>  42 > 0  =>  true
-        interpreter.context_mut().set_variable("_newValue".to_string(), Value::UInt(42));
+        interpreter
+            .context_mut()
+            .set_variable("_newValue".to_string(), Value::UInt(42));
         match interpreter.evaluate_predicate(&parsed_expr) {
             Ok(result) => assert!(result, "Expected '42 > 0' (parsed) to be true"),
             Err(e) => panic!("Parsed evaluation failed for _newValue = 42: {}", e),
@@ -974,15 +1048,19 @@ mod tests {
 
         // Case 2: _newValue = 0
         // Expected: _newValue > 0  =>  0 > 0  =>  false
-        interpreter.context_mut().set_variable("_newValue".to_string(), Value::UInt(0));
+        interpreter
+            .context_mut()
+            .set_variable("_newValue".to_string(), Value::UInt(0));
         match interpreter.evaluate_predicate(&parsed_expr) {
             Ok(result) => assert!(!result, "Expected '0 > 0' (parsed) to be false"),
             Err(e) => panic!("Parsed evaluation failed for _newValue = 0: {}", e),
         }
-        
+
         // Case 3: _newValue = 1 (positive, edge case near 0)
         // Expected: _newValue > 0  =>  1 > 0  =>  true
-        interpreter.context_mut().set_variable("_newValue".to_string(), Value::UInt(1));
+        interpreter
+            .context_mut()
+            .set_variable("_newValue".to_string(), Value::UInt(1));
         match interpreter.evaluate_predicate(&parsed_expr) {
             Ok(result) => assert!(result, "Expected '1 > 0' (parsed) to be true"),
             Err(e) => panic!("Parsed evaluation failed for _newValue = 1: {}", e),
@@ -1002,7 +1080,9 @@ mod tests {
 
         // Case 1: _newValue = 42 (positive)
         // Expected: _newValue > 0  =>  42 > 0  =>  true
-        interpreter.context_mut().set_variable("_newValue".to_string(), Value::Int(42));
+        interpreter
+            .context_mut()
+            .set_variable("_newValue".to_string(), Value::Int(42));
         match interpreter.evaluate_predicate(&parsed_expr) {
             Ok(result) => assert!(result, "Expected '42 > 0' (parsed) to be true"),
             Err(e) => panic!("Parsed evaluation failed for _newValue = 42: {}", e),
@@ -1010,20 +1090,22 @@ mod tests {
 
         // Case 2: _newValue = 0
         // Expected: _newValue > 0  =>  0 > 0  =>  false
-        interpreter.context_mut().set_variable("_newValue".to_string(), Value::Int(0));
+        interpreter
+            .context_mut()
+            .set_variable("_newValue".to_string(), Value::Int(0));
         match interpreter.evaluate_predicate(&parsed_expr) {
             Ok(result) => assert!(!result, "Expected '0 > 0' (parsed) to be false"),
             Err(e) => panic!("Parsed evaluation failed for _newValue = 0: {}", e),
         }
-        
+
         // Case 3: _newValue = 1 (positive, edge case near 0)
         // Expected: _newValue > 0  =>  1 > 0  =>  true
-        interpreter.context_mut().set_variable("_newValue".to_string(), Value::Int(1));
+        interpreter
+            .context_mut()
+            .set_variable("_newValue".to_string(), Value::Int(1));
         match interpreter.evaluate_predicate(&parsed_expr) {
             Ok(result) => assert!(result, "Expected '1 > 0' (parsed) to be true"),
             Err(e) => panic!("Parsed evaluation failed for _newValue = 1: {}", e),
         }
     }
-
-
 }

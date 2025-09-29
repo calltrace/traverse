@@ -1,5 +1,9 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
+use std::collections::HashMap;
+use std::fs;
+use std::io::{stdout, Write};
+use std::path::{Path, PathBuf};
 use tracing::warn;
 use traverse_graph::cg::{
     CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput, CallGraphGeneratorPipeline, Node,
@@ -7,15 +11,11 @@ use traverse_graph::cg::{
 use traverse_graph::interface_resolver::BindingRegistry;
 use traverse_graph::manifest::{find_solidity_files_for_manifest, Manifest, ManifestEntry};
 use traverse_graph::natspec::extract::extract_source_comments;
-use traverse_graph::parser::parse_solidity;
-use traverse_graph::reachability::NodeId; 
-use traverse_graph::steps::{CallsHandling, ContractHandling};
 use traverse_graph::parser::get_solidity_language;
-use tree_sitter::Node as TsNode; 
-use std::collections::HashMap;
-use std::fs;
-use std::io::{stdout, Write};
-use std::path::{Path, PathBuf};
+use traverse_graph::parser::parse_solidity;
+use traverse_graph::reachability::NodeId;
+use traverse_graph::steps::{CallsHandling, ContractHandling};
+use tree_sitter::Node as TsNode;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Analyzes and compares storage access traces for two Solidity functions.", long_about = None)]
@@ -41,10 +41,10 @@ struct Cli {
 
 #[derive(Debug, Clone)]
 struct OrderedStorageAccessInfo {
-    access_type: traverse_graph::cg::EdgeType, 
+    access_type: traverse_graph::cg::EdgeType,
     variable_node_id: NodeId,
-    operation_text: String, 
-    _operation_span: (usize, usize), 
+    operation_text: String,
+    _operation_span: (usize, usize),
 }
 
 fn find_ancestor_of_kind<'a>(
@@ -58,13 +58,18 @@ fn find_ancestor_of_kind<'a>(
                 return Some(parent);
             }
             match parent.kind() {
-                "expression_statement" | "block" | "function_definition"
-                | "modifier_definition" | "contract_definition" | "source_file"
-                | "variable_declaration_statement" | "return_statement" => return None,
+                "expression_statement"
+                | "block"
+                | "function_definition"
+                | "modifier_definition"
+                | "contract_definition"
+                | "source_file"
+                | "variable_declaration_statement"
+                | "return_statement" => return None,
                 _ => node = parent,
             }
         } else {
-            return None; 
+            return None;
         }
     }
     None
@@ -408,14 +413,23 @@ fn analyze_ordered_storage_access_for_entry_point(
 
                                     let mut display_span = edge.call_site_span;
                                     let mut context_found = false;
-                                    let max_depth = 7; 
+                                    let max_depth = 7;
 
                                     // 1. Assignment (RHS)
                                     if !context_found {
-                                        if let Some(ancestor) = find_ancestor_of_kind(var_node, "assignment_expression", max_depth) {
-                                            if let Some(rhs_node) = ancestor.child_by_field_name("right") {
+                                        if let Some(ancestor) = find_ancestor_of_kind(
+                                            var_node,
+                                            "assignment_expression",
+                                            max_depth,
+                                        ) {
+                                            if let Some(rhs_node) =
+                                                ancestor.child_by_field_name("right")
+                                            {
                                                 if is_node_or_descendant(var_node, rhs_node) {
-                                                    display_span = (ancestor.start_byte(), ancestor.end_byte());
+                                                    display_span = (
+                                                        ancestor.start_byte(),
+                                                        ancestor.end_byte(),
+                                                    );
                                                     context_found = true;
                                                 }
                                             }
@@ -424,16 +438,33 @@ fn analyze_ordered_storage_access_for_entry_point(
 
                                     // 2. Variable Declaration (Initializer)
                                     if !context_found {
-                                        if let Some(ancestor) = find_ancestor_of_kind(var_node, "variable_declaration_statement", max_depth) {
-                                            let var_decl_node_opt = if ancestor.kind() == "variable_declaration" { // ancestor could be var_decl itself
-                                                Some(ancestor)
-                                            } else { // or var_decl_statement containing var_decl
-                                                ancestor.named_child(0).filter(|c| c.kind() == "variable_declaration")
-                                            };
+                                        if let Some(ancestor) = find_ancestor_of_kind(
+                                            var_node,
+                                            "variable_declaration_statement",
+                                            max_depth,
+                                        ) {
+                                            let var_decl_node_opt =
+                                                if ancestor.kind() == "variable_declaration" {
+                                                    // ancestor could be var_decl itself
+                                                    Some(ancestor)
+                                                } else {
+                                                    // or var_decl_statement containing var_decl
+                                                    ancestor.named_child(0).filter(|c| {
+                                                        c.kind() == "variable_declaration"
+                                                    })
+                                                };
                                             if let Some(var_decl_node) = var_decl_node_opt {
-                                                if let Some(initializer_node) = var_decl_node.child_by_field_name("value") {
-                                                    if is_node_or_descendant(var_node, initializer_node) {
-                                                        display_span = (ancestor.start_byte(), ancestor.end_byte());
+                                                if let Some(initializer_node) =
+                                                    var_decl_node.child_by_field_name("value")
+                                                {
+                                                    if is_node_or_descendant(
+                                                        var_node,
+                                                        initializer_node,
+                                                    ) {
+                                                        display_span = (
+                                                            ancestor.start_byte(),
+                                                            ancestor.end_byte(),
+                                                        );
                                                         context_found = true;
                                                     }
                                                 }
@@ -443,9 +474,14 @@ fn analyze_ordered_storage_access_for_entry_point(
 
                                     // 3. Return Statement
                                     if !context_found {
-                                        if let Some(ancestor) = find_ancestor_of_kind(var_node, "return_statement", max_depth) {
+                                        if let Some(ancestor) = find_ancestor_of_kind(
+                                            var_node,
+                                            "return_statement",
+                                            max_depth,
+                                        ) {
                                             if is_node_or_descendant(var_node, ancestor) {
-                                                display_span = (ancestor.start_byte(), ancestor.end_byte());
+                                                display_span =
+                                                    (ancestor.start_byte(), ancestor.end_byte());
                                                 context_found = true;
                                             }
                                         }
@@ -453,17 +489,35 @@ fn analyze_ordered_storage_access_for_entry_point(
 
                                     // 4. Function Call / Emit / Require / Assert Argument
                                     if !context_found {
-                                        if let Some(ancestor) = find_ancestor_of_kind(var_node, "call_expression", max_depth) {
-                                            if let Some(args_list_node) = ancestor.child_by_field_name("arguments") {
+                                        if let Some(ancestor) = find_ancestor_of_kind(
+                                            var_node,
+                                            "call_expression",
+                                            max_depth,
+                                        ) {
+                                            if let Some(args_list_node) =
+                                                ancestor.child_by_field_name("arguments")
+                                            {
                                                 if is_node_or_descendant(var_node, args_list_node) {
-                                                    display_span = (ancestor.start_byte(), ancestor.end_byte());
+                                                    display_span = (
+                                                        ancestor.start_byte(),
+                                                        ancestor.end_byte(),
+                                                    );
                                                     context_found = true;
                                                 }
                                             }
-                                        } else if let Some(ancestor) = find_ancestor_of_kind(var_node, "emit_statement", max_depth) {
-                                            if let Some(args_list_node) = ancestor.child_by_field_name("arguments") {
+                                        } else if let Some(ancestor) = find_ancestor_of_kind(
+                                            var_node,
+                                            "emit_statement",
+                                            max_depth,
+                                        ) {
+                                            if let Some(args_list_node) =
+                                                ancestor.child_by_field_name("arguments")
+                                            {
                                                 if is_node_or_descendant(var_node, args_list_node) {
-                                                    display_span = (ancestor.start_byte(), ancestor.end_byte());
+                                                    display_span = (
+                                                        ancestor.start_byte(),
+                                                        ancestor.end_byte(),
+                                                    );
                                                     context_found = true;
                                                 }
                                             }
@@ -472,10 +526,22 @@ fn analyze_ordered_storage_access_for_entry_point(
 
                                     // 5. Binary Operation Operand
                                     if !context_found {
-                                        if let Some(ancestor) = find_ancestor_of_kind(var_node, "binary_expression", max_depth) {
-                                            if let (Some(left_node), Some(right_node)) = (ancestor.child_by_field_name("left"), ancestor.child_by_field_name("right")) {
-                                                if is_node_or_descendant(var_node, left_node) || is_node_or_descendant(var_node, right_node) {
-                                                    display_span = (ancestor.start_byte(), ancestor.end_byte());
+                                        if let Some(ancestor) = find_ancestor_of_kind(
+                                            var_node,
+                                            "binary_expression",
+                                            max_depth,
+                                        ) {
+                                            if let (Some(left_node), Some(right_node)) = (
+                                                ancestor.child_by_field_name("left"),
+                                                ancestor.child_by_field_name("right"),
+                                            ) {
+                                                if is_node_or_descendant(var_node, left_node)
+                                                    || is_node_or_descendant(var_node, right_node)
+                                                {
+                                                    display_span = (
+                                                        ancestor.start_byte(),
+                                                        ancestor.end_byte(),
+                                                    );
                                                     context_found = true;
                                                 }
                                             }
@@ -484,10 +550,19 @@ fn analyze_ordered_storage_access_for_entry_point(
 
                                     // 6. Unary Operation Operand
                                     if !context_found {
-                                        if let Some(ancestor) = find_ancestor_of_kind(var_node, "unary_expression", max_depth) {
-                                            if let Some(arg_node) = ancestor.child_by_field_name("argument") {
+                                        if let Some(ancestor) = find_ancestor_of_kind(
+                                            var_node,
+                                            "unary_expression",
+                                            max_depth,
+                                        ) {
+                                            if let Some(arg_node) =
+                                                ancestor.child_by_field_name("argument")
+                                            {
                                                 if is_node_or_descendant(var_node, arg_node) {
-                                                    display_span = (ancestor.start_byte(), ancestor.end_byte());
+                                                    display_span = (
+                                                        ancestor.start_byte(),
+                                                        ancestor.end_byte(),
+                                                    );
                                                     context_found = true;
                                                 }
                                             }
@@ -496,76 +571,116 @@ fn analyze_ordered_storage_access_for_entry_point(
 
                                     // 7. If/While/For Condition
                                     if !context_found {
-                                        for kind in ["if_statement", "while_statement", "for_statement"] {
-                                            if let Some(ancestor) = find_ancestor_of_kind(var_node, kind, max_depth) {
-                                                if let Some(condition_node) = ancestor.child_by_field_name("condition") {
-                                                    if is_node_or_descendant(var_node, condition_node) {
-                                                        display_span = (ancestor.start_byte(), ancestor.end_byte());
+                                        for kind in
+                                            ["if_statement", "while_statement", "for_statement"]
+                                        {
+                                            if let Some(ancestor) =
+                                                find_ancestor_of_kind(var_node, kind, max_depth)
+                                            {
+                                                if let Some(condition_node) =
+                                                    ancestor.child_by_field_name("condition")
+                                                {
+                                                    if is_node_or_descendant(
+                                                        var_node,
+                                                        condition_node,
+                                                    ) {
+                                                        display_span = (
+                                                            ancestor.start_byte(),
+                                                            ancestor.end_byte(),
+                                                        );
                                                         context_found = true;
                                                         break;
                                                     }
                                                 }
                                                 // For 'for_statement', could also check 'initialization' and 'update' if relevant
                                                 if kind == "for_statement" {
-                                                    if let Some(init_node) = ancestor.child_by_field_name("initialization") {
-                                                        if is_node_or_descendant(var_node, init_node) {
-                                                            display_span = (ancestor.start_byte(), ancestor.end_byte());
+                                                    if let Some(init_node) = ancestor
+                                                        .child_by_field_name("initialization")
+                                                    {
+                                                        if is_node_or_descendant(
+                                                            var_node, init_node,
+                                                        ) {
+                                                            display_span = (
+                                                                ancestor.start_byte(),
+                                                                ancestor.end_byte(),
+                                                            );
                                                             context_found = true;
                                                             break;
                                                         }
                                                     }
-                                                    if let Some(update_node) = ancestor.child_by_field_name("update") {
-                                                        if is_node_or_descendant(var_node, update_node) {
-                                                            display_span = (ancestor.start_byte(), ancestor.end_byte());
+                                                    if let Some(update_node) =
+                                                        ancestor.child_by_field_name("update")
+                                                    {
+                                                        if is_node_or_descendant(
+                                                            var_node,
+                                                            update_node,
+                                                        ) {
+                                                            display_span = (
+                                                                ancestor.start_byte(),
+                                                                ancestor.end_byte(),
+                                                            );
                                                             context_found = true;
                                                             break;
                                                         }
                                                     }
                                                 }
                                             }
-                                            if context_found { break; }
+                                            if context_found {
+                                                break;
+                                            }
                                         }
                                     }
-                                    
+
                                     // Fallback: Try to find the closest useful parent expression or statement.
                                     if !context_found {
-                                        let mut best_fallback_span = display_span; 
+                                        let mut best_fallback_span = display_span;
                                         let mut temp_node = var_node;
-                                        
-                                        for i in 0..5 { 
+
+                                        for i in 0..5 {
                                             if let Some(parent) = temp_node.parent() {
-                                                let parent_span = (parent.start_byte(), parent.end_byte());
-                                                if parent_span == (var_node.byte_range().start, var_node.byte_range().end) { // Parent is same span as var_node, ascend further
+                                                let parent_span =
+                                                    (parent.start_byte(), parent.end_byte());
+                                                if parent_span
+                                                    == (
+                                                        var_node.byte_range().start,
+                                                        var_node.byte_range().end,
+                                                    )
+                                                {
+                                                    // Parent is same span as var_node, ascend further
                                                     temp_node = parent;
                                                     continue;
                                                 }
 
                                                 match parent.kind() {
-                                                    "expression_statement" | 
-                                                    "variable_declaration_statement" | 
-                                                    "return_statement" |
-                                                    "if_statement" | 
-                                                    "for_statement" | 
-                                                    "while_statement" => {
+                                                    "expression_statement"
+                                                    | "variable_declaration_statement"
+                                                    | "return_statement"
+                                                    | "if_statement"
+                                                    | "for_statement"
+                                                    | "while_statement" => {
                                                         best_fallback_span = parent_span;
-                                                        break; 
+                                                        break;
                                                     }
-                                                    "expression" | 
-                                                    "binary_expression" | "unary_expression" | 
-                                                    "call_expression" | "member_expression" => {
+                                                    "expression" | "binary_expression"
+                                                    | "unary_expression" | "call_expression"
+                                                    | "member_expression" => {
                                                         best_fallback_span = parent_span;
                                                         // Don't break immediately, a statement parent might be one level higher
                                                         // and preferred if the loop continues.
                                                         // However, for simplicity, let's break if we find a decent expression.
                                                         // If a statement is found in a subsequent iteration, it will overwrite this.
-                                                        if i > 0 { // If this expression is not the immediate parent, it's likely good enough
+                                                        if i > 0 {
+                                                            // If this expression is not the immediate parent, it's likely good enough
                                                             break;
                                                         }
                                                     }
                                                     // Stop at structural boundaries without taking them as context
-                                                    "block" | "function_definition" | "modifier_definition" |
-                                                    "contract_definition" | "source_file" => {
-                                                        break; 
+                                                    "block"
+                                                    | "function_definition"
+                                                    | "modifier_definition"
+                                                    | "contract_definition"
+                                                    | "source_file" => {
+                                                        break;
                                                     }
                                                     _ => {} // Other kinds, continue ascending
                                                 }
@@ -577,7 +692,8 @@ fn analyze_ordered_storage_access_for_entry_point(
                                         display_span = best_fallback_span;
                                     }
 
-                                    let operation_text = _input.source[display_span.0..display_span.1].to_string();
+                                    let operation_text =
+                                        _input.source[display_span.0..display_span.1].to_string();
                                     direct_accesses.push(OrderedStorageAccessInfo {
                                         access_type: edge.edge_type.clone(),
                                         variable_node_id: target_node.id,
@@ -659,7 +775,7 @@ fn format_comparison_table_to_markdown(
 
     for (var_id, var_full_name) in sorted_vars {
         let mut func1_ops_str = String::new();
-        for acc in func1_accesses.iter() { 
+        for acc in func1_accesses.iter() {
             if acc.variable_node_id == var_id {
                 if !func1_ops_str.is_empty() {
                     func1_ops_str.push_str(", ");
@@ -678,7 +794,7 @@ fn format_comparison_table_to_markdown(
         }
 
         let mut func2_ops_str = String::new();
-        for acc in func2_accesses.iter() { 
+        for acc in func2_accesses.iter() {
             if acc.variable_node_id == var_id {
                 if !func2_ops_str.is_empty() {
                     func2_ops_str.push_str(", ");

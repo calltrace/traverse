@@ -26,7 +26,9 @@ pub fn generate_foundry_deployer_test_contract(contract_info: &ContractInfo) -> 
                             // Use variable_declaration_with_location for types that require data location
                             if traverse_solidity::builder::requires_data_location(&type_name) {
                                 let data_location =
-                                    traverse_solidity::builder::get_default_data_location(&type_name);
+                                    traverse_solidity::builder::get_default_data_location(
+                                        &type_name,
+                                    );
                                 body.variable_declaration_with_location(
                                     type_name,
                                     var_name,
