@@ -739,7 +739,7 @@ impl ToSequenceDiagram for MermaidGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cg::{CallGraph, EdgeType, NodeType, Visibility, EdgeParams};
+    use crate::cg::{CallGraph, EdgeParams, EdgeType, NodeType, Visibility};
     use traverse_mermaid::sequence_diagram_ast::*; // Import AST elements for assertions
 
     fn create_test_graph() -> CallGraph {
@@ -1165,7 +1165,6 @@ mod tests {
 
         // Call: A -> A (seq 1)
         graph.add_edge(EdgeParams {
-
             source_node_id: node_a_id,
 
             target_node_id: node_a_id,
@@ -1185,11 +1184,9 @@ mod tests {
             event_name: None,
 
             declared_return_type: None,
-
         });
         // Return: A -> A (seq 1)
         graph.add_edge(EdgeParams {
-
             source_node_id: node_a_id,
 
             target_node_id: node_a_id,
@@ -1209,7 +1206,6 @@ mod tests {
             event_name: None,
 
             declared_return_type: None,
-
         });
 
         let generator = MermaidGenerator::new();
@@ -1277,7 +1273,6 @@ mod tests {
 
         // Call: A -> B (seq 1)
         graph.add_edge(EdgeParams {
-
             source_node_id: node_a_id,
 
             target_node_id: node_b_id,
@@ -1297,11 +1292,9 @@ mod tests {
             event_name: None,
 
             declared_return_type: None,
-
         });
         // Call: B -> A (seq 2) - Recursive step
         graph.add_edge(EdgeParams {
-
             source_node_id: node_b_id,
 
             target_node_id: node_a_id,
@@ -1321,11 +1314,9 @@ mod tests {
             event_name: None,
 
             declared_return_type: None,
-
         });
         // Return: A -> B (seq 2)
         graph.add_edge(EdgeParams {
-
             source_node_id: node_a_id,
 
             target_node_id: node_b_id,
@@ -1345,11 +1336,9 @@ mod tests {
             event_name: None,
 
             declared_return_type: None,
-
         });
         // Return: B -> A (seq 1)
         graph.add_edge(EdgeParams {
-
             source_node_id: node_b_id,
 
             target_node_id: node_a_id,
@@ -1369,7 +1358,6 @@ mod tests {
             event_name: None,
 
             declared_return_type: None,
-
         });
 
         let generator = MermaidGenerator::new();

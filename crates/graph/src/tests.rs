@@ -569,8 +569,8 @@ fn test_no_calls() -> Result<()> {
     let solidity_lang = get_solidity_language();
     let input = CallGraphGeneratorInput {
         source: source.to_string(),
-        tree: ast.tree,               // Pass tree by value
-        solidity_lang, // Pass language by value
+        tree: ast.tree, // Pass tree by value
+        solidity_lang,  // Pass language by value
     };
 
     let mut ctx = CallGraphGeneratorContext::default();
@@ -659,9 +659,9 @@ fn test_empty_source() -> Result<()> {
     let solidity_lang = get_solidity_language();
 
     let input = CallGraphGeneratorInput {
-        source: source.to_string(),   // Pass source string by value
-        tree: ast.tree,               // Pass tree by value
-        solidity_lang, // Pass language by value
+        source: source.to_string(), // Pass source string by value
+        tree: ast.tree,             // Pass tree by value
+        solidity_lang,              // Pass language by value
     };
     let mut ctx = CallGraphGeneratorContext::default();
     let mut graph = CallGraph::new();
@@ -2398,8 +2398,7 @@ fn test_interface_call_resolution_factory_pattern() -> Result<()> {
     assert!(
         ctx.contract_implements
             .get("ActionFactory")
-            .is_some_and(|ifaces| ifaces
-                .contains(&"IActionFactory".to_string())),
+            .is_some_and(|ifaces| ifaces.contains(&"IActionFactory".to_string())),
         "Context should show ActionFactory implements IActionFactory"
     );
     assert!(

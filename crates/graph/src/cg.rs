@@ -213,7 +213,7 @@ impl CallGraph {
     pub fn add_edge(&mut self, params: EdgeParams) {
         debug!(
             "Attempting to add edge: {} -> {} (Type: {:?}, Seq: {}, RetVal: {:?}, Args: {:?}, DeclRetType: {:?})",
-            params.source_node_id, params.target_node_id, params.edge_type, params.sequence_number, 
+            params.source_node_id, params.target_node_id, params.edge_type, params.sequence_number,
             params.returned_value, params.argument_names, params.declared_return_type
         );
         let edge = Edge {

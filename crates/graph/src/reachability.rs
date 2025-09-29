@@ -150,7 +150,7 @@ impl ReachabilityAnalyzer {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::cg::{CallGraph, EdgeType, NodeType, Visibility, EdgeParams};
+    use crate::cg::{CallGraph, EdgeParams, EdgeType, NodeType, Visibility};
     use std::collections::HashSet;
 
     pub fn create_test_graph_for_reachability() -> CallGraph {
@@ -229,41 +229,27 @@ pub(crate) mod tests {
         );
 
         graph.add_edge(EdgeParams {
-
-
             source_node_id: a_pub_func_id,
-
 
             target_node_id: a_priv_func_id,
 
-
             edge_type: EdgeType::Call,
-
 
             call_site_span: (0, 0),
 
-
             return_site_span: None,
-
 
             sequence_number: 1,
 
-
             returned_value: None,
-
 
             argument_names: None,
 
-
             event_name: None,
 
-
             declared_return_type: None,
-
-
         });
         graph.add_edge(EdgeParams {
-
             source_node_id: a_priv_func_id,
 
             target_node_id: b_internal_func_id,
@@ -283,10 +269,8 @@ pub(crate) mod tests {
             event_name: None,
 
             declared_return_type: None,
-
         });
         graph.add_edge(EdgeParams {
-
             source_node_id: b_pub_func_id,
 
             target_node_id: b_internal_func_id,
@@ -306,10 +290,8 @@ pub(crate) mod tests {
             event_name: None,
 
             declared_return_type: None,
-
         });
         graph.add_edge(EdgeParams {
-
             source_node_id: b_internal_func_id,
 
             target_node_id: c_internal_func_id,
@@ -329,45 +311,30 @@ pub(crate) mod tests {
             event_name: None,
 
             declared_return_type: None,
-
         });
 
         graph.add_edge(EdgeParams {
-
-
             source_node_id: a_pub_func_id,
-
 
             target_node_id: storage_var1_id,
 
-
             edge_type: EdgeType::StorageRead,
-
 
             call_site_span: (0, 0),
 
-
             return_site_span: None,
-
 
             sequence_number: 2,
 
-
             returned_value: None,
-
 
             argument_names: None,
 
-
             event_name: None,
 
-
             declared_return_type: None,
-
-
         });
         graph.add_edge(EdgeParams {
-
             source_node_id: a_priv_func_id,
 
             target_node_id: storage_var1_id,
@@ -387,10 +354,8 @@ pub(crate) mod tests {
             event_name: None,
 
             declared_return_type: None,
-
         });
         graph.add_edge(EdgeParams {
-
             source_node_id: b_internal_func_id,
 
             target_node_id: storage_var2_id,
@@ -410,10 +375,8 @@ pub(crate) mod tests {
             event_name: None,
 
             declared_return_type: None,
-
         });
         graph.add_edge(EdgeParams {
-
             source_node_id: c_internal_func_id,
 
             target_node_id: storage_var3_id,
@@ -433,10 +396,8 @@ pub(crate) mod tests {
             event_name: None,
 
             declared_return_type: None,
-
         });
         graph.add_edge(EdgeParams {
-
             source_node_id: b_pub_func_id,
 
             target_node_id: storage_var2_id,
@@ -456,7 +417,6 @@ pub(crate) mod tests {
             event_name: None,
 
             declared_return_type: None,
-
         });
 
         assert_eq!(graph.nodes[a_pub_func_id].name, "a_pub_func");
@@ -507,7 +467,6 @@ pub(crate) mod tests {
             (0, 0),
         );
         graph.add_edge(EdgeParams {
-
             source_node_id: func1_id,
 
             target_node_id: func2_id,
@@ -527,10 +486,8 @@ pub(crate) mod tests {
             event_name: None,
 
             declared_return_type: None,
-
         });
         graph.add_edge(EdgeParams {
-
             source_node_id: func2_id,
 
             target_node_id: func1_id,
@@ -550,7 +507,6 @@ pub(crate) mod tests {
             event_name: None,
 
             declared_return_type: None,
-
         });
 
         let analyzer = ReachabilityAnalyzer::new();

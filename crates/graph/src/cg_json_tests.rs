@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::cg::{CallGraph, Edge, EdgeType, Node, NodeType, Visibility, EdgeParams};
+    use crate::cg::{CallGraph, Edge, EdgeParams, EdgeType, Node, NodeType, Visibility};
     use crate::cg_json::{CgToJson, JsonExportConfig};
     use serde_json::{json, Value};
     use std::collections::HashSet;
@@ -36,73 +36,47 @@ mod tests {
         );
 
         graph.add_edge(EdgeParams {
-
-
             source_node_id: n0,
-
 
             target_node_id: n1,
 
-
             edge_type: EdgeType::Call,
-
 
             call_site_span: (45, 48),
 
-
             return_site_span: None,
-
 
             sequence_number: 1,
 
-
             returned_value: None,
-
 
             argument_names: Some(vec!["42".to_string()]),
 
-
             event_name: None,
 
-
             declared_return_type: None,
-
-
         });
 
         graph.add_edge(EdgeParams {
-
-
             source_node_id: n1,
-
 
             target_node_id: n2,
 
-
             edge_type: EdgeType::Call,
-
 
             call_site_span: (100, 110),
 
-
             return_site_span: None,
-
 
             sequence_number: 1,
 
-
             returned_value: None,
-
 
             argument_names: None,
 
-
             event_name: None,
 
-
             declared_return_type: None,
-
-
         });
 
         graph
@@ -169,203 +143,129 @@ mod tests {
         );
 
         graph.add_edge(EdgeParams {
-
-
             source_node_id: func,
 
-
             target_node_id: storage,
-
 
             edge_type: EdgeType::StorageRead,
 
-
             call_site_span: (40, 45),
 
-
             return_site_span: None,
-
 
             sequence_number: 1,
 
-
             returned_value: None,
-
 
             argument_names: None,
 
-
             event_name: None,
 
-
             declared_return_type: None,
-
-
         });
 
         graph.add_edge(EdgeParams {
-
-
             source_node_id: func,
-
 
             target_node_id: storage,
 
-
             edge_type: EdgeType::StorageWrite,
-
 
             call_site_span: (50, 55),
 
-
             return_site_span: None,
-
 
             sequence_number: 2,
 
-
             returned_value: None,
-
 
             argument_names: None,
 
-
             event_name: None,
 
-
             declared_return_type: None,
-
-
         });
 
         graph.add_edge(EdgeParams {
-
-
             source_node_id: func,
-
 
             target_node_id: modifier,
 
-
             edge_type: EdgeType::Call,
-
 
             call_site_span: (35, 38),
 
-
             return_site_span: None,
-
 
             sequence_number: 3,
 
-
             returned_value: None,
-
 
             argument_names: None,
 
-
             event_name: None,
 
-
             declared_return_type: None,
-
-
         });
 
         graph.add_edge(EdgeParams {
-
-
             source_node_id: func,
-
 
             target_node_id: interface,
 
-
             edge_type: EdgeType::Call,
-
 
             call_site_span: (60, 65),
 
-
             return_site_span: None,
-
 
             sequence_number: 4,
 
-
             returned_value: None,
-
 
             argument_names: Some(vec!["recipient".to_string(), "amount".to_string()]),
 
-
             event_name: None,
 
-
             declared_return_type: None,
-
-
         });
 
         graph.add_edge(EdgeParams {
-
-
             source_node_id: func,
-
 
             target_node_id: library,
 
-
             edge_type: EdgeType::Call,
-
 
             call_site_span: (70, 75),
 
-
             return_site_span: None,
-
 
             sequence_number: 5,
 
-
             returned_value: None,
-
 
             argument_names: Some(vec!["a".to_string(), "b".to_string()]),
 
-
             event_name: None,
 
-
             declared_return_type: None,
-
-
         });
 
         graph.add_edge(EdgeParams {
-
-
             source_node_id: func,
-
 
             target_node_id: event_listener,
 
-
             edge_type: EdgeType::Call,
-
 
             call_site_span: (80, 85),
 
-
             return_site_span: None,
-
 
             sequence_number: 6,
 
-
             returned_value: None,
-
 
             argument_names: Some(vec![
                 "from".to_string(),
@@ -373,48 +273,31 @@ mod tests {
                 "value".to_string(),
             ]),
 
-
             event_name: Some("Transfer".to_string()),
 
-
             declared_return_type: None,
-
-
         });
 
         graph.add_edge(EdgeParams {
-
-
             source_node_id: modifier,
-
 
             target_node_id: func,
 
-
             edge_type: EdgeType::Return,
-
 
             call_site_span: (145, 148),
 
-
             return_site_span: Some((147, 148)),
-
 
             sequence_number: 3,
 
-
             returned_value: Some("true".to_string()),
-
 
             argument_names: None,
 
-
             event_name: None,
 
-
             declared_return_type: Some("bool".to_string()),
-
-
         });
 
         graph
@@ -871,7 +754,6 @@ mod tests {
 
         for i in 0..node_count - 1 {
             graph.add_edge(EdgeParams {
-
                 source_node_id: node_ids[i],
 
                 target_node_id: node_ids[i + 1],
@@ -891,7 +773,6 @@ mod tests {
                 event_name: None,
 
                 declared_return_type: None,
-
             });
         }
 
@@ -924,38 +805,25 @@ mod tests {
         );
 
         graph.add_edge(EdgeParams {
-
-
             source_node_id: n0,
-
 
             target_node_id: n1,
 
-
             edge_type: EdgeType::Call,
-
 
             call_site_span: (5, 8),
 
-
             return_site_span: None,
-
 
             sequence_number: 1,
 
-
             returned_value: Some("return\nvalue".to_string()),
-
 
             argument_names: Some(vec!["arg\"with\"quotes".to_string()]),
 
-
             event_name: Some("Event\"Name".to_string()),
 
-
             declared_return_type: None,
-
-
         });
 
         let config = JsonExportConfig::default();

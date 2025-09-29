@@ -6,8 +6,9 @@ use std::{
 use crate::{
     cg::{
         extract_arguments, CallGraph, CallGraphGeneratorContext, CallGraphGeneratorInput,
-        CallGraphGeneratorStep, EdgeParams, EdgeType, NodeInfo, NodeType, Visibility, ELSE_BLOCK_NODE_NAME,
-        EVENT_LISTENER_NODE_NAME, EVM_NODE_NAME, IF_CONDITION_NODE_NAME, THEN_BLOCK_NODE_NAME,
+        CallGraphGeneratorStep, EdgeParams, EdgeType, NodeInfo, NodeType, Visibility,
+        ELSE_BLOCK_NODE_NAME, EVENT_LISTENER_NODE_NAME, EVM_NODE_NAME, IF_CONDITION_NODE_NAME,
+        THEN_BLOCK_NODE_NAME,
     },
     chains::{analyze_chained_call, ResolvedTarget}, // Import items from chains module
     parser::get_node_text,
