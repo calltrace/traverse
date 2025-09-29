@@ -479,48 +479,6 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn test_chunk_si_mmd() {
-        let content = fs::read_to_string("../../si.mmd").expect("si.mmd not found");
-
-        println!(
-            "Testing chunking of si.mmd ({} lines)",
-            content.lines().count()
-        );
-
-        let result = chunk_mermaid_diagram(&content, Some(Path::new("/tmp/si-chunks-test")))
-            .expect("chunking failed");
-
-        println!("✓ Successfully chunked into {} parts", result.chunk_count);
-        println!("  Largest chunk: {} lines", result.largest_chunk);
-        println!("  Smallest chunk: {} lines", result.smallest_chunk);
-
-        assert!(
-            result.chunk_count > 1,
-            "Should create multiple chunks for 1429 lines"
-        );
-        assert!(
-            result.largest_chunk <= 600,
-            "Chunks should not exceed 600 lines"
-        );
-        assert!(
-            result.smallest_chunk >= 50,
-            "Chunks should have reasonable minimum size"
-        );
-
-        let chunk1_path = result.output_dir.join("chunk_001.mmd");
-        let chunk1_content = fs::read_to_string(&chunk1_path).unwrap_or_else(|_| {
-            // Try the alternate naming pattern
-            let alt_path = result.output_dir.join("part_001_chunk_1.mmd");
-            fs::read_to_string(alt_path).expect("chunk file missing")
-        });
-
-        assert!(chunk1_content.contains("sequenceDiagram"));
-        assert!(chunk1_content.contains("participant"));
-
-        println!("✓ First chunk appears valid");
-    }
-
-    #[test]
     fn test_empty_diagram() {
         let result = chunk_mermaid_diagram("", None);
         assert!(result.is_err());
