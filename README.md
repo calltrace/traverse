@@ -1,5 +1,7 @@
 # Traverse: Solidity Analysis Tools
 
+[![Test Suite](https://github.com/calltrace/traverse/actions/workflows/test.yml/badge.svg)](https://github.com/calltrace/traverse/actions/workflows/test.yml)
+
 Analyze, visualize, and test Solidity smart contracts. Built with Rust and tree-sitter parsing.
 
 > 📖 **For architectural details and design principles, see [DESIGN.md](DESIGN.md)**
