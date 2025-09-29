@@ -6,6 +6,12 @@ pub type NodeId = usize; // Ensure this is pub if storage_access needs it direct
 
 pub struct ReachabilityAnalyzer;
 
+impl Default for ReachabilityAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReachabilityAnalyzer {
     pub fn new() -> Self {
         Self
@@ -61,7 +67,7 @@ impl ReachabilityAnalyzer {
                 // Exclude interface function declarations:
                 // A function is an interface declaration if its contract_name (e.g., "IMyInterface")
                 // matches the name of an actual Interface node in the graph.
-                !node.contract_name.as_ref().map_or(false, |func_contract_name| {
+                !node.contract_name.as_ref().is_some_and(|func_contract_name| {
                     graph.nodes.iter().any(|n| {
                         n.node_type == NodeType::Interface &&
                         n.name == *func_contract_name && // The Interface node's name
@@ -89,6 +95,7 @@ impl ReachabilityAnalyzer {
         results
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     pub fn dfs_traverse<S, FNodeOfInterest, FProcessNode>(
         &self,
         current_node_id: NodeId,
@@ -117,10 +124,9 @@ impl ReachabilityAnalyzer {
         if matches!(
             current_node.node_type,
             NodeType::Function | NodeType::Modifier | NodeType::Constructor
-        ) {
-            if !visited_functions_for_this_entry_point.insert(current_node_id) {
-                return;
-            }
+        ) && !visited_functions_for_this_entry_point.insert(current_node_id)
+        {
+            return;
         }
 
         // Process the current node (function/modifier/constructor) if it's of interest.

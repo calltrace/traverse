@@ -486,6 +486,7 @@ pub(crate) fn generate_and_write_test_file(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn generate_tests_with_foundry(
     graph: &CallGraph,
     ctx: &CallGraphGeneratorContext,
@@ -608,9 +609,8 @@ pub fn generate_tests_with_foundry(
                 Ok(revert_test_contracts) => {
                     for (i, test_contract) in revert_test_contracts.iter().enumerate() {
                         let test_filename = format!(
-                            "{}RevertTest{}.t.sol",
-                            format!("{}{}", contract_info.name, function_info.name),
-                            i
+                            "{}{}RevertTest{}.t.sol",
+                            contract_info.name, function_info.name, i
                         );
                         let test_path = test_dir.join(test_filename);
 
@@ -638,9 +638,8 @@ pub fn generate_tests_with_foundry(
                 Ok(state_test_contracts) => {
                     for (i, test_contract) in state_test_contracts.iter().enumerate() {
                         let test_filename = format!(
-                            "{}StateTest{}.t.sol",
-                            format!("{}{}", contract_info.name, function_info.name),
-                            i
+                            "{}{}StateTest{}.t.sol",
+                            contract_info.name, function_info.name, i
                         );
                         let test_path = test_dir.join(test_filename);
 
@@ -668,9 +667,8 @@ pub fn generate_tests_with_foundry(
                 Ok(access_test_contracts) => {
                     for (i, test_contract) in access_test_contracts.iter().enumerate() {
                         let test_filename = format!(
-                            "{}AccessTest{}.t.sol",
-                            format!("{}{}", contract_info.name, function_info.name),
-                            i
+                            "{}{}AccessTest{}.t.sol",
+                            contract_info.name, function_info.name, i
                         );
                         let test_path = test_dir.join(test_filename);
 

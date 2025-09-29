@@ -18,7 +18,6 @@ use traverse_graph::natspec::extract::extract_source_comments; // Added
 use traverse_graph::parser::get_solidity_language;
 use traverse_graph::parser::parse_solidity;
 use traverse_graph::steps::{CallsHandling, ContractHandling};
-use traverse_mermaid;
 use walkdir::WalkDir;
 
 #[derive(Parser, Debug)]

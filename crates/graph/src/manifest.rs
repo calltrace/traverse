@@ -55,8 +55,8 @@ impl Manifest {
             .iter()
             .filter(|entry| {
                 entry.item_kind == kind
-                    && name_pattern.map_or(true, |pattern| {
-                        entry.item_name.as_ref().map_or(false, |name| {
+                    && name_pattern.is_none_or(|pattern| {
+                        entry.item_name.as_ref().is_some_and(|name| {
                             name.to_lowercase().contains(&pattern.to_lowercase())
                         })
                     })
@@ -93,7 +93,7 @@ pub fn find_solidity_files_for_manifest(
                 .filter_map(|e| e.ok())
             {
                 if entry.file_type().is_file()
-                    && entry.path().extension().map_or(false, |ext| ext == "sol")
+                    && entry.path().extension().is_some_and(|ext| ext == "sol")
                 {
                     // Store path relative to project_root for consistency
                     let relative_path = entry
@@ -107,7 +107,7 @@ pub fn find_solidity_files_for_manifest(
         } else if absolute_path_arg.is_file()
             && absolute_path_arg
                 .extension()
-                .map_or(false, |ext| ext == "sol")
+                .is_some_and(|ext| ext == "sol")
         {
             let relative_path = absolute_path_arg
                 .strip_prefix(project_root)

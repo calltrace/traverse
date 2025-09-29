@@ -1,3 +1,5 @@
+#![allow(clippy::while_let_loop)]
+
 use std::{
     collections::{HashMap, HashSet},
     iter,
@@ -481,6 +483,7 @@ impl CallGraphGeneratorStep for CallsHandling {
 
 /// Processes statements within a given block (function body, then/else block)
 /// and collects graph modifications.
+#[allow(clippy::too_many_arguments)]
 fn process_statements_in_block(
     owner_node_id: usize, // ID of the function, or ThenBlock, or ElseBlock this block belongs to
     owner_contract_name_opt: &Option<String>, // Contract of the top-level function
@@ -707,12 +710,12 @@ fn process_statements_in_block(
                 match analyze_chained_call(
                     node, // Start analysis from the outermost node
                     owner_node_id,
-                    &owner_contract_name_opt,
+                    owner_contract_name_opt,
                     ctx,
                     graph,
                     &input.source,
                     &input.solidity_lang,
-                    &input,
+                    input,
                     None, // Top-level call, no original node needed for error reporting here
                     node.start_byte(), // Pass the start byte of the outermost node as originating span start
                 ) {
@@ -721,7 +724,7 @@ fn process_statements_in_block(
                             "        analyze_chained_call returned {} steps.",
                             steps.len()
                         );
-                        if steps.is_empty() {}
+                        steps.is_empty();
 
                         // Collect modifications for the main call chain steps
                         // Use enumerate to get the index (starting from 1) within the chain returned by analyze_chained_call
@@ -739,10 +742,7 @@ fn process_statements_in_block(
                                     source_node_id: owner_node_id, // Source is the caller
                                     target_node_id,                // Target is the resolved node
                                     edge_type: EdgeType::Call, // Could be ConstructorCall too, but handled by target node type later
-                                    span: (
-                                        step.call_expr_span.0.into(),
-                                        step.call_expr_span.1.into(),
-                                    ),
+                                    span: (step.call_expr_span.0, step.call_expr_span.1),
                                     modifier: None,
                                     return_value: None, // Not tracked here for regular calls either
                                     arguments: Some(step.arguments.clone()),
@@ -765,7 +765,7 @@ fn process_statements_in_block(
                                         {
                                             // Attempt to resolve this base variable name as a storage variable
                                             if let Some(var_node_id) = resolve_storage_variable(
-                                                &owner_contract_name_opt,
+                                                owner_contract_name_opt,
                                                 base_var_name,
                                                 graph,
                                                 ctx,
@@ -942,7 +942,7 @@ fn process_statements_in_block(
                                                         {
                                                             new_args = extract_arguments(
                                                                 parent_call,
-                                                                &input,
+                                                                input,
                                                             );
                                                         } else {
                                                             let mut cursor = new_expr_node.walk();
@@ -952,7 +952,7 @@ fn process_statements_in_block(
                                                                 if child.kind() == "arguments" {
                                                                     new_args = extract_arguments(
                                                                         new_expr_node,
-                                                                        &input,
+                                                                        input,
                                                                     );
                                                                     break;
                                                                 }
@@ -1071,12 +1071,9 @@ fn process_statements_in_block(
                             (write_target_node.start_byte(), write_target_node.end_byte())
                         );
                         // --- Use inheritance-aware resolution ---
-                        if let Some(var_node_id) = resolve_storage_variable(
-                            &owner_contract_name_opt,
-                            &var_name,
-                            graph,
-                            ctx,
-                        ) {
+                        if let Some(var_node_id) =
+                            resolve_storage_variable(owner_contract_name_opt, var_name, graph, ctx)
+                        {
                             // The check for NodeType::StorageVariable is now inside resolve_storage_variable
                             // if graph
                             //     .nodes
@@ -1128,7 +1125,7 @@ fn process_statements_in_block(
                     fn find_base_identifier_recursive_for_aug<'a>(
                         // Renamed
                         n: TsNode<'a>,
-                        input_source: &str,
+                        _input_source: &str,
                     ) -> Option<TsNode<'a>> {
                         let actual_node = unwrap_expression_wrapper(n); // Use new helper
                         match actual_node.kind() {
@@ -1138,7 +1135,7 @@ fn process_statements_in_block(
                                 {
                                     find_base_identifier_recursive_for_aug(
                                         object_expr,
-                                        input_source,
+                                        _input_source,
                                     )
                                 } else {
                                     None
@@ -1146,7 +1143,7 @@ fn process_statements_in_block(
                             }
                             "array_access" => {
                                 if let Some(base_expr) = actual_node.child_by_field_name("base") {
-                                    find_base_identifier_recursive_for_aug(base_expr, input_source)
+                                    find_base_identifier_recursive_for_aug(base_expr, _input_source)
                                 } else {
                                     None
                                 }
@@ -1159,12 +1156,9 @@ fn process_statements_in_block(
                         find_base_identifier_recursive_for_aug(lhs_node_expr, &input.source)
                     {
                         let var_name = get_node_text(&write_target_node, &input.source);
-                        if let Some(var_node_id) = resolve_storage_variable(
-                            &owner_contract_name_opt,
-                            &var_name,
-                            graph,
-                            ctx,
-                        ) {
+                        if let Some(var_node_id) =
+                            resolve_storage_variable(owner_contract_name_opt, var_name, graph, ctx)
+                        {
                             trace!(
                                 "Augmented assignment for '{}'. Adding implicit StorageRead.",
                                 var_name
@@ -1239,7 +1233,7 @@ fn process_statements_in_block(
                             "member_expression" => {
                                 // Check if current_node (identifier or type_cast) is the 'object'
                                 let object_node = parent.child_by_field_name("object");
-                                if object_node.map_or(false, |obj| obj.id() == current_node.id()) {
+                                if object_node.is_some_and(|obj| obj.id() == current_node.id()) {
                                     found_member_expr = Some(parent);
                                     break; // Found the relevant member expression
                                 }
@@ -1251,9 +1245,9 @@ fn process_statements_in_block(
                                 let value_node = parent.child_by_field_name("value");
                                 // The value might be wrapped in an expression node, e.g., Type( (expr) )
                                 let mut is_value =
-                                    value_node.map_or(false, |val| val.id() == current_node.id());
+                                    value_node.is_some_and(|val| val.id() == current_node.id());
                                 if !is_value
-                                    && value_node.map_or(false, |val| {
+                                    && value_node.is_some_and(|val| {
                                         val.kind() == "expression"
                                             && val.child_count() > 0
                                             && val.child(0).unwrap().id() == current_node.id()
@@ -1310,7 +1304,7 @@ fn process_statements_in_block(
                                 "call_expression" => {
                                     let function_field_node =
                                         parent.child_by_field_name("function");
-                                    if function_field_node.map_or(false, |func_node| {
+                                    if function_field_node.is_some_and(|func_node| {
                                         func_node.id() == func_part_node.id()
                                     }) {
                                         is_read_for_call = true;
@@ -1353,7 +1347,7 @@ fn process_statements_in_block(
                                                     grandparent.child_by_field_name("function");
                                                 let is_require = func_node
                                                     .and_then(|f| f.child(0)) // Get identifier node inside expression
-                                                    .map_or(false, |id_node| {
+                                                    .is_some_and(|id_node| {
                                                         get_node_text(&id_node, &input.source)
                                                             == "require"
                                                     });
@@ -1412,7 +1406,7 @@ fn process_statements_in_block(
 
                 // --- Use inheritance-aware resolution ---
                 if let Some(var_node_id) =
-                    resolve_storage_variable(&owner_contract_name_opt, &var_name, graph, ctx)
+                    resolve_storage_variable(owner_contract_name_opt, var_name, graph, ctx)
                 {
                     // --- Filtering Logic ---
                     let mut skip_read_edge = false;
@@ -1451,9 +1445,9 @@ fn process_statements_in_block(
                                                 // Check if the type_cast_expression is the 'object' field
                                                 let object_node =
                                                     great_grandparent.child_by_field_name("object");
-                                                if object_node.map_or(false, |obj| {
-                                                    obj.id() == grandparent.id()
-                                                }) {
+                                                if object_node
+                                                    .is_some_and(|obj| obj.id() == grandparent.id())
+                                                {
                                                     // Now check if this member_expression is part of a call
                                                     if let Some(great_great_grandparent) =
                                                         great_grandparent.parent()
@@ -1507,11 +1501,9 @@ fn process_statements_in_block(
                                 // Added !skip_read_edge check here
                                 if let Some(grandparent) = parent.parent() {
                                     if grandparent.kind() == "call_expression"
-                                        && grandparent
-                                            .child_by_field_name("function")
-                                            .map_or(false, |func_child| {
-                                                func_child.id() == parent.id()
-                                            })
+                                        && grandparent.child_by_field_name("function").is_some_and(
+                                            |func_child| func_child.id() == parent.id(),
+                                        )
                                     {
                                         skip_read_edge = true;
                                     }
@@ -1524,7 +1516,7 @@ fn process_statements_in_block(
                                             if call_great_grandparent.kind() == "call_expression"
                                                 && call_great_grandparent
                                                     .child_by_field_name("function")
-                                                    .map_or(false, |func_child| {
+                                                    .is_some_and(|func_child| {
                                                         func_child.id() == expr_grandparent.id()
                                                     })
                                             {
@@ -1576,7 +1568,7 @@ fn process_statements_in_block(
                                     member_expr_node.child_by_field_name("property");
 
                                 if property_node_opt
-                                    .map_or(false, |prop| prop.id() == read_candidate_node.id())
+                                    .is_some_and(|prop| prop.id() == read_candidate_node.id())
                                 {
                                     // Check if this member_expression (member_expr_node) is part of a call expression's function field by ascending
                                     let mut current_ancestor = member_expr_node;
@@ -1673,7 +1665,7 @@ fn process_statements_in_block(
                                             if cast_call_expr.kind() == "call_expression"
                                                 && cast_call_expr
                                                     .child_by_field_name("function")
-                                                    .map_or(false, |f| f.id() == parent_expr.id())
+                                                    .is_some_and(|f| f.id() == parent_expr.id())
                                             {
                                                 // Now check if this cast_call_expr is the object of a member_expression
                                                 let mut current_object_part = cast_call_expr;
@@ -1690,8 +1682,7 @@ fn process_statements_in_block(
                                                             let object_field =
                                                                 parent_of_object_part
                                                                     .child_by_field_name("object");
-                                                            if object_field.map_or(
-                                                                false,
+                                                            if object_field.is_some_and(
                                                                 |obj_node| {
                                                                     obj_node.id()
                                                                         == current_object_part.id()
@@ -1736,8 +1727,7 @@ fn process_statements_in_block(
                                                                         .child_by_field_name(
                                                                             "function",
                                                                         );
-                                                                if function_field.map_or(
-                                                                    false,
+                                                                if function_field.is_some_and(
                                                                     |func_node| {
                                                                         func_node.id()
                                                                             == current_func_part
@@ -1795,7 +1785,7 @@ fn process_statements_in_block(
                                         delete_ancestor.child_by_field_name("argument");
 
                                     // Check if the operator is 'delete' and the argument node contains the read_candidate node
-                                    if operator.as_deref() == Some("delete") {
+                                    if operator == Some("delete") {
                                         if let Some(argument_node) = argument_node_opt {
                                             // Check if the read_candidate node is a descendant of the argument node
                                             // (This handles cases like `delete a.b` where `a` is the read candidate but `a.b` is the argument)
@@ -1910,13 +1900,12 @@ fn process_statements_in_block(
                                                 // The search for parent_mod is the key.
                                                 // If parent_mod is not found, it might be a read for an emit/require that isn't from a chain.
                                                 // In such cases, their EPs are 10. So read EP should be 9.
-                                                if parent_op_mod.is_none() {
-                                                    if op_node.kind() == "call_expression"
-                                                        || op_node.kind() == "emit_statement"
-                                                    {
-                                                        // Approx.
-                                                        prio = 10 - 1; // Default "before simple call/emit"
-                                                    }
+                                                if parent_op_mod.is_none()
+                                                    && (op_node.kind() == "call_expression"
+                                                        || op_node.kind() == "emit_statement")
+                                                {
+                                                    // Approx.
+                                                    prio = 10 - 1; // Default "before simple call/emit"
                                                 }
                                             }
                                         }
@@ -2060,12 +2049,9 @@ fn process_statements_in_block(
                     // --- (Assuming full filtering logic is applied and skip_read_edge is set accordingly) ---
 
                     if !skip_read_edge {
-                        if let Some(var_node_id) = resolve_storage_variable(
-                            &owner_contract_name_opt,
-                            &var_name,
-                            graph,
-                            ctx,
-                        ) {
+                        if let Some(var_node_id) =
+                            resolve_storage_variable(owner_contract_name_opt, var_name, graph, ctx)
+                        {
                             trace!("Collecting READ modification (from subscript): CallerID={}, VarID={}, VarName='{}', EdgeSpan={:?}", owner_node_id, var_node_id, var_name, span_for_read_edge);
                             modifications.push(GraphModification {
                                 source_node_id: owner_node_id,
@@ -2130,12 +2116,9 @@ fn process_statements_in_block(
                         trace!("  Delete target base identifier: '{}'", var_name);
 
                         // Resolve the base identifier as a storage variable
-                        if let Some(var_node_id) = resolve_storage_variable(
-                            &owner_contract_name_opt,
-                            &var_name,
-                            graph,
-                            ctx,
-                        ) {
+                        if let Some(var_node_id) =
+                            resolve_storage_variable(owner_contract_name_opt, var_name, graph, ctx)
+                        {
                             trace!("Collecting DELETE (as WRITE) modification: CallerID={}, VarID={}, VarName='{}', DeleteSpan={:?}", owner_node_id, var_node_id, var_name, delete_span);
                             modifications.push(GraphModification {
                                 source_node_id: owner_node_id,
@@ -2184,11 +2167,11 @@ fn process_statements_in_block(
                     require_span
                 );
 
-                let argument_texts = extract_arguments(require_node, &input);
+                let argument_texts = extract_arguments(require_node, input);
                 let argument_nodes_ts = crate::cg::extract_argument_nodes(require_node);
 
                 // Condition expression TsNode and its source text
-                let condition_ts_node_opt = argument_nodes_ts.get(0);
+                let condition_ts_node_opt = argument_nodes_ts.first();
                 let condition_source_text_opt =
                     condition_ts_node_opt.map(|n| get_node_text(n, &input.source).to_string());
 
@@ -2321,7 +2304,7 @@ fn process_statements_in_block(
                     .map(|id_node| get_node_text(&id_node, &input.source).to_string());
 
                 // Extract arguments
-                let argument_texts = extract_arguments(emit_node, &input);
+                let argument_texts = extract_arguments(emit_node, input);
 
                 if let Some(event_name) = event_name_opt {
                     trace!(
@@ -2489,7 +2472,7 @@ fn process_statements_in_block(
                 }
 
                 // 5. Process Then Block
-                if let Some(then_body_node) = body_nodes.get(0).copied() {
+                if let Some(then_body_node) = body_nodes.first().copied() {
                     let then_body_span = (then_body_node.start_byte(), then_body_node.end_byte());
                     let then_block_node_name =
                         format!("{}_{}", THEN_BLOCK_NODE_NAME, then_body_node.start_byte());
@@ -3093,7 +3076,7 @@ fn resolve_storage_variable(
             if graph
                 .nodes
                 .get(*node_id)
-                .map_or(false, |n| n.node_type == NodeType::StorageVariable)
+                .is_some_and(|n| n.node_type == NodeType::StorageVariable)
             {
                 trace!("[Storage Resolve DEBUG]     Found storage variable node ID {} in contract '{}'", *node_id, ancestor_name);
                 return Some(*node_id);

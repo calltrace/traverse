@@ -798,6 +798,7 @@ fn read_and_combine_files(sol_files: &[PathBuf]) -> Result<String> {
     Ok(combined_source)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_tests_with_foundry_enhanced(
     graph: &CallGraph,
     ctx: &CallGraphGeneratorContext,

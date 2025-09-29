@@ -10,18 +10,10 @@ use std::fmt::Write;
 use tracing::debug;
 
 /// Configuration options for DOT export.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DotExportConfig {
     /// If true, nodes with no incoming or outgoing edges will be excluded from the output.
     pub exclude_isolated_nodes: bool,
-}
-
-impl Default for DotExportConfig {
-    fn default() -> Self {
-        Self {
-            exclude_isolated_nodes: false, // Default is to include isolated nodes
-        }
-    }
 }
 
 pub trait ToDotLabel {

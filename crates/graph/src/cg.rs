@@ -418,7 +418,7 @@ impl CallGraph {
                             for capture in match_.captures {
                                 let capture_name =
                                     &return_query.capture_names()[capture.index as usize];
-                                match capture_name.as_ref() {
+                                match &**capture_name {
                                     "return" => return_node_opt = Some(capture.node),
                                     "return_value" => return_value_node_opt = Some(capture.node),
                                     _ => {}

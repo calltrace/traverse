@@ -151,6 +151,7 @@ pub fn generate_revert_tests_from_cfg(
     Ok(test_contracts)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_revert_test_contract(
     graph: &CallGraph,
     contract_name: &str,

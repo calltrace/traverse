@@ -371,10 +371,8 @@ fn collect_comparison_vars_recursive(
             collect_comparison_vars_recursive(&assign_expr.right, all_vars, candidates);
         }
         Expression::Tuple(tuple_expr) => {
-            for element in &tuple_expr.elements {
-                if let Some(expr_element) = element {
-                    collect_comparison_vars_recursive(expr_element, all_vars, candidates);
-                }
+            for expr_element in tuple_expr.elements.iter().flatten() {
+                collect_comparison_vars_recursive(expr_element, all_vars, candidates);
             }
         }
         Expression::Array(array_expr) => {
@@ -429,10 +427,8 @@ fn extract_variables_recursive(expr: &Expression, variables: &mut Vec<String>) {
             extract_variables_recursive(&assign_expr.right, variables);
         }
         Expression::Tuple(tuple_expr) => {
-            for element in &tuple_expr.elements {
-                if let Some(expr) = element {
-                    extract_variables_recursive(expr, variables);
-                }
+            for expr in tuple_expr.elements.iter().flatten() {
+                extract_variables_recursive(expr, variables);
             }
         }
         Expression::Array(array_expr) => {

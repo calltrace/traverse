@@ -19,6 +19,14 @@ pub trait ToSequenceDiagram {
 #[derive(Default)]
 pub struct MermaidGenerator;
 
+/// Context for emitting call and return sequences
+struct CallReturnContext<'a> {
+    graph: &'a CallGraph,
+    processed_return_edges: &'a mut HashSet<usize>,
+    return_edge_lookup: &'a HashMap<(usize, usize, usize), usize>,
+    visiting: &'a mut HashSet<usize>,
+}
+
 impl MermaidGenerator {
     pub fn new() -> Self {
         Default::default()
@@ -31,10 +39,7 @@ impl MermaidGenerator {
         source_node: &Node,
         target_node: &Node,
         call_edge: &Edge, // This is the call edge
-        graph: &CallGraph,
-        processed_return_edges: &mut HashSet<usize>,
-        return_edge_lookup: &HashMap<(usize, usize, usize), usize>,
-        visiting: &mut HashSet<usize>,
+        ctx: &mut CallReturnContext,
     ) {
         let source_participant_id =
             Self::get_participant_id(&source_node.name, source_node.contract_name.as_ref());
@@ -64,23 +69,23 @@ impl MermaidGenerator {
 
         self.process_flow(
             target_node.id,
-            graph,
-            processed_return_edges,
+            ctx.graph,
+            ctx.processed_return_edges,
             current_builder,
-            return_edge_lookup,
-            visiting,
+            ctx.return_edge_lookup,
+            ctx.visiting,
         );
 
         // After recursion, process the corresponding return edge
         let return_lookup_key = (target_node.id, source_node.id, call_edge.sequence_number);
-        if let Some(return_edge_index) = return_edge_lookup.get(&return_lookup_key) {
-            if processed_return_edges.insert(*return_edge_index) {
+        if let Some(return_edge_index) = ctx.return_edge_lookup.get(&return_lookup_key) {
+            if ctx.processed_return_edges.insert(*return_edge_index) {
                 // Ensure this specific return instance hasn't been drawn yet
-                if let Some(return_edge) = graph.edges.get(*return_edge_index) {
+                if let Some(return_edge) = ctx.graph.edges.get(*return_edge_index) {
                     if let (Some(ret_source_node), Some(ret_target_node)) = (
                         // ret_source_node is the original target_node (callee)
-                        graph.nodes.get(return_edge.source_node_id),
-                        graph.nodes.get(return_edge.target_node_id), // ret_target_node is the original source_node (caller)
+                        ctx.graph.nodes.get(return_edge.source_node_id),
+                        ctx.graph.nodes.get(return_edge.target_node_id), // ret_target_node is the original source_node (caller)
                     ) {
                         let ret_source_participant_id_for_signal = Self::get_participant_id(
                             &ret_source_node.name,
@@ -303,8 +308,7 @@ impl MermaidGenerator {
                                 // Call to an interface method
                                 opt_label = Some(format!(
                                     "Interface: {}.{}",
-                                    target_contract_name_opt
-                                        .unwrap_or_else(|| target_node.name.as_str()),
+                                    target_contract_name_opt.unwrap_or(target_node.name.as_str()),
                                     target_node.name
                                 ));
                             } else {
@@ -314,27 +318,33 @@ impl MermaidGenerator {
 
                         if let Some(label) = opt_label {
                             builder.opt_block(Some(label), |inner_builder| {
+                                let mut ctx = CallReturnContext {
+                                    graph,
+                                    processed_return_edges,
+                                    return_edge_lookup,
+                                    visiting,
+                                };
                                 self.emit_call_and_return_sequence(
                                     inner_builder,
                                     source_node,
                                     target_node,
                                     edge,
-                                    graph,
-                                    processed_return_edges,
-                                    return_edge_lookup,
-                                    visiting,
+                                    &mut ctx,
                                 );
                             });
                         } else {
+                            let mut ctx = CallReturnContext {
+                                graph,
+                                processed_return_edges,
+                                return_edge_lookup,
+                                visiting,
+                            };
                             self.emit_call_and_return_sequence(
                                 builder, // Use the main builder if no opt block
                                 source_node,
                                 target_node,
                                 edge,
-                                graph,
-                                processed_return_edges,
-                                return_edge_lookup,
-                                visiting,
+                                &mut ctx,
                             );
                         }
                     } // End EdgeType::Call
@@ -347,7 +357,7 @@ impl MermaidGenerator {
                         let condition = edge
                             .argument_names
                             .as_ref()
-                            .and_then(|args| args.get(0)) // Get the first argument (condition)
+                            .and_then(|args| args.first()) // Get the first argument (condition)
                             .map(|s| s.as_str())
                             .unwrap_or("?");
                         let message = edge
@@ -388,7 +398,7 @@ impl MermaidGenerator {
                         let condition_text = edge
                             .argument_names
                             .as_ref()
-                            .and_then(|args| args.get(0))
+                            .and_then(|args| args.first())
                             .map(|s| s.as_str())
                             .unwrap_or("condition") // Default text if not found
                             .to_string();
@@ -671,7 +681,7 @@ impl ToSequenceDiagram for MermaidGenerator {
                     || node.visibility == crate::cg::Visibility::External)
                     && node.node_type == NodeType::Function
                     // Check if the node's contract_name corresponds to a known interface
-                    && !node.contract_name.as_ref().map_or(false, |c_name| {
+                    && !node.contract_name.as_ref().is_some_and(|c_name| {
                         // Check if the graph contains an interface node with this name
                         graph.nodes.iter().any(|n| n.node_type == NodeType::Interface && n.name == *c_name)
                     })

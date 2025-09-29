@@ -124,6 +124,7 @@ pub struct ResolvedCallStep {
 /// Returns:
 /// A vector of `ResolvedCallStep` structs, one for each call in the chain,
 /// or a `TypeError` if analysis fails at any point.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn analyze_chained_call<'a>(
     start_node: TsNode<'a>,
     caller_node_id: usize,
@@ -285,13 +286,13 @@ pub(crate) fn analyze_chained_call<'a>(
                 "expression"
                     if function_node
                         .child(0)
-                        .map_or(false, |n| n.kind() == "identifier") =>
+                        .is_some_and(|n| n.kind() == "identifier") =>
                 {
                     let id_node = function_node.child(0).unwrap();
                     let name = get_node_text(&id_node, source).to_string();
 
                     // Check for Type Cast `TypeName(...)` - these don't generate a call step themselves
-                    if name.chars().next().map_or(false, |c| c.is_uppercase())
+                    if name.chars().next().is_some_and(|c| c.is_uppercase())
                         && (ctx.all_contracts.contains_key(&name)
                             || ctx.all_interfaces.contains_key(&name)
                             || ctx.all_libraries.contains_key(&name))
@@ -353,7 +354,7 @@ pub(crate) fn analyze_chained_call<'a>(
                 "expression"
                     if function_node
                         .child(0)
-                        .map_or(false, |n| n.kind() == "member_expression") =>
+                        .is_some_and(|n| n.kind() == "member_expression") =>
                 {
                     let member_expr_node = function_node.child(0).unwrap();
                     let object_node =
@@ -497,7 +498,7 @@ pub(crate) fn analyze_chained_call<'a>(
                 "expression"
                     if function_node
                         .child(0)
-                        .map_or(false, |n| n.kind() == "new_expression") =>
+                        .is_some_and(|n| n.kind() == "new_expression") =>
                 {
                     // Recursively analyze the new_expression itself to get its step(s)
                     let _object_steps: Vec<ResolvedCallStep> = Vec::new(); // To satisfy structure, though new_steps is what's used
@@ -749,6 +750,7 @@ fn find_argument_expression_nodes<'a>(call_expr_node: TsNode<'a>) -> Vec<TsNode<
 
 /// Resolves the Solidity type name for a given expression node (V2).
 /// Inspired by cg::resolve_expression_type but adapted for this module.
+#[allow(clippy::too_many_arguments)]
 fn resolve_expression_type_v2<'a>(
     expr_node: TsNode<'a>,
     caller_node_id: usize,
@@ -1079,9 +1081,7 @@ fn resolve_expression_type_v2<'a>(
                 trace!("[Resolve Type V2]   Call expression analysis yielded no steps. Cannot determine type.");
                 if let Some(func_node) = expr_node.child_by_field_name("function") {
                     if func_node.kind() == "expression"
-                        && func_node
-                            .child(0)
-                            .map_or(false, |n| n.kind() == "identifier")
+                        && func_node.child(0).is_some_and(|n| n.kind() == "identifier")
                     {
                         let id_node = func_node.child(0).unwrap();
                         let name = get_node_text(&id_node, source).to_string();
@@ -1222,7 +1222,7 @@ fn resolve_expression_type_v2<'a>(
                     // Fix: Use new variable name
                     // Indexing bytes returns bytes1
                     trace!("[Resolve Type V2]       Bytes indexed, returning 'bytes1'");
-                    return Ok(Some("bytes1".to_string()));
+                    Ok(Some("bytes1".to_string()))
                 }
                 // Add other special cases if needed (e.g., string)
                 else {
@@ -1245,7 +1245,7 @@ fn resolve_expression_type_v2<'a>(
             })?;
             let operator_text = get_node_text(&operator_node, source);
 
-            let result_type = match &*operator_text {
+            let result_type = match operator_text {
                 // Use &* to dereference String to &str
                 ">" | "<" | ">=" | "<=" | "==" | "!=" => Some("bool".to_string()),
                 "&&" | "||" => Some("bool".to_string()),
@@ -1261,7 +1261,7 @@ fn resolve_expression_type_v2<'a>(
                     None // Unknown operator type
                 }
             };
-            return Ok(result_type); // Return the determined type
+            Ok(result_type) // Return the determined type
         }
         "unary_expression" => {
             // Basic heuristic: Assume numeric ops return uint256, boolean ops return bool
@@ -1271,7 +1271,7 @@ fn resolve_expression_type_v2<'a>(
             let operand_node = expr_node.child_by_field_name("argument").ok_or_else(|| {
                 TypeError::MissingChild("unary_expression missing argument".to_string())
             })?;
-            match operator.as_deref() {
+            match operator {
                 Some("!") => Ok(Some("bool".to_string())),
                 Some("-") | Some("+") | Some("++") | Some("--") => Ok(Some("uint256".to_string())), // Assume numeric
                 _ => {
@@ -1304,6 +1304,7 @@ fn resolve_expression_type_v2<'a>(
 }
 
 /// Resolves the type of a property accessed via member expression (`object.property`).
+#[allow(clippy::too_many_arguments)]
 fn resolve_property_type<'a>(
     object_type_name: &str,
     property_name: &str,
@@ -1366,35 +1367,32 @@ fn resolve_property_type<'a>(
 
     // 3. Check 'using for' libraries (if the property is a function in an attached library)
     // This requires finding the library function and getting its return type.
-    if let Some(library_target) = find_using_for_target(
+    if let Some(ResolvedTarget::Function {
+        contract_name: Some(lib_name),
+        function_name,
+        ..
+    }) = find_using_for_target(
         object_type_name,
         property_name,
         caller_contract_name_opt,
         graph,
         ctx,
     )? {
-        if let ResolvedTarget::Function {
-            contract_name: Some(lib_name),
-            function_name,
-            ..
-        } = library_target
-        {
-            let lib_func_key = (Some(lib_name.clone()), function_name.clone());
-            if let Some(target_node_id) = graph.node_lookup.get(&lib_func_key) {
-                trace!("[Resolve Property Type]   Property resolved to 'using for' library function '{}.{}'. Node ID: {}. Getting return type.", lib_name, function_name, target_node_id);
-                let target_def_node_opt = ctx
-                    .definition_nodes_info
-                    .iter()
-                    .find(|(id, _, _)| *id == *target_node_id)
-                    .map(|(_, n, _)| n.clone());
-                if let Some(target_def_node) = target_def_node_opt {
-                    let return_type = get_function_return_type_v2(&target_def_node, input)?;
-                    trace!("[Resolve Property Type]     Return type from get_function_return_type_v2: {:?}", return_type);
-                    return Ok(return_type);
-                } else {
-                    trace!("[Resolve Property Type]     Could not find definition node for target library function ID {}", target_node_id);
-                    return Ok(None);
-                }
+        let lib_func_key = (Some(lib_name.clone()), function_name.clone());
+        if let Some(target_node_id) = graph.node_lookup.get(&lib_func_key) {
+            trace!("[Resolve Property Type]   Property resolved to 'using for' library function '{}.{}'. Node ID: {}. Getting return type.", lib_name, function_name, target_node_id);
+            let target_def_node_opt = ctx
+                .definition_nodes_info
+                .iter()
+                .find(|(id, _, _)| *id == *target_node_id)
+                .map(|(_, n, _)| n.clone());
+            if let Some(target_def_node) = target_def_node_opt {
+                let return_type = get_function_return_type_v2(&target_def_node, input)?;
+                trace!("[Resolve Property Type]     Return type from get_function_return_type_v2: {:?}", return_type);
+                return Ok(return_type);
+            } else {
+                trace!("[Resolve Property Type]     Could not find definition node for target library function ID {}", target_node_id);
+                return Ok(None);
             }
         }
     }
@@ -1421,6 +1419,7 @@ fn resolve_property_type<'a>(
 }
 
 /// Helper to resolve property type directly from a member_expression node.
+#[allow(clippy::too_many_arguments)]
 fn resolve_property_type_from_node<'a>(
     member_expr_node: TsNode<'a>,
     caller_node_id: usize,
@@ -2143,8 +2142,8 @@ fn resolve_call_return_type<'a>(
     target: &ResolvedTarget,
     ctx: &CallGraphGeneratorContext,
     graph: &'a CallGraph,
-    source: &'a str,
-    solidity_lang: &'a tree_sitter::Language,
+    _source: &'a str,
+    _solidity_lang: &'a tree_sitter::Language,
     input: &'a CallGraphGeneratorInput, // Pass input for potential use in future
 ) -> std::result::Result<Option<String>, TypeError> {
     // Use full path to Result
@@ -2177,7 +2176,7 @@ fn resolve_call_return_type<'a>(
                             return get_function_return_type_v2(&def_node_info, input);
                         }
                         trace!("[Resolve Call Return Type] No declared_return_type and no NodeInfo for Node ID {}", *node_id);
-                        return Ok(None);
+                        Ok(None)
                     }
                     NodeType::StorageVariable => {
                         if graph_node.visibility == crate::cg::Visibility::Public {
@@ -2207,23 +2206,23 @@ fn resolve_call_return_type<'a>(
                                 return Ok(Some(type_str.clone()));
                             }
                             trace!("[Resolve Call Return Type]   Public StorageVariable {}.{} type info not found in contract_mappings or state_var_types.", actual_contract_name, var_name);
-                            return Err(TypeError::Internal(format!(
+                            Err(TypeError::Internal(format!(
                                 "Public StorageVariable {}.{} type info not found.",
                                 actual_contract_name, var_name
-                            )));
+                            )))
                         } else {
                             trace!("[Resolve Call Return Type] ResolvedTarget::Function points to non-public StorageVariable '{}.{}'. No getter.", graph_node.contract_name.as_deref().unwrap_or("?"), graph_node.name);
-                            return Ok(None);
+                            Ok(None)
                         }
                     }
                     _ => {
                         trace!("[Resolve Call Return Type] Warning: Node for '{:?}' (ID {}) is of unexpected type {:?}.", lookup_key, *node_id, graph_node.node_type);
-                        return Ok(None);
+                        Ok(None)
                     }
                 }
             } else {
                 trace!("[Resolve Call Return Type] Warning: Node for '{:?}' not found in graph.node_lookup.", lookup_key);
-                return Ok(None);
+                Ok(None)
             }
         }
         ResolvedTarget::InterfaceMethod {
@@ -2233,7 +2232,7 @@ fn resolve_call_return_type<'a>(
         } => {
             // If a concrete implementation was found, use its return type.
             if let Some(impl_target) = implementation {
-                resolve_call_return_type(impl_target, ctx, graph, source, solidity_lang, input)
+                resolve_call_return_type(impl_target, ctx, graph, _source, _solidity_lang, input)
             } else {
                 // Find the interface method definition node and parse its return type
                 let _iface_key = (Some(interface_name.clone()), interface_name.clone()); // Key for interface node itself (Mark as unused for now)
