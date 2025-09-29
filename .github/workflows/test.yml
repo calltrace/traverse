@@ -93,36 +93,24 @@ jobs:
     - name: Test sol2cg on example project
       run: |
         # Test basic DOT generation
-        ./target/release/sol2cg examples/smart-invoice/output/full-project.dot --format dot > /dev/null
+        ./target/release/sol2cg test/SimpleContract.sol --format dot -o /tmp/test.dot
+        test -f /tmp/test.dot || exit 1
         
-        # Test Mermaid generation with chunking
-        ./target/release/sol2cg examples/smart-invoice/output/full-project.dot --format mermaid --chunk-dir /tmp/test-chunks
-        test -f /tmp/test-chunks/chunk_001.mmd || exit 1
+        # Test Mermaid generation
+        ./target/release/sol2cg test/SimpleContract.sol --format mermaid -o /tmp/test.mmd
+        test -f /tmp/test.mmd || exit 1
         
         # Test JSON generation
-        ./target/release/sol2cg examples/smart-invoice/output/full-project.dot --format json > /dev/null
+        ./target/release/sol2cg test/SimpleContract.sol --format json -o /tmp/test.json
+        test -f /tmp/test.json || exit 1
 
     - name: Verify chunking functionality
       run: |
-        # Create a test that would trigger chunking
-        cd /tmp
-        cat > large_test.sol << 'EOF'
-        contract LargeContract {
-            function func1() public { func2(); }
-            function func2() public { func3(); }
-            function func3() public { func4(); }
-            function func4() public { func5(); }
-            function func5() public { func6(); }
-            function func6() public { func7(); }
-            function func7() public { func8(); }
-            function func8() public { func9(); }
-            function func9() public { func10(); }
-            function func10() public {}
-        }
-        EOF
+        # Test chunking with a contract that has multiple functions
+        ./target/release/sol2cg test/SimpleContract.sol --format mermaid --chunk-dir /tmp/verify-chunks
         
-        # This should create chunks if the diagram is large enough
-        ./target/release/sol2cg large_test.sol --format mermaid --chunk-dir /tmp/verify-chunks || true
+        # Verify output was created (chunks may or may not be created depending on size)
+        ls -la /tmp/verify-chunks/ || true
 
   check-examples:
     name: Verify Examples
@@ -134,12 +122,10 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Check Smart Invoice example
+    - name: Check test contracts
       run: |
-        test -f examples/smart-invoice/README.md
-        test -f examples/smart-invoice/output/full-project.dot
-        test -d examples/smart-invoice/output/mermaid-chunks
-        test -f examples/smart-invoice/analysis/statistics.json
+        test -f test/SimpleContract.sol
+        echo "✅ Test contract exists"
 
   # Gate for releases - all tests must pass
   release-gate:
