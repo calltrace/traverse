@@ -3,6 +3,12 @@
 [![Test Suite](https://github.com/calltrace/traverse/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/calltrace/traverse/actions/workflows/test.yml)
 [![Release](https://img.shields.io/github/v/release/calltrace/traverse)](https://github.com/calltrace/traverse/releases/latest)
 
+![Smart Invoice Security Analysis - Sequence Diagram showing contract interactions and security boundaries](media/hero-diagram.svg)
+
+<p align="center">
+  <em>Automatic security analysis and visualization of Smart Invoice contract interactions</em>
+</p>
+
 Analyze, visualize, and test Solidity smart contracts. Built with Rust and tree-sitter parsing.
 
 > 📖 **For architectural details and design principles, see [DESIGN.md](DESIGN.md)**
